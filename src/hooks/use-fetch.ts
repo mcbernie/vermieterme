@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 export function useFetch<T>(url: string | null) {
   const [data, setData] = useState<T | null>(null);
@@ -39,10 +39,13 @@ export function useMultiFetch<T extends object>(
   const [data, setData] = useState<Partial<T>>({});
   const [loading, setLoading] = useState(true);
 
+  const urlsRef = useRef(urls);
+  urlsRef.current = urls;
+
   const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
-      const entries = Object.entries(urls) as [keyof T, string][];
+      const entries = Object.entries(urlsRef.current) as [keyof T, string][];
       const results = await Promise.all(
         entries.map(async ([key, url]) => {
           const res = await fetch(url);

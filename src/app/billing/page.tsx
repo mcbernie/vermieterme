@@ -24,7 +24,7 @@ export default function BillingPage() {
     properties: "/api/properties",
   });
 
-  const billingPeriods = data.billingPeriods ?? [];
+  const billingPeriods = useMemo(() => data.billingPeriods ?? [], [data.billingPeriods]);
   const properties = data.properties ?? [];
 
   const [showNewForm, setShowNewForm] = useState(false);

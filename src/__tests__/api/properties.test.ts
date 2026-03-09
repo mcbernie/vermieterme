@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@/lib/auth", () => ({
+  auth: vi.fn().mockResolvedValue({ user: { id: "test-user" } }),
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     property: {

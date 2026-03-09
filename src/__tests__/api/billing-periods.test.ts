@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock prisma before importing the route
+vi.mock("@/lib/auth", () => ({
+  auth: vi.fn().mockResolvedValue({ user: { id: "test-user" } }),
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     billingPeriod: {

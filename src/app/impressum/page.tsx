@@ -46,7 +46,7 @@ export default function ImpressumPage() {
             Haftungsausschluss
           </h2>
           <p>
-            Diese Software wird „wie besehen" ohne jegliche Gewährleistung
+            Diese Software wird {"\u201Ewie besehen\u201C"} ohne jegliche Gewährleistung
             bereitgestellt. Die Nutzung erfolgt auf eigene Verantwortung. Der
             Entwickler übernimmt keine Haftung für die Richtigkeit der
             erstellten Abrechnungen.

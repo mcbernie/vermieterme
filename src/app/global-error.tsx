@@ -7,6 +7,7 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  console.error(error);
   return (
     <html lang="de">
       <body style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif", margin: 0, background: "#fafafa" }}>

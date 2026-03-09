@@ -32,11 +32,7 @@ export default function BillingDetailPage() {
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    fetchData();
-  }, [id]);
-
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     try {
       const [bpRes, ccRes] = await Promise.all([
         fetch(`/api/billing-periods/${id}`),
@@ -74,16 +70,23 @@ export default function BillingDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [id]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
 
   const triggerAutoSave = useCallback(() => {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
     debounceRef.current = setTimeout(() => {
-      handleSave();
+      handleSaveRef.current();
     }, 1500);
-  }, [costValues, prepaymentValues, billingPeriod]);
+  }, []);
 
   function handleCostChange(
     categoryId: string,

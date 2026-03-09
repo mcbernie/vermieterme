@@ -8,7 +8,7 @@ import { PASSWORD_MIN_LENGTH } from "@/lib/constants";
 import type { AppUser } from "@/types";
 
 export default function ProfilePage() {
-  const { data: session, update: updateSession } = useSession();
+  const { update: updateSession } = useSession();
   const [profile, setProfile] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
