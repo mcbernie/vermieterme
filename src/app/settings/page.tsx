@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Nav } from "@/components/nav";
 import { Combobox } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -42,6 +42,13 @@ export default function SettingsPage() {
   const [userError, setUserError] = useState<string | null>(null);
   const [savingUser, setSavingUser] = useState(false);
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
+
+  const [importing, setImporting] = useState(false);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchData();
@@ -222,6 +229,75 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error("Failed to delete user:", error);
+    }
+  }
+
+  async function handleExport() {
+    setBackupError(null);
+    try {
+      const res = await fetch("/api/backup");
+      if (!res.ok) throw new Error("Export fehlgeschlagen");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        res.headers
+          .get("Content-Disposition")
+          ?.match(/filename="(.+)"/)?.[1] ||
+        `vermieterme-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setBackupStatus("Export erfolgreich");
+      setTimeout(() => setBackupStatus(null), 3000);
+    } catch (error) {
+      console.error("Export failed:", error);
+      setBackupError("Export fehlgeschlagen");
+    }
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImportFile(file);
+      setShowImportConfirm(true);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function handleImport() {
+    if (!importFile) return;
+    setImporting(true);
+    setBackupError(null);
+    setBackupStatus(null);
+
+    try {
+      const text = await importFile.text();
+      const data = JSON.parse(text);
+      const res = await fetch("/api/backup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Import fehlgeschlagen");
+      }
+
+      setBackupStatus("Import erfolgreich — Daten wurden wiederhergestellt");
+      setTimeout(() => setBackupStatus(null), 5000);
+      await fetchData();
+    } catch (error) {
+      console.error("Import failed:", error);
+      setBackupError(
+        error instanceof Error ? error.message : "Import fehlgeschlagen"
+      );
+    } finally {
+      setImporting(false);
+      setImportFile(null);
     }
   }
 
@@ -801,6 +877,62 @@ export default function SettingsPage() {
             </div>
           )}
         </section>
+
+        {/* Backup */}
+        <section className="mt-10">
+          <h2 className="mb-4 text-lg font-semibold text-zinc-900">
+            Datensicherung
+          </h2>
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <p className="mb-4 text-sm text-zinc-600">
+              Exportieren Sie alle Daten als JSON-Datei oder stellen Sie einen
+              vorherigen Datenstand wieder her.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleExport}
+                className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
+              >
+                Daten exportieren
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {importing ? "Importiere..." : "Daten importieren"}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+            </div>
+            {backupStatus && (
+              <p className="mt-3 text-sm text-green-600">{backupStatus}</p>
+            )}
+            {backupError && (
+              <p className="mt-3 text-sm text-red-600">{backupError}</p>
+            )}
+          </div>
+        </section>
+
+        <ConfirmDialog
+          open={showImportConfirm}
+          onOpenChange={(open) => {
+            if (!open) {
+              setShowImportConfirm(false);
+              setImportFile(null);
+            }
+          }}
+          onConfirm={handleImport}
+          title="Daten importieren"
+          description="Alle vorhandenen Daten werden unwiderruflich durch die Daten aus der Backup-Datei ersetzt. Dieser Vorgang kann nicht rückgängig gemacht werden."
+          confirmLabel="Importieren"
+          variant="danger"
+        />
 
         <ConfirmDialog
           open={deleteCategoryId !== null}
