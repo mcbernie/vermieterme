@@ -7,6 +7,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Loading } from "@/components/ui/loading";
 import { EmptyState } from "@/components/ui/empty-state";
+import { OptionalDateInput } from "@/components/ui/optional-date-input";
 import { SALUTATIONS, SALUTATIONS_SECONDARY } from "@/lib/constants";
 import type { TenantWithUnit, PropertyWithUnits } from "@/types";
 
@@ -268,13 +269,10 @@ export default function TenantsPage() {
             <label className="mb-1 block text-sm font-medium text-zinc-700">
               Auszugsdatum
             </label>
-            <input
-              type="date"
+            <OptionalDateInput
               value={form.moveOutDate}
-              onChange={(e) =>
-                setForm({ ...form, moveOutDate: e.target.value })
-              }
-              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              onChange={(v) => setForm({ ...form, moveOutDate: v })}
+              placeholder="Noch nicht ausgezogen"
             />
           </div>
         </div>

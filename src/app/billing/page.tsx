@@ -10,6 +10,7 @@ import { apiPost, apiDelete } from "@/hooks/use-api-mutation";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Loading } from "@/components/ui/loading";
+import { OptionalDateInput } from "@/components/ui/optional-date-input";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { Property, BillingPeriodWithProperty } from "@/types";
 
@@ -141,11 +142,10 @@ export default function BillingPage() {
                 <label className="mb-1 block text-sm font-medium text-zinc-700">
                   Abrechnungsdatum
                 </label>
-                <input
-                  type="date"
+                <OptionalDateInput
                   value={form.billingDate}
-                  onChange={(e) => setForm({ ...form, billingDate: e.target.value })}
-                  className={`w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 ${!form.billingDate ? "text-zinc-400" : ""}`}
+                  onChange={(v) => setForm({ ...form, billingDate: v })}
+                  placeholder="Nicht gesetzt (optional)"
                 />
               </div>
             </div>

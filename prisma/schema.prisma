@@ -145,6 +145,14 @@ model Prepayment {
   @@unique([billingPeriodId, unitId])
 }
 
+model PdfTemplate {
+  id        String   @id @default(cuid())
+  name      String   @default("Standard")
+  config    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model LandlordInfo {
   id            String   @id @default(cuid())
   name          String

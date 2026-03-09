@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Nav } from "@/components/nav";
 import { Combobox } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -495,6 +496,25 @@ export default function SettingsPage() {
               )}
             </div>
           </form>
+        </section>
+
+        {/* PDF Template */}
+        <section className="mb-10">
+          <h2 className="mb-4 text-lg font-semibold text-zinc-900">
+            PDF-Vorlage
+          </h2>
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <p className="mb-3 text-sm text-zinc-600">
+              Passen Sie das Layout und die Schriftarten der
+              Betriebskostenabrechnung an.
+            </p>
+            <Link
+              href="/settings/pdf-template"
+              className="inline-flex rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
+            >
+              PDF-Vorlage bearbeiten
+            </Link>
+          </div>
         </section>
 
         {/* Cost Categories */}
