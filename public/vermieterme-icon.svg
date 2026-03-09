@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#b91c1c"/>
+      <stop offset="100%" style="stop-color:#7f1d1d"/>
+    </linearGradient>
+    <linearGradient id="houseWhite" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#fee2e2;stop-opacity:1"/>
+    </linearGradient>
+    <filter id="iconShadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#7f1d1d" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Hintergrund: abgerundetes Quadrat, hanseatisches Rot -->
+  <rect width="512" height="512" rx="96" fill="url(#bgGrad)"/>
+  
+  <!-- Subtile Textur-Linien (hanseatisch-clean) -->
+  <rect width="512" height="8" y="0" fill="white" opacity="0.08" rx="4"/>
+  <rect width="512" height="3" y="504" fill="white" opacity="0.06"/>
+
+  <!-- Haus-Silhouette, groß und klar -->
+  <g filter="url(#iconShadow)">
+    <!-- Dach (Dreieck) -->
+    <polygon points="80,230 256,80 432,230" fill="white" opacity="0.95"/>
+    <!-- Dach-Schatten-Dreieck für Tiefe -->
+    <polygon points="256,80 432,230 400,230 256,110" fill="white" opacity="0.12"/>
+    
+    <!-- Schornstein -->
+    <rect x="320" y="100" width="44" height="88" fill="white" opacity="0.9" rx="4"/>
+    
+    <!-- Haus-Körper -->
+    <rect x="104" y="228" width="304" height="204" fill="white" opacity="0.95" rx="4"/>
+    
+    <!-- Tür (rot, zentriert) -->
+    <rect x="210" y="320" width="92" height="112" fill="#b91c1c" rx="6"/>
+    <!-- Tür-Bogen oben -->
+    <ellipse cx="256" cy="320" rx="46" ry="20" fill="#b91c1c"/>
+    <!-- Türknauf -->
+    <circle cx="288" cy="378" r="8" fill="white" opacity="0.7"/>
+    
+    <!-- Fenster oben links -->
+    <rect x="126" y="256" width="72" height="64" fill="#b91c1c" rx="4" opacity="0.15"/>
+    <rect x="126" y="256" width="72" height="64" fill="none" stroke="#b91c1c" stroke-width="4" rx="4"/>
+    <line x1="162" y1="256" x2="162" y2="320" stroke="#b91c1c" stroke-width="3" opacity="0.5"/>
+    <line x1="126" y1="288" x2="198" y2="288" stroke="#b91c1c" stroke-width="3" opacity="0.5"/>
+    
+    <!-- Fenster oben rechts -->
+    <rect x="314" y="256" width="72" height="64" fill="#b91c1c" rx="4" opacity="0.15"/>
+    <rect x="314" y="256" width="72" height="64" fill="none" stroke="#b91c1c" stroke-width="4" rx="4"/>
+    <line x1="350" y1="256" x2="350" y2="320" stroke="#b91c1c" stroke-width="3" opacity="0.5"/>
+    <line x1="314" y1="288" x2="386" y2="288" stroke="#b91c1c" stroke-width="3" opacity="0.5"/>
+  </g>
+
+  <!-- Euro-Badge unten rechts -->
+  <circle cx="384" cy="384" r="72" fill="#7f1d1d" stroke="white" stroke-width="6"/>
+  <text x="384" y="410" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="80" font-weight="bold" fill="white">€</text>
+</svg>

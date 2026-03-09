@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Auth.js models
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// App models
+model Property {
+  id             String          @id @default(cuid())
+  street         String
+  zip            String
+  city           String
+  totalShares    Int             @default(100)
+  units          Unit[]
+  billingPeriods BillingPeriod[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Unit {
+  id          String       @id @default(cuid())
+  propertyId  String
+  name        String
+  floor       String
+  shares      Int
+  property    Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenants     Tenant[]
+  prepayments Prepayment[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Tenant {
+  id          String    @id @default(cuid())
+  unitId      String
+  salutation  String
+  firstName   String
+  lastName    String
+  salutation2 String?
+  firstName2  String?
+  lastName2   String?
+  moveInDate  DateTime
+  moveOutDate DateTime?
+  unit        Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model CostCategory {
+  id              String   @id @default(cuid())
+  name            String
+  distributionKey String
+  sortOrder       Int      @default(0)
+  costs           Cost[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model BillingPeriod {
+  id          String       @id @default(cuid())
+  propertyId  String
+  startDate   DateTime
+  endDate     DateTime
+  billingDate DateTime?
+  property    Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  costs       Cost[]
+  prepayments Prepayment[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Cost {
+  id              String        @id @default(cuid())
+  billingPeriodId String
+  costCategoryId  String
+  totalAmount     Float
+  unitAmount      Float?
+  billingPeriod   BillingPeriod @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
+  costCategory    CostCategory  @relation(fields: [costCategoryId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([billingPeriodId, costCategoryId])
+}
+
+model Prepayment {
+  id              String        @id @default(cuid())
+  billingPeriodId String
+  unitId          String
+  monthlyAmount   Float
+  billingPeriod   BillingPeriod @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
+  unit            Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([billingPeriodId, unitId])
+}
+
+model LandlordInfo {
+  id            String   @id @default(cuid())
+  name          String
+  street        String
+  zip           String
+  city          String
+  phone         String?
+  email         String?
+  bankName      String?
+  iban          String?
+  accountHolder String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

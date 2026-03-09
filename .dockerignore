@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.github
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+design
+docs
+coverage
+.DS_Store
+README.md
+LICENSE
