@@ -13,6 +13,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# NextAuth needs AUTH_SECRET at build time
+ARG AUTH_SECRET=build-placeholder
+ENV AUTH_SECRET=${AUTH_SECRET}
 # Prisma generate + Next.js build
 RUN npx prisma generate && npm run build
 
@@ -36,6 +39,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+
+# Entrypoint script for DB migrations on startup
+COPY docker-entrypoint.sh ./
 
 # Data directory for SQLite
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
@@ -48,4 +55,4 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 ENV DATABASE_URL="file:/app/data/vermieterme.db"
 
-CMD ["node", "server.js"]
+CMD ["sh", "docker-entrypoint.sh"]
