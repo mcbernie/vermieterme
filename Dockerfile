@@ -2,9 +2,10 @@ FROM node:22-alpine AS base
 
 # --- Dependencies ---
 FROM base AS deps
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 COPY package.json package-lock.json* ./
+COPY prisma ./prisma
 RUN npm ci
 
 # --- Build ---
@@ -13,11 +14,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-# NextAuth needs AUTH_SECRET at build time
-ARG AUTH_SECRET=build-placeholder
-ENV AUTH_SECRET=${AUTH_SECRET}
-# Prisma generate + Next.js build
-RUN npx prisma generate && npm run build
+ENV AUTH_SECRET="build-placeholder"
+RUN npm run build
 
 # --- Production ---
 FROM base AS runner
