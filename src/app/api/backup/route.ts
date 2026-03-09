@@ -63,7 +63,8 @@ const REQUIRED_KEYS = [
 
 function validateBackup(
   body: unknown
-): body is { version: number; data: Record<string, unknown[]> } {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): body is { version: number; data: Record<string, any[]> } {
   if (!body || typeof body !== "object") return false;
   const obj = body as Record<string, unknown>;
   if (obj.version !== 1) return false;

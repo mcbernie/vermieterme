@@ -19,8 +19,8 @@ export async function requireAuth() {
 }
 
 export function apiHandler(
-  fn: () => Promise<NextResponse>
-): Promise<NextResponse> {
+  fn: () => Promise<NextResponse | Response>
+): Promise<NextResponse | Response> {
   return fn().catch((error) => {
     if (error instanceof ApiError) {
       return NextResponse.json(
