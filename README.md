@@ -30,9 +30,10 @@ docker run -d \
   -p 3000:3000 \
   -v vermieterme-data:/app/data \
   -e AUTH_SECRET="$(openssl rand -base64 32)" \
+  -e AUTH_TRUST_HOST=true \
   -e ADMIN_EMAIL="admin@vermieterme.local" \
   -e ADMIN_PASSWORD="changeme123" \
-  vermieterme/vermieterme:latest
+  mcbernie/vermieterme:latest
 ```
 
 Danach unter [http://localhost:3000](http://localhost:3000) erreichbar. Datenbank und Seed werden automatisch beim ersten Start erstellt.
@@ -42,13 +43,14 @@ Danach unter [http://localhost:3000](http://localhost:3000) erreichbar. Datenban
 ```yaml
 services:
   vermieterme:
-    image: vermieterme/vermieterme:latest
+    image: mcbernie/vermieterme:latest
     ports:
       - "3000:3000"
     volumes:
       - vermieterme-data:/app/data
     environment:
       - AUTH_SECRET=dein-geheimer-schluessel
+      - AUTH_TRUST_HOST=true
       - ADMIN_EMAIL=admin@vermieterme.local
       - ADMIN_PASSWORD=changeme123
 
