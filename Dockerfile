@@ -12,6 +12,8 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV AUTH_SECRET="build-placeholder"
 RUN pnpm build
+# Copy generated Prisma client to standard location for runner stage
+RUN cp -r node_modules/.pnpm/@prisma+client@*/node_modules/.prisma node_modules/.prisma
 
 # --- Production ---
 FROM base AS runner
@@ -29,11 +31,11 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy Prisma schema and generate client in runner
+# Copy Prisma runtime client
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-RUN npx prisma generate
 
 # Entrypoint script for DB migrations on startup
 COPY docker-entrypoint.sh ./
