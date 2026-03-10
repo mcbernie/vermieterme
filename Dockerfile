@@ -1,12 +1,13 @@
 FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat openssl
+RUN corepack enable && corepack prepare pnpm@10.18.0 --activate
 
 # --- Dependencies ---
 FROM base AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json pnpm-lock.yaml ./
 COPY prisma ./prisma
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 
 # --- Build ---
 FROM base AS builder
@@ -15,7 +16,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV AUTH_SECRET="build-placeholder"
-RUN npm run build
+RUN pnpm build
 
 # --- Production ---
 FROM base AS runner
@@ -42,8 +43,8 @@ COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 # Entrypoint script for DB migrations on startup
 COPY docker-entrypoint.sh ./
 
-# Data directory for SQLite
-RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
+# Data directory for SQLite + uploads
+RUN mkdir -p /app/data/uploads && chown -R nextjs:nodejs /app/data
 VOLUME /app/data
 
 USER nextjs

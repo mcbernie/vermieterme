@@ -72,6 +72,9 @@ export function Nav() {
                   style={{ fontFamily: "Georgia, serif" }}
                 >
                   BETRIEBSKOSTEN · MIETOBJEKTE
+                  <span className="ml-1.5 text-[9px] text-zinc-400">
+                    v{process.env.APP_VERSION}
+                  </span>
                 </p>
               </div>
             </Link>

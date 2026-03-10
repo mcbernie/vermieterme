@@ -1,5 +1,9 @@
 # VermieterMe
 
+[![CI](https://github.com/mcbernie/vermieterme/actions/workflows/ci.yml/badge.svg)](https://github.com/mcbernie/vermieterme/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/mcbernie/vermieterme)](https://github.com/mcbernie/vermieterme/releases)
+[![Docker Image](https://img.shields.io/docker/v/mcbernie/vermieterme?label=Docker%20Hub)](https://hub.docker.com/r/mcbernie/vermieterme)
+
 Self-hosted Webanwendung zur Verwaltung von Mietobjekten und Erstellung von jährlichen Betriebskostenabrechnungen als PDF.
 
 ## Features
@@ -64,10 +68,57 @@ volumes:
   vermieterme-data:
 ```
 
+### Produktion mit Healthcheck & Auto-Updates
+
+Dieses Setup prüft regelmäßig die Verfügbarkeit der App und aktualisiert automatisch auf neue Minor- und Patch-Versionen via [Watchtower](https://containrrr.dev/watchtower/).
+
+```yaml
+services:
+  vermieterme:
+    image: mcbernie/vermieterme:1.0
+    container_name: vermieterme
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - /opt/vermieterme/data:/app/data
+    environment:
+      - AUTH_SECRET=<openssl rand -base64 32>
+      - AUTH_TRUST_HOST=true
+      - AUTH_URL=http://deine-ip-oder-domain:3000
+      - ADMIN_EMAIL=admin@example.com
+      - ADMIN_PASSWORD=sicheres-passwort
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_POLL_INTERVAL=86400
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+    # Prüft einmal täglich (86400s) auf neue Images
+```
+
+> **Tipp:** Verwende ein Minor-Version-Tag wie `mcbernie/vermieterme:1.0` statt `latest`.
+> So erhältst du automatisch Bugfixes (1.0.1, 1.0.2, ...), aber keine Breaking Changes (2.0.0).
+> Für Major-Updates den Tag manuell auf die neue Version setzen.
+
 ## Voraussetzungen (ohne Docker)
 
 - Node.js 22+
-- npm
+- pnpm (`corepack enable && corepack prepare pnpm@latest --activate`)
 
 ## Installation
 
@@ -77,7 +128,7 @@ git clone <repo-url>
 cd vermieterme
 
 # Abhängigkeiten installieren
-npm install
+pnpm install
 
 # Umgebungsvariablen konfigurieren
 cp .env.example .env
@@ -99,23 +150,23 @@ cp .env.example .env
 
 ```bash
 # Datenbank-Schema anwenden
-npm run db:push
+pnpm db:push
 
 # Beispieldaten laden (optional)
-npm run db:seed
+pnpm db:seed
 ```
 
-Die Seed-Daten enthalten ein Beispielobjekt (Hamburger Str. 277, Bremen) mit einer Wohneinheit, einem Mieter, neun Kostenkategorien und zwei Abrechnungszeiträumen (2023 + 2024).
+Die Seed-Daten enthalten ein Beispielobjekt mit einer Wohneinheit, einem Mieter und neun Kostenkategorien.
 
 ### Starten
 
 ```bash
 # Entwicklungsserver
-npm run dev
+pnpm dev
 
 # Produktions-Build
-npm run build
-npm start
+pnpm build
+pnpm start
 ```
 
 Die Anwendung ist unter [http://localhost:3000](http://localhost:3000) erreichbar. Beim ersten Start mit den in `.env` konfigurierten Admin-Zugangsdaten anmelden.
@@ -126,15 +177,15 @@ Die Anwendung ist unter [http://localhost:3000](http://localhost:3000) erreichba
 
 | Script | Beschreibung |
 |---|---|
-| `npm run dev` | Entwicklungsserver starten |
-| `npm run build` | Produktions-Build erstellen |
-| `npm start` | Produktionsserver starten |
-| `npm test` | Tests ausführen |
-| `npm run test:watch` | Tests im Watch-Modus |
-| `npm run lint` | ESLint ausführen |
-| `npm run db:push` | Prisma-Schema auf Datenbank anwenden |
-| `npm run db:seed` | Beispieldaten in Datenbank laden |
-| `npm run db:studio` | Prisma Studio öffnen (Datenbank-GUI) |
+| `pnpm dev` | Entwicklungsserver starten |
+| `pnpm build` | Produktions-Build erstellen |
+| `pnpm start` | Produktionsserver starten |
+| `pnpm test` | Tests ausführen |
+| `pnpm test:watch` | Tests im Watch-Modus |
+| `pnpm lint` | ESLint ausführen |
+| `pnpm db:push` | Prisma-Schema auf Datenbank anwenden |
+| `pnpm db:seed` | Beispieldaten in Datenbank laden |
+| `pnpm db:studio` | Prisma Studio öffnen (Datenbank-GUI) |
 
 ## Projektstruktur
 
@@ -184,7 +235,8 @@ vermieterme/
 ├── Dockerfile                 # Multi-Stage Docker Build
 └── .github/workflows/
     ├── ci.yml                 # Lint, Test, Build
-    └── docker.yml             # Docker Hub Publish
+    ├── docker.yml             # Docker Hub Publish
+    └── release.yml            # GitHub Release bei Tag-Push
 ```
 
 ## Datenmodell
@@ -219,7 +271,7 @@ Bei Docker wird `data/` über ein Volume gemountet — ein Volume-Backup sichert
 ## Tests
 
 ```bash
-npm test
+pnpm test
 ```
 
 65 Tests in 9 Testdateien:
@@ -233,19 +285,75 @@ npm test
 - `users.test.ts` — Benutzer-API (7 Tests)
 - `profile.test.ts` — Profil-API mit Authentifizierung (7 Tests)
 
+## Versionierung & Releases
+
+VermieterMe nutzt [Semantic Versioning](https://semver.org/lang/de/) (`MAJOR.MINOR.PATCH`):
+
+- **PATCH** (z.B. 1.0.0 → 1.0.1) — Bugfixes
+- **MINOR** (z.B. 1.0.0 → 1.1.0) — Neue Features, rückwärtskompatibel
+- **MAJOR** (z.B. 1.0.0 → 2.0.0) — Breaking Changes (z.B. DB-Schema-Migrationen)
+
+Die Version wird in `package.json` gepflegt und ist in der Navigation der App sichtbar.
+
+### Neues Release erstellen
+
+```bash
+# Bugfix-Release
+pnpm version patch
+
+# Feature-Release
+pnpm version minor
+
+# Breaking-Change-Release
+pnpm version major
+
+# Commit + Tag pushen
+git push && git push --tags
+```
+
+`pnpm version` erstellt automatisch einen Commit und Git-Tag (z.B. `v1.1.0`).
+
+### Was passiert nach dem Push?
+
+1. **CI** — Lint, Tests und Build werden geprüft
+2. **Docker** — Multi-Arch Image wird gebaut und zu Docker Hub gepusht
+3. **Release** — GitHub Release wird mit Changelog erstellt
+
+### Docker-Image-Tags
+
+Jedes Release erzeugt mehrere Docker-Tags:
+
+| Tag | Beschreibung |
+| --- | --- |
+| `mcbernie/vermieterme:latest` | Immer die neueste Version |
+| `mcbernie/vermieterme:1.0.0` | Exakte Version |
+| `mcbernie/vermieterme:1.0` | Neuestes Patch-Release der Minor-Version |
+| `mcbernie/vermieterme:main` | Letzter Stand des main-Branch |
+
+Für Produktion empfohlen: eine feste Version (z.B. `1.0.0`) oder Minor-Version (z.B. `1.0`) verwenden.
+
+```bash
+# Bestimmte Version
+docker pull mcbernie/vermieterme:1.0.0
+
+# Neueste stabile Version
+docker pull mcbernie/vermieterme:latest
+```
+
 ## CI/CD
 
 GitHub Actions Workflows:
 
 - **CI** (`ci.yml`) — Lint, Test und Build bei jedem Push/PR auf `main`
 - **Docker** (`docker.yml`) — Baut Multi-Arch Docker Image (amd64 + arm64) und pusht zu Docker Hub bei Push auf `main` oder bei Tags (`v*`)
+- **Release** (`release.yml`) — Erstellt GitHub Release mit Changelog bei Tag-Push (`v*`)
 
 ### Docker Hub Setup
 
 Im GitHub Repository unter *Settings → Secrets and variables → Actions* folgende Secrets anlegen:
 
 | Secret | Beschreibung |
-|---|---|
+| --- | --- |
 | `DOCKERHUB_USERNAME` | Docker Hub Benutzername |
 | `DOCKERHUB_TOKEN` | Docker Hub Access Token |
 

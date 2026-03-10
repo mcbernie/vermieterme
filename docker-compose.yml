@@ -1,0 +1,37 @@
+services:
+  vermieterme:
+    image: mcbernie/vermieterme:1.0
+    container_name: vermieterme
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - vermieterme-data:/app/data
+    environment:
+      - AUTH_SECRET=changeme-generate-with-openssl-rand-base64-32
+      - AUTH_TRUST_HOST=true
+      - ADMIN_EMAIL=admin@vermieterme.local
+      - ADMIN_PASSWORD=changeme123
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_POLL_INTERVAL=86400
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+
+volumes:
+  vermieterme-data:

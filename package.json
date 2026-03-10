@@ -1,22 +1,33 @@
 {
   "name": "vermieterme",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npx prisma generate && next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:push": "npx prisma db push",
-    "db:seed": "npx tsx prisma/seed.ts",
-    "db:seed:local": "npx tsx prisma/seed.local.ts",
-    "db:studio": "npx prisma studio",
-    "postinstall": "npx prisma generate"
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed:local": "tsx prisma/seed.local.ts",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate"
   },
   "prisma": {
-    "seed": "npx tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts"
+  },
+  "packageManager": "pnpm@10.18.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "sharp",
+      "esbuild",
+      "unrs-resolver"
+    ]
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
