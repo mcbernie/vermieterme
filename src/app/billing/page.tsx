@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/nav";
-import { formatDate } from "@/lib/format";
-import { getBillingStatus } from "@/lib/billing";
+import { formatDate, formatCurrency } from "@/lib/format";
+import { getBillingStatus, calculateBillingTotals, getUnreviewedCount } from "@/lib/billing";
 import { useMultiFetch } from "@/hooks/use-fetch";
 import { apiPost, apiDelete } from "@/hooks/use-api-mutation";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
@@ -35,6 +35,7 @@ export default function BillingPage() {
     startDate: "",
     endDate: "",
     billingDate: "",
+    copyFromId: "",
   });
 
   async function handleCreate(e: React.FormEvent) {
@@ -43,9 +44,10 @@ export default function BillingPage() {
     const res = await apiPost("/api/billing-periods", {
       ...form,
       billingDate: form.billingDate || null,
+      copyFromId: form.copyFromId || null,
     });
     if (res.ok) {
-      setForm({ propertyId: "", startDate: "", endDate: "", billingDate: "" });
+      setForm({ propertyId: "", startDate: "", endDate: "", billingDate: "", copyFromId: "" });
       setShowNewForm(false);
       await refetch();
     }
@@ -75,6 +77,35 @@ export default function BillingPage() {
     label: `${prop.street}, ${prop.city}`,
   }));
 
+  const previousPeriodOptions: ComboboxOption[] = useMemo(() => {
+    if (!form.propertyId) return [];
+    return billingPeriods
+      .filter((bp) => bp.propertyId === form.propertyId)
+      .map((bp) => ({
+        value: bp.id,
+        label: `${formatDate(bp.startDate)} – ${formatDate(bp.endDate)}`,
+      }));
+  }, [form.propertyId, billingPeriods]);
+
+  function handleCopyFrom(copyFromId: string) {
+    const source = billingPeriods.find((bp) => bp.id === copyFromId);
+    if (!source) {
+      setForm((prev) => ({ ...prev, copyFromId }));
+      return;
+    }
+    const shiftYear = (dateStr: string) => {
+      const d = new Date(dateStr);
+      d.setFullYear(d.getFullYear() + 1);
+      return d.toISOString().split("T")[0];
+    };
+    setForm((prev) => ({
+      ...prev,
+      copyFromId,
+      startDate: shiftYear(source.startDate),
+      endDate: shiftYear(source.endDate),
+    }));
+  }
+
   return (
     <>
       <Nav />
@@ -84,7 +115,7 @@ export default function BillingPage() {
           <button
             onClick={() => {
               setShowNewForm(!showNewForm);
-              setForm({ propertyId: "", startDate: "", endDate: "", billingDate: "" });
+              setForm({ propertyId: "", startDate: "", endDate: "", billingDate: "", copyFromId: "" });
             }}
             className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
           >
@@ -148,6 +179,20 @@ export default function BillingPage() {
                   placeholder="Nicht gesetzt (optional)"
                 />
               </div>
+              {form.propertyId && previousPeriodOptions.length > 0 && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-zinc-700">
+                    Vorjahr übernehmen
+                  </label>
+                  <Combobox
+                    options={previousPeriodOptions}
+                    value={form.copyFromId}
+                    onChange={handleCopyFrom}
+                    placeholder="Vorjahr wählen (optional)..."
+                    searchPlaceholder="Abrechnung suchen..."
+                  />
+                </div>
+              )}
             </div>
             <div className="mt-4 flex gap-2">
               <button
@@ -186,6 +231,19 @@ export default function BillingPage() {
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {periods.map((bp) => {
                     const status = getBillingStatus(bp);
+                    const hasCosts = bp.costs && bp.costs.length > 0;
+                    const totals = hasCosts
+                      ? calculateBillingTotals(
+                          bp.costs!,
+                          bp.prepayments ?? [],
+                          bp.startDate,
+                          bp.endDate
+                        )
+                      : null;
+                    const unreviewedCount = getUnreviewedCount(
+                      bp.costs ?? [],
+                      bp.prepayments ?? []
+                    );
                     return (
                       <div
                         key={bp.id}
@@ -196,11 +254,18 @@ export default function BillingPage() {
                             {formatDate(bp.startDate)} &ndash;{" "}
                             {formatDate(bp.endDate)}
                           </h3>
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${status.className}`}
-                          >
-                            {status.label}
-                          </span>
+                          <div className="flex flex-col items-end gap-1">
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${status.className}`}
+                            >
+                              {status.label}
+                            </span>
+                            {unreviewedCount > 0 && (
+                              <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                                {unreviewedCount} Positionen ungeprüft
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="mb-4 space-y-1 text-sm text-zinc-600">
@@ -210,6 +275,18 @@ export default function BillingPage() {
                               {formatDate(bp.billingDate)}
                             </p>
                           )}
+                          {bp.sentDate && (
+                            <p>
+                              <span className="text-zinc-500">Versendet:</span>{" "}
+                              {formatDate(bp.sentDate)}
+                            </p>
+                          )}
+                          {bp.paidDate && (
+                            <p>
+                              <span className="text-zinc-500">Bezahlt:</span>{" "}
+                              {formatDate(bp.paidDate)}
+                            </p>
+                          )}
                           {bp._count && bp._count.costs > 0 && (
                             <p>
                               <span className="text-zinc-500">Kostenarten:</span>{" "}
@@ -217,6 +294,43 @@ export default function BillingPage() {
                             </p>
                           )}
                         </div>
+
+                        {totals && (
+                          <div className="mb-4 space-y-1 rounded-lg bg-zinc-50 p-3 text-sm">
+                            <p className="text-zinc-600">
+                              <span className="text-zinc-500">Kosten gesamt:</span>{" "}
+                              {formatCurrency(totals.totalCosts)}
+                            </p>
+                            <p className="text-zinc-600">
+                              <span className="text-zinc-500">Ihr Anteil:</span>{" "}
+                              {formatCurrency(totals.totalUnitCosts)}
+                            </p>
+                            <p className="text-zinc-600">
+                              <span className="text-zinc-500">Vorauszahlungen:</span>{" "}
+                              {formatCurrency(totals.totalPrepayment)}
+                            </p>
+                            <p
+                              className={`font-medium ${
+                                totals.difference < 0
+                                  ? "text-red-600"
+                                  : "text-green-600"
+                              }`}
+                            >
+                              <span
+                                className={
+                                  totals.difference < 0
+                                    ? "text-red-500"
+                                    : "text-green-500"
+                                }
+                              >
+                                {totals.difference < 0
+                                  ? "Nachzahlung:"
+                                  : "Erstattung:"}
+                              </span>{" "}
+                              {formatCurrency(Math.abs(totals.difference))}
+                            </p>
+                          </div>
+                        )}
 
                         <div className="flex gap-2">
                           <Link

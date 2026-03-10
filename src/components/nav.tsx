@@ -9,6 +9,7 @@ const links = [
   { href: "/properties", label: "Objekte" },
   { href: "/tenants", label: "Mieter" },
   { href: "/billing", label: "Abrechnungen" },
+  { href: "/rent-changes", label: "Mietanpassungen" },
   { href: "/settings", label: "Einstellungen" },
 ];
 

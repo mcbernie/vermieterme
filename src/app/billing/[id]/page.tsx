@@ -8,6 +8,7 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import { calculateMEAAmount, getMonthsInPeriod, getDaysInPeriod } from "@/lib/billing";
 import { Loading } from "@/components/ui/loading";
 import { EmptyState } from "@/components/ui/empty-state";
+import { OptionalDateInput } from "@/components/ui/optional-date-input";
 import type { BillingPeriodDetail, CostCategory, Tenant, UnitWithTenants } from "@/types";
 
 export default function BillingDetailPage() {
@@ -165,6 +166,64 @@ export default function BillingDetailPage() {
     }
   }
 
+  async function handleDateChange(field: "sentDate" | "paidDate", value: string) {
+    try {
+      const res = await fetch(`/api/billing-periods/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value || null }),
+      });
+      if (res.ok) {
+        setBillingPeriod((prev) =>
+          prev ? { ...prev, [field]: value || null } : prev
+        );
+      }
+    } catch (error) {
+      console.error(`Failed to save ${field}:`, error);
+    }
+  }
+
+  async function handleConfirmCost(costCategoryId: string) {
+    const costVal = costValues[costCategoryId];
+    if (!costVal) return;
+    try {
+      const res = await fetch(`/api/billing-periods/${id}/costs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          costCategoryId,
+          totalAmount: parseFloat(costVal.totalAmount) || 0,
+          unitAmount: costVal.unitAmount ? parseFloat(costVal.unitAmount) : null,
+        }),
+      });
+      if (res.ok) {
+        await fetchData();
+      }
+    } catch (error) {
+      console.error("Failed to confirm cost:", error);
+    }
+  }
+
+  async function handleConfirmPrepayment(unitId: string) {
+    const val = prepaymentValues[unitId];
+    if (!val) return;
+    try {
+      const res = await fetch(`/api/billing-periods/${id}/prepayments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          unitId,
+          monthlyAmount: parseFloat(val) || 0,
+        }),
+      });
+      if (res.ok) {
+        await fetchData();
+      }
+    } catch (error) {
+      console.error("Failed to confirm prepayment:", error);
+    }
+  }
+
   function calculateUnitCosts(unit: UnitWithTenants): number {
     let total = 0;
     costCategories.forEach((cat) => {
@@ -243,6 +302,22 @@ export default function BillingDetailPage() {
   const monthsInPeriod = getMonthsInPeriod(billingPeriod.startDate, billingPeriod.endDate);
   const daysInPeriod = getDaysInPeriod(billingPeriod.startDate, billingPeriod.endDate);
 
+  const totalItems = billingPeriod.costs.length + billingPeriod.prepayments.length;
+  const reviewedItems =
+    billingPeriod.costs.filter((c) => c.reviewed).length +
+    billingPeriod.prepayments.filter((p) => p.reviewed).length;
+  const allReviewed = totalItems > 0 && reviewedItems === totalItems;
+
+  const costReviewMap: Record<string, boolean> = {};
+  billingPeriod.costs.forEach((cost) => {
+    costReviewMap[cost.costCategoryId] = cost.reviewed;
+  });
+
+  const prepaymentReviewMap: Record<string, boolean> = {};
+  billingPeriod.prepayments.forEach((pp) => {
+    prepaymentReviewMap[pp.unitId] = pp.reviewed;
+  });
+
   return (
     <>
       <Nav />
@@ -269,6 +344,26 @@ export default function BillingDetailPage() {
                 Abrechnungsdatum: {formatDate(billingPeriod.billingDate)}
               </p>
             )}
+            <div className="mt-2 flex flex-wrap gap-4">
+              <div className="w-48">
+                <label className="mb-1 block text-xs font-medium text-zinc-500">
+                  Versendet am
+                </label>
+                <OptionalDateInput
+                  value={billingPeriod.sentDate || ""}
+                  onChange={(value) => handleDateChange("sentDate", value)}
+                />
+              </div>
+              <div className="w-48">
+                <label className="mb-1 block text-xs font-medium text-zinc-500">
+                  Bezahlt am
+                </label>
+                <OptionalDateInput
+                  value={billingPeriod.paidDate || ""}
+                  onChange={(value) => handleDateChange("paidDate", value)}
+                />
+              </div>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {saveStatus && (
@@ -299,6 +394,36 @@ export default function BillingDetailPage() {
             </a>
           </div>
         </div>
+
+        {/* Review Progress Banner */}
+        {totalItems > 0 && (
+          <div
+            className={`mb-6 rounded-xl border px-4 py-3 ${
+              allReviewed
+                ? "border-green-200 bg-green-50 text-green-800"
+                : "border-amber-200 bg-amber-50 text-amber-800"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">
+                {reviewedItems} von {totalItems} Positionen geprüft
+              </span>
+              {allReviewed && (
+                <span className="text-xs font-medium">Alle geprüft</span>
+              )}
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/60">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  allReviewed ? "bg-green-500" : "bg-amber-400"
+                }`}
+                style={{
+                  width: `${totalItems > 0 ? (reviewedItems / totalItems) * 100 : 0}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Section 1: Kosten */}
         <section className="mb-8">
@@ -362,10 +487,31 @@ export default function BillingDetailPage() {
                       meaDisplay = amounts.join(", ");
                     }
 
+                    const isUnreviewed =
+                      costReviewMap[cat.id] === false;
+
                     return (
-                      <tr key={cat.id}>
+                      <tr
+                        key={cat.id}
+                        className={
+                          isUnreviewed
+                            ? "border-l-4 border-amber-400 bg-amber-50/50"
+                            : ""
+                        }
+                      >
                         <td className="px-4 py-3 text-sm text-zinc-900">
-                          {cat.name}
+                          <div className="flex items-center gap-2">
+                            {cat.name}
+                            {isUnreviewed && (
+                              <button
+                                type="button"
+                                onClick={() => handleConfirmCost(cat.id)}
+                                className="rounded border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-200"
+                              >
+                                Bestätigen
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-zinc-600">
                           {cat.distributionKey}
@@ -464,11 +610,33 @@ export default function BillingDetailPage() {
                     const monthlyVal = prepaymentValues[unit.id] || "";
                     const totalPrepayment =
                       (parseFloat(monthlyVal) || 0) * monthsInPeriod;
+                    const isPrepaymentUnreviewed =
+                      prepaymentReviewMap[unit.id] === false;
 
                     return (
-                      <tr key={unit.id}>
+                      <tr
+                        key={unit.id}
+                        className={
+                          isPrepaymentUnreviewed
+                            ? "border-l-4 border-amber-400 bg-amber-50/50"
+                            : ""
+                        }
+                      >
                         <td className="px-4 py-3 text-sm text-zinc-900">
-                          {unit.name}
+                          <div className="flex items-center gap-2">
+                            {unit.name}
+                            {isPrepaymentUnreviewed && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleConfirmPrepayment(unit.id)
+                                }
+                                className="rounded border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-200"
+                              >
+                                Bestätigen
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-zinc-600">
                           {tenant

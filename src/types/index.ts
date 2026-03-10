@@ -59,11 +59,16 @@ export interface BillingPeriod {
   startDate: string;
   endDate: string;
   billingDate: string | null;
+  sentDate: string | null;
+  paidDate: string | null;
+  copiedFromId: string | null;
 }
 
 export interface BillingPeriodWithProperty extends BillingPeriod {
   property: Property;
   _count?: { costs: number };
+  costs?: CostWithCategory[];
+  prepayments?: Prepayment[];
 }
 
 export interface BillingPeriodDetail extends BillingPeriod {
@@ -78,6 +83,11 @@ export interface Cost {
   costCategoryId: string;
   totalAmount: number;
   unitAmount: number | null;
+  reviewed: boolean;
+}
+
+export interface CostWithCategory extends Cost {
+  costCategory: CostCategory;
 }
 
 export interface Prepayment {
@@ -85,6 +95,7 @@ export interface Prepayment {
   billingPeriodId: string;
   unitId: string;
   monthlyAmount: number;
+  reviewed: boolean;
 }
 
 // === Settings ===
@@ -107,6 +118,21 @@ export interface LandlordInfo {
   bankName: string;
   iban: string;
   accountHolder: string;
+}
+
+// === Rent Changes ===
+
+export interface RentChange {
+  id: string;
+  unitId: string;
+  type: "rent" | "prepayment";
+  amount: number;
+  effectiveDate: string;
+  reason: string | null;
+}
+
+export interface RentChangeWithUnit extends RentChange {
+  unit: Unit & { property?: Property };
 }
 
 // === User ===

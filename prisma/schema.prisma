@@ -75,6 +75,7 @@ model Unit {
   property    Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   tenants     Tenant[]
   prepayments Prepayment[]
+  rentChanges RentChange[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -106,16 +107,21 @@ model CostCategory {
 }
 
 model BillingPeriod {
-  id          String       @id @default(cuid())
-  propertyId  String
-  startDate   DateTime
-  endDate     DateTime
-  billingDate DateTime?
-  property    Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  costs       Cost[]
-  prepayments Prepayment[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id           String          @id @default(cuid())
+  propertyId   String
+  startDate    DateTime
+  endDate      DateTime
+  billingDate  DateTime?
+  sentDate     DateTime?
+  paidDate     DateTime?
+  copiedFromId String?
+  copiedFrom   BillingPeriod?  @relation("BillingCopy", fields: [copiedFromId], references: [id], onDelete: SetNull)
+  copies       BillingPeriod[] @relation("BillingCopy")
+  property     Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  costs        Cost[]
+  prepayments  Prepayment[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 }
 
 model Cost {
@@ -124,6 +130,7 @@ model Cost {
   costCategoryId  String
   totalAmount     Float
   unitAmount      Float?
+  reviewed        Boolean       @default(true)
   billingPeriod   BillingPeriod @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
   costCategory    CostCategory  @relation(fields: [costCategoryId], references: [id], onDelete: Cascade)
   createdAt       DateTime      @default(now())
@@ -137,12 +144,27 @@ model Prepayment {
   billingPeriodId String
   unitId          String
   monthlyAmount   Float
+  reviewed        Boolean       @default(true)
   billingPeriod   BillingPeriod @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
   unit            Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   @@unique([billingPeriodId, unitId])
+}
+
+model RentChange {
+  id            String   @id @default(cuid())
+  unitId        String
+  type          String   // "rent" or "prepayment"
+  amount        Float
+  effectiveDate DateTime
+  reason        String?
+  unit          Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([unitId, effectiveDate])
 }
 
 model PdfTemplate {

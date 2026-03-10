@@ -39,12 +39,14 @@ export function POST(
       update: {
         totalAmount,
         unitAmount,
+        reviewed: true,
       },
       create: {
         billingPeriodId: id,
         costCategoryId,
         totalAmount,
         unitAmount,
+        reviewed: true,
       },
     });
 

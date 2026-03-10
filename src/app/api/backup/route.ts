@@ -15,6 +15,7 @@ export function GET() {
       prepayments,
       landlordInfo,
       pdfTemplates,
+      rentChanges,
     ] = await Promise.all([
       prisma.property.findMany(),
       prisma.unit.findMany(),
@@ -25,6 +26,7 @@ export function GET() {
       prisma.prepayment.findMany(),
       prisma.landlordInfo.findMany(),
       prisma.pdfTemplate.findMany(),
+      prisma.rentChange.findMany(),
     ]);
 
     const backup = {
@@ -40,6 +42,7 @@ export function GET() {
         prepayments,
         landlordInfo,
         pdfTemplates,
+        rentChanges,
       },
     };
 
@@ -97,6 +100,7 @@ export function POST(request: Request) {
       prisma.unit.deleteMany(),
       prisma.property.deleteMany(),
       prisma.costCategory.deleteMany(),
+      prisma.rentChange.deleteMany(),
       prisma.landlordInfo.deleteMany(),
       prisma.pdfTemplate.deleteMany(),
       // Create parents first
@@ -126,6 +130,9 @@ export function POST(request: Request) {
         : []),
       ...((data.pdfTemplates?.length ?? 0) > 0
         ? [prisma.pdfTemplate.createMany({ data: data.pdfTemplates })]
+        : []),
+      ...((data.rentChanges?.length ?? 0) > 0
+        ? [prisma.rentChange.createMany({ data: data.rentChanges })]
         : []),
     ]);
 

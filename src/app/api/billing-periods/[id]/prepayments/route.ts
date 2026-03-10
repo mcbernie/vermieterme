@@ -38,11 +38,13 @@ export function POST(
       },
       update: {
         monthlyAmount,
+        reviewed: true,
       },
       create: {
         billingPeriodId: id,
         unitId,
         monthlyAmount,
+        reviewed: true,
       },
     });
 

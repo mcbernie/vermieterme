@@ -49,7 +49,7 @@ export function PUT(
     await requireAuth();
     const { id } = await paramsPromise;
     const body = await request.json();
-    const { propertyId, startDate, endDate, billingDate } = body;
+    const { propertyId, startDate, endDate, billingDate, sentDate, paidDate } = body;
 
     const billingPeriod = await prisma.billingPeriod.update({
       where: { id },
@@ -57,7 +57,9 @@ export function PUT(
         propertyId,
         startDate: startDate ? new Date(startDate) : undefined,
         endDate: endDate ? new Date(endDate) : undefined,
-        billingDate: billingDate ? new Date(billingDate) : null,
+        billingDate: billingDate !== undefined ? (billingDate ? new Date(billingDate) : null) : undefined,
+        sentDate: sentDate !== undefined ? (sentDate ? new Date(sentDate) : null) : undefined,
+        paidDate: paidDate !== undefined ? (paidDate ? new Date(paidDate) : null) : undefined,
       },
     });
 
