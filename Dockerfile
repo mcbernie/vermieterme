@@ -2,18 +2,21 @@ FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat openssl
 RUN corepack enable && corepack prepare pnpm@10.18.0 --activate
 
+# --- Dependencies ---
+FROM base AS deps
+WORKDIR /app
+COPY package.json pnpm-lock.yaml .npmrc ./
+COPY prisma ./prisma
+RUN pnpm install --frozen-lockfile
+
 # --- Build ---
 FROM base AS builder
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-COPY prisma ./prisma
-RUN pnpm install --frozen-lockfile
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV AUTH_SECRET="build-placeholder"
 RUN pnpm build
-# Copy generated Prisma client to standard location for runner stage
-RUN cp -r node_modules/.pnpm/@prisma+client@*/node_modules/.prisma node_modules/.prisma
 
 # --- Production ---
 FROM base AS runner
@@ -31,7 +34,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy Prisma runtime client
+# Copy Prisma schema + runtime client
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
