@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/nav";
+import { Combobox } from "@/components/ui/combobox";
 import { Loading } from "@/components/ui/loading";
 import {
   SECTION_META,
@@ -551,19 +552,12 @@ function PageEditor({
           <label className="mb-1 block text-xs font-medium text-zinc-600">
             Standard-Schriftart
           </label>
-          <select
+          <Combobox
+            options={FONT_OPTIONS.map((f) => ({ value: f.value, label: f.label }))}
             value={page.fontFamily}
-            onChange={(e) =>
-              onChange({ ...page, fontFamily: e.target.value as PdfFontFamily })
-            }
-            className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm"
-          >
-            {FONT_OPTIONS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
+            onChange={(val) => onChange({ ...page, fontFamily: val as PdfFontFamily })}
+            placeholder="Schriftart wählen..."
+          />
         </div>
 
         <div>
@@ -666,22 +660,15 @@ function SectionEditor({
           <label className="mb-1 block text-xs font-medium text-zinc-600">
             Schriftart
           </label>
-          <select
+          <Combobox
+            options={[
+              { value: pageFont, label: `Standard (${pageFont})` },
+              ...FONT_OPTIONS.filter((f) => f.value !== pageFont).map((f) => ({ value: f.value, label: f.label })),
+            ]}
             value={style.fontFamily}
-            onChange={(e) =>
-              onUpdateStyle({
-                fontFamily: e.target.value as PdfFontFamily,
-              })
-            }
-            className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm"
-          >
-            <option value={pageFont}>Standard ({pageFont})</option>
-            {FONT_OPTIONS.filter((f) => f.value !== pageFont).map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
+            onChange={(val) => onUpdateStyle({ fontFamily: val as PdfFontFamily })}
+            placeholder="Schriftart wählen..."
+          />
         </div>
 
         {/* Font Size */}

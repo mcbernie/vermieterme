@@ -81,19 +81,30 @@ model Unit {
 }
 
 model Tenant {
-  id          String    @id @default(cuid())
-  unitId      String
-  salutation  String
-  firstName   String
-  lastName    String
-  salutation2 String?
-  firstName2  String?
-  lastName2   String?
-  moveInDate  DateTime
-  moveOutDate DateTime?
-  unit        Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                  String     @id @default(cuid())
+  unitId              String
+  salutation          String
+  firstName           String
+  lastName            String
+  salutation2         String?
+  firstName2          String?
+  lastName2           String?
+  phone               String?
+  email               String?
+  bankName            String?
+  iban                String?
+  accountHolder       String?
+  moveInDate          DateTime
+  moveOutDate         DateTime?
+  leaseType           String     @default("standard") // "standard", "index", "staffel"
+  indexBaseYear        Int?
+  indexReferenceValue  Float?
+  indexReferenceDate   DateTime?
+  indexMinMonths       Int        @default(12)
+  unit                Unit       @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  documents           Document[]
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 }
 
 model CostCategory {
@@ -120,6 +131,7 @@ model BillingPeriod {
   property     Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   costs        Cost[]
   prepayments  Prepayment[]
+  documents    Document[]
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 }
@@ -173,6 +185,32 @@ model PdfTemplate {
   config    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model VpiEntry {
+  id        String   @id @default(cuid())
+  year      Int
+  month     Int
+  value     Float
+  baseYear  Int      @default(2020)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([year, month, baseYear])
+}
+
+model Document {
+  id              String         @id @default(cuid())
+  billingPeriodId String?
+  tenantId        String?
+  fileName        String
+  originalName    String
+  mimeType        String
+  size            Int
+  category        String         @default("other") // "invoice", "receipt", "contract", "other"
+  billingPeriod   BillingPeriod? @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
+  tenant          Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt       DateTime       @default(now())
 }
 
 model LandlordInfo {

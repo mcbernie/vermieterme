@@ -9,6 +9,7 @@ import { calculateMEAAmount, getMonthsInPeriod, getDaysInPeriod } from "@/lib/bi
 import { Loading } from "@/components/ui/loading";
 import { EmptyState } from "@/components/ui/empty-state";
 import { OptionalDateInput } from "@/components/ui/optional-date-input";
+import { DocumentUpload } from "@/components/document-upload";
 import type { BillingPeriodDetail, CostCategory, Tenant, UnitWithTenants } from "@/types";
 
 export default function BillingDetailPage() {
@@ -776,6 +777,24 @@ export default function BillingDetailPage() {
               </table>
             </div>
           )}
+        </section>
+
+        {/* Section 4: Dokumente */}
+        <section className="mt-8">
+          <h2 className="mb-4 text-lg font-semibold text-zinc-900">
+            Dokumente
+          </h2>
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <p className="mb-4 text-sm text-zinc-500">
+              Belege und Rechnungen für diese Abrechnung (optional).
+              Erlaubte Formate: PDF, JPEG, PNG, WebP (max. 10 MB).
+            </p>
+            <DocumentUpload
+              billingPeriodId={id}
+              category="invoice"
+              label="Beleg hochladen"
+            />
+          </div>
         </section>
 
         {/* Bottom Actions */}

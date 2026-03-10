@@ -26,10 +26,11 @@ export default function BillingPage() {
   });
 
   const billingPeriods = useMemo(() => data.billingPeriods ?? [], [data.billingPeriods]);
-  const properties = data.properties ?? [];
+  const properties = useMemo(() => data.properties ?? [], [data.properties]);
 
   const [showNewForm, setShowNewForm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [form, setForm] = useState({
     propertyId: "",
     startDate: "",
@@ -40,6 +41,7 @@ export default function BillingPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    setCreateError(null);
     if (!form.propertyId || !form.startDate || !form.endDate) return;
     const res = await apiPost("/api/billing-periods", {
       ...form,
@@ -50,6 +52,9 @@ export default function BillingPage() {
       setForm({ propertyId: "", startDate: "", endDate: "", billingDate: "", copyFromId: "" });
       setShowNewForm(false);
       await refetch();
+    } else {
+      const data = await res.json().catch(() => null);
+      setCreateError(data?.error || "Fehler beim Erstellen der Abrechnung");
     }
   }
 
@@ -71,6 +76,62 @@ export default function BillingPage() {
     }
     return Object.entries(groups);
   }, [billingPeriods]);
+
+  // Determine which properties need a new billing period for the previous year
+  const previousYearSuggestions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const previousYear = currentYear - 1;
+    const suggestions: Array<{
+      property: Property;
+      previousYear: number;
+      sourcePeriod: BillingPeriodWithProperty;
+    }> = [];
+
+    for (const prop of properties) {
+      const propPeriods = billingPeriods.filter((bp) => bp.propertyId === prop.id);
+
+      // Check if a period covering the previous year already exists
+      const hasPreviousYear = propPeriods.some((bp) => {
+        const startYear = new Date(bp.startDate).getFullYear();
+        const endYear = new Date(bp.endDate).getFullYear();
+        return startYear === previousYear || endYear === previousYear;
+      });
+
+      if (hasPreviousYear) continue;
+
+      // Find the most recent period to copy from (likely the year before)
+      const sorted = propPeriods.sort(
+        (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
+      );
+
+      if (sorted.length > 0) {
+        suggestions.push({
+          property: prop,
+          previousYear,
+          sourcePeriod: sorted[0],
+        });
+      }
+    }
+
+    return suggestions;
+  }, [properties, billingPeriods]);
+
+  async function handleQuickCreate(propertyId: string, sourceId: string, previousYear: number) {
+    setCreateError(null);
+    const res = await apiPost("/api/billing-periods", {
+      propertyId,
+      startDate: `${previousYear}-01-01`,
+      endDate: `${previousYear}-12-31`,
+      billingDate: null,
+      copyFromId: sourceId,
+    });
+    if (res.ok) {
+      await refetch();
+    } else {
+      const data = await res.json().catch(() => null);
+      setCreateError(data?.error || "Fehler beim Erstellen");
+    }
+  }
 
   const propertyOptions: ComboboxOption[] = properties.map((prop) => ({
     value: prop.id,
@@ -194,6 +255,11 @@ export default function BillingPage() {
                 </div>
               )}
             </div>
+            {createError && (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {createError}
+              </div>
+            )}
             <div className="mt-4 flex gap-2">
               <button
                 type="submit"
@@ -203,13 +269,44 @@ export default function BillingPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setShowNewForm(false)}
+                onClick={() => { setShowNewForm(false); setCreateError(null); }}
                 className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
               >
                 Abbrechen
               </button>
             </div>
           </form>
+        )}
+
+        {/* Vorjahres-Vorschläge */}
+        {!loading && previousYearSuggestions.length > 0 && (
+          <div className="mb-6 space-y-3">
+            {previousYearSuggestions.map((s) => (
+              <div
+                key={s.property.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4"
+              >
+                <div className="text-sm text-zinc-700">
+                  <span className="font-medium">{s.property.street}, {s.property.city}</span>
+                  {" — "}
+                  Noch keine Abrechnung f&uuml;r {s.previousYear} vorhanden.
+                  Daten aus der letzten Abrechnung ({formatDate(s.sourcePeriod.startDate)} &ndash; {formatDate(s.sourcePeriod.endDate)}) &uuml;bernehmen?
+                </div>
+                <button
+                  onClick={() => handleQuickCreate(s.property.id, s.sourcePeriod.id, s.previousYear)}
+                  className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
+                >
+                  Abrechnung {s.previousYear} erstellen
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {createError && !showNewForm && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {createError}
+          </div>
         )}
 
         {loading ? (

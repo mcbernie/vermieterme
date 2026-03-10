@@ -5,7 +5,8 @@ import { Nav } from "@/components/nav";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Loading } from "@/components/ui/loading";
 import { EmptyState } from "@/components/ui/empty-state";
-import type { PropertyWithCount, PropertyWithUnits, UnitWithTenants, Tenant } from "@/types";
+import { formatCurrency } from "@/lib/format";
+import type { PropertyWithCount, PropertyWithUnits, UnitWithTenants, Tenant, RentChange } from "@/types";
 
 export default function PropertiesPage() {
   const [properties, setProperties] = useState<PropertyWithCount[]>([]);
@@ -18,6 +19,7 @@ export default function PropertiesPage() {
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
   const [deletePropertyId, setDeletePropertyId] = useState<string | null>(null);
   const [deleteUnitTarget, setDeleteUnitTarget] = useState<{ unitId: string; propertyId: string } | null>(null);
+  const [rentChanges, setRentChanges] = useState<RentChange[]>([]);
 
   // Property form state
   const [propertyForm, setPropertyForm] = useState({
@@ -36,6 +38,7 @@ export default function PropertiesPage() {
 
   useEffect(() => {
     fetchProperties();
+    fetchRentChanges();
   }, []);
 
   async function fetchProperties() {
@@ -49,6 +52,31 @@ export default function PropertiesPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function fetchRentChanges() {
+    try {
+      const res = await fetch("/api/rent-changes");
+      if (res.ok) {
+        setRentChanges(await res.json());
+      }
+    } catch (error) {
+      console.error("Failed to fetch rent changes:", error);
+    }
+  }
+
+  function getLatestRent(unitId: string): { rent: number | null; prepayment: number | null } {
+    const unitChanges = rentChanges.filter((rc) => rc.unitId === unitId);
+    const latestRent = unitChanges
+      .filter((rc) => rc.type === "rent")
+      .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime())[0];
+    const latestPrepayment = unitChanges
+      .filter((rc) => rc.type === "prepayment")
+      .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime())[0];
+    return {
+      rent: latestRent?.amount ?? null,
+      prepayment: latestPrepayment?.amount ?? null,
+    };
   }
 
   async function fetchPropertyDetail(id: string) {
@@ -594,6 +622,9 @@ export default function PropertiesPage() {
                               <th className="pb-2 text-left text-xs font-medium uppercase text-zinc-500">
                                 Aktueller Mieter
                               </th>
+                              <th className="pb-2 text-left text-xs font-medium uppercase text-zinc-500">
+                                Miete
+                              </th>
                               <th className="pb-2 text-right text-xs font-medium uppercase text-zinc-500">
                                 Aktionen
                               </th>
@@ -606,7 +637,7 @@ export default function PropertiesPage() {
                               );
                               return editingUnitId === unit.id ? (
                                 <tr key={unit.id}>
-                                  <td className="py-3" colSpan={5}>
+                                  <td className="py-3" colSpan={6}>
                                     <div className="grid gap-3 sm:grid-cols-3">
                                       <div>
                                         <input
@@ -693,6 +724,24 @@ export default function PropertiesPage() {
                                     {currentTenant
                                       ? `${currentTenant.firstName} ${currentTenant.lastName}`
                                       : "Kein Mieter"}
+                                  </td>
+                                  <td className="py-3 text-sm text-zinc-600">
+                                    {(() => {
+                                      const { rent, prepayment } = getLatestRent(unit.id);
+                                      if (!rent && !prepayment) return <span className="text-zinc-400">—</span>;
+                                      return (
+                                        <div className="space-y-0.5">
+                                          {rent != null && (
+                                            <div>{formatCurrency(rent)}</div>
+                                          )}
+                                          {prepayment != null && (
+                                            <div className="text-xs text-zinc-400">
+                                              + {formatCurrency(prepayment)} NK
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </td>
                                   <td className="py-3 text-right">
                                     <div className="flex justify-end gap-1">

@@ -12,6 +12,12 @@ Self-hosted Webanwendung zur Verwaltung von Mietobjekten und Erstellung von jäh
 - **Vermieterprofil** — Kontaktdaten und Bankverbindung für die PDF-Abrechnung
 - **Authentifizierung** — Login mit E-Mail/Passwort, optionale Apple-ID-Anmeldung
 - **Statusübersicht** — Abrechnungen nach Objekt gruppiert mit Dreistufigem Status (Offen → In Bearbeitung → Abgeschlossen)
+- **VPI-Indexmiete** — VPI-Werte automatisch von der Bundesbank laden, Mietanpassungshinweise auf dem Dashboard mit Ein-Klick-Anpassung
+- **Mietverträge** — Vertragsarten (Standard, Indexmiete, Staffelmiete) mit VPI-Tracking für Indexmieten
+- **Dokumenten-Upload** — Mietverträge (PDF) pro Mieter und Belege pro Abrechnung hochladen (PDF, JPEG, PNG, WebP, max. 10 MB)
+- **Miete & NK anpassen** — Kaltmiete und NK-Vorauszahlung direkt bei den Mietern anpassen mit Gültigkeitsdatum und Verlauf
+- **IBAN-Validierung** — ISO 13616 Prüfung für Vermieter- und Mieter-Bankverbindung
+- **Vorjahresübernahme** — Automatische Vorschläge zur Übernahme von Abrechnungsdaten aus dem Vorjahr
 
 ## Tech Stack
 
@@ -138,6 +144,9 @@ vermieterme/
 │   ├── schema.prisma          # Datenbank-Schema
 │   ├── seed.ts                # Beispieldaten
 │   └── dev.db                 # SQLite-Datenbank (generiert)
+├── data/
+│   ├── dev.db                 # SQLite-Datenbank (generiert)
+│   └── uploads/               # Hochgeladene Dokumente
 ├── public/
 │   ├── favicon.svg            # App-Icon
 │   └── vermieterme-icon.svg   # Logo (512x512)
@@ -148,27 +157,29 @@ vermieterme/
 │   ├── app/
 │   │   ├── api/               # API-Routen (REST)
 │   │   │   ├── billing-periods/
-│   │   │   ├── costs/
-│   │   │   ├── landlord/
-│   │   │   ├── prepayments/
-│   │   │   ├── profile/
+│   │   │   ├── documents/
+│   │   │   ├── rent-changes/
 │   │   │   ├── properties/
-│   │   │   └── tenants/
+│   │   │   ├── tenants/
+│   │   │   └── vpi/
 │   │   ├── billing/           # Abrechnungen
 │   │   ├── login/             # Login-Seite
 │   │   ├── profile/           # Profilverwaltung
 │   │   ├── properties/        # Objektverwaltung
-│   │   ├── settings/          # Kostenkategorien & Vermieter
+│   │   ├── settings/          # Einstellungen, VPI, PDF-Vorlage
 │   │   ├── tenants/           # Mieterverwaltung
 │   │   └── page.tsx           # Dashboard
 │   ├── components/
+│   │   ├── document-upload.tsx # Wiederverwendbare Upload-Komponente
 │   │   ├── nav.tsx            # Navigation
 │   │   └── ui/               # UI-Komponenten
 │   └── lib/
 │       ├── auth.ts            # NextAuth-Konfiguration
+│       ├── billing.ts         # Abrechnungs-Berechnungen
 │       ├── format.ts          # Formatierungs-Hilfsfunktionen
+│       ├── iban.ts            # IBAN-Validierung (ISO 13616)
 │       ├── prisma.ts          # Prisma-Client
-│       └── utils.ts           # Allgemeine Utilities
+│       └── vpi.ts             # VPI-Parsing (Bundesbank API)
 ├── vitest.config.mts          # Test-Konfiguration
 ├── Dockerfile                 # Multi-Stage Docker Build
 └── .github/workflows/
@@ -185,7 +196,25 @@ vermieterme/
 - **Cost** — Kosten pro Kategorie und Abrechnungszeitraum
 - **CostCategory** — Kostenkategorie mit Verteilerschlüssel
 - **Prepayment** — Monatliche Vorauszahlungen pro Einheit und Zeitraum
+- **RentChange** — Miet- und Vorauszahlungsänderungen mit Gültigkeitsdatum
+- **VpiEntry** — Verbraucherpreisindex-Werte nach Basisjahr (2010, 2015, 2020)
+- **Document** — Hochgeladene Dokumente (Mietverträge, Belege) mit Zuordnung zu Mietern oder Abrechnungen
 - **LandlordInfo** — Vermieter-Kontaktdaten und Bankverbindung
+- **PdfTemplate** — Anpassbare Vorlage für PDF-Abrechnungen
+
+## Backup & Dokumente
+
+Unter **Einstellungen → Backup** kann die gesamte Datenbank als JSON exportiert und importiert werden. Das Backup enthält alle Datenbank-Einträge inklusive der Dokument-Metadaten.
+
+**Wichtig:** Die hochgeladenen Dateien (Mietverträge, Belege) liegen im Verzeichnis `data/uploads/` und sind **nicht** im JSON-Backup enthalten. Für ein vollständiges Backup muss dieser Ordner zusätzlich gesichert werden:
+
+```bash
+# Vollständiges Backup
+cp data/uploads/ /pfad/zum/backup/uploads/ -r
+# JSON-Backup über die Web-Oberfläche exportieren
+```
+
+Bei Docker wird `data/` über ein Volume gemountet — ein Volume-Backup sichert sowohl die Datenbank als auch die Uploads.
 
 ## Tests
 
@@ -193,12 +222,15 @@ vermieterme/
 npm test
 ```
 
-33 Tests in 6 Testdateien:
+65 Tests in 9 Testdateien:
 - `format.test.ts` — Währungs- und Datumsformatierung (9 Tests)
 - `utils.test.ts` — CSS-Klassen-Utility (5 Tests)
+- `iban.test.ts` — IBAN-Validierung und Formatierung (14 Tests)
+- `vpi.test.ts` — VPI-Parsing der Bundesbank-API (8 Tests)
 - `properties.test.ts` — Objekt-API (3 Tests)
 - `tenants.test.ts` — Mieter-API (5 Tests)
-- `billing-periods.test.ts` — Abrechnungs-API (4 Tests)
+- `billing-periods.test.ts` — Abrechnungs-API inkl. Validierungen (7 Tests)
+- `users.test.ts` — Benutzer-API (7 Tests)
 - `profile.test.ts` — Profil-API mit Authentifizierung (7 Tests)
 
 ## CI/CD

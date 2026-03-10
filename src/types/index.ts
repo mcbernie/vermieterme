@@ -41,8 +41,18 @@ export interface Tenant {
   salutation2?: string | null;
   firstName2?: string | null;
   lastName2?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  bankName?: string | null;
+  iban?: string | null;
+  accountHolder?: string | null;
   moveInDate: string;
   moveOutDate: string | null;
+  leaseType: "standard" | "index" | "staffel";
+  indexBaseYear: number | null;
+  indexReferenceValue: number | null;
+  indexReferenceDate: string | null;
+  indexMinMonths: number;
 }
 
 export interface TenantWithUnit extends Tenant {
@@ -133,6 +143,48 @@ export interface RentChange {
 
 export interface RentChangeWithUnit extends RentChange {
   unit: Unit & { property?: Property };
+}
+
+// === VPI ===
+
+export interface VpiEntry {
+  id: string;
+  year: number;
+  month: number;
+  value: number;
+  baseYear: number;
+}
+
+export interface VpiSuggestion {
+  tenantId: string;
+  unitId: string;
+  tenantName: string;
+  unitName: string;
+  propertyAddress: string;
+  leaseType: "index";
+  currentRent: number;
+  referenceVpi: number;
+  currentVpi: number;
+  percentageChange: number;
+  suggestedRent: number;
+  monthsSinceLastAdjustment: number;
+  minMonths: number;
+  eligible: boolean;
+  baseYear: number;
+}
+
+// === Document ===
+
+export interface Document {
+  id: string;
+  billingPeriodId: string | null;
+  tenantId: string | null;
+  fileName: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  category: string;
+  createdAt: string;
 }
 
 // === User ===

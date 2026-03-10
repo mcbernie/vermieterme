@@ -2,22 +2,39 @@
 
 import { useEffect, useState } from "react";
 import { Nav } from "@/components/nav";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatCurrency } from "@/lib/format";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Loading } from "@/components/ui/loading";
 import { EmptyState } from "@/components/ui/empty-state";
 import { OptionalDateInput } from "@/components/ui/optional-date-input";
 import { SALUTATIONS, SALUTATIONS_SECONDARY } from "@/lib/constants";
-import type { TenantWithUnit, PropertyWithUnits } from "@/types";
+import { validateIBAN, formatIBAN } from "@/lib/iban";
+import { DocumentUpload } from "@/components/document-upload";
+import type { TenantWithUnit, PropertyWithUnits, RentChangeWithUnit } from "@/types";
+
+const leaseTypeOptions: ComboboxOption[] = [
+  { value: "standard", label: "Standard" },
+  { value: "index", label: "Indexmiete" },
+  { value: "staffel", label: "Staffelmiete" },
+];
 
 export default function TenantsPage() {
   const [tenants, setTenants] = useState<TenantWithUnit[]>([]);
   const [properties, setProperties] = useState<PropertyWithUnits[]>([]);
+  const [rentChanges, setRentChanges] = useState<RentChangeWithUnit[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [expandedTenant, setExpandedTenant] = useState<string | null>(null);
+  const [adjustTarget, setAdjustTarget] = useState<string | null>(null);
+  const [adjustForm, setAdjustForm] = useState({
+    type: "prepayment" as "rent" | "prepayment",
+    amount: "",
+    effectiveDate: new Date().toISOString().split("T")[0],
+    reason: "",
+  });
 
   const [form, setForm] = useState({
     unitId: "",
@@ -27,8 +44,18 @@ export default function TenantsPage() {
     salutation2: "",
     firstName2: "",
     lastName2: "",
+    phone: "",
+    email: "",
+    bankName: "",
+    iban: "",
+    accountHolder: "",
     moveInDate: "",
     moveOutDate: "",
+    leaseType: "standard",
+    indexBaseYear: "",
+    indexReferenceValue: "",
+    indexReferenceDate: "",
+    indexMinMonths: "12",
   });
 
   useEffect(() => {
@@ -37,9 +64,10 @@ export default function TenantsPage() {
 
   async function fetchData() {
     try {
-      const [tenantsRes, propsRes] = await Promise.all([
+      const [tenantsRes, propsRes, rentChangesRes] = await Promise.all([
         fetch("/api/tenants"),
         fetch("/api/properties"),
+        fetch("/api/rent-changes"),
       ]);
 
       if (tenantsRes.ok) {
@@ -53,6 +81,10 @@ export default function TenantsPage() {
         );
         const details = await Promise.all(detailPromises);
         setProperties(details);
+      }
+
+      if (rentChangesRes.ok) {
+        setRentChanges(await rentChangesRes.json());
       }
     } catch (error) {
       console.error("Failed to fetch data:", error);
@@ -81,8 +113,18 @@ export default function TenantsPage() {
       salutation2: "",
       firstName2: "",
       lastName2: "",
+      phone: "",
+      email: "",
+      bankName: "",
+      iban: "",
+      accountHolder: "",
       moveInDate: "",
       moveOutDate: "",
+      leaseType: "standard",
+      indexBaseYear: "",
+      indexReferenceValue: "",
+      indexReferenceDate: "",
+      indexMinMonths: "12",
     });
   }
 
@@ -94,7 +136,17 @@ export default function TenantsPage() {
         salutation2: form.salutation2 || null,
         firstName2: form.firstName2 || null,
         lastName2: form.lastName2 || null,
+        phone: form.phone || null,
+        email: form.email || null,
+        bankName: form.bankName || null,
+        iban: form.iban || null,
+        accountHolder: form.accountHolder || null,
         moveOutDate: form.moveOutDate || null,
+        leaseType: form.leaseType,
+        indexBaseYear: form.indexBaseYear ? parseInt(form.indexBaseYear) : null,
+        indexReferenceValue: form.indexReferenceValue ? parseFloat(form.indexReferenceValue) : null,
+        indexReferenceDate: form.indexReferenceDate || null,
+        indexMinMonths: parseInt(form.indexMinMonths) || 12,
       };
       const res = await fetch("/api/tenants", {
         method: "POST",
@@ -118,7 +170,17 @@ export default function TenantsPage() {
         salutation2: form.salutation2 || null,
         firstName2: form.firstName2 || null,
         lastName2: form.lastName2 || null,
+        phone: form.phone || null,
+        email: form.email || null,
+        bankName: form.bankName || null,
+        iban: form.iban || null,
+        accountHolder: form.accountHolder || null,
         moveOutDate: form.moveOutDate || null,
+        leaseType: form.leaseType,
+        indexBaseYear: form.indexBaseYear ? parseInt(form.indexBaseYear) : null,
+        indexReferenceValue: form.indexReferenceValue ? parseFloat(form.indexReferenceValue) : null,
+        indexReferenceDate: form.indexReferenceDate || null,
+        indexMinMonths: parseInt(form.indexMinMonths) || 12,
       };
       const res = await fetch(`/api/tenants/${id}`, {
         method: "PUT",
@@ -147,6 +209,36 @@ export default function TenantsPage() {
     }
   }
 
+  async function handleAdjustSubmit(unitId: string) {
+    try {
+      const res = await fetch("/api/rent-changes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          unitId,
+          type: adjustForm.type,
+          amount: parseFloat(adjustForm.amount),
+          effectiveDate: adjustForm.effectiveDate,
+          reason: adjustForm.reason || null,
+        }),
+      });
+      if (res.ok) {
+        setAdjustTarget(null);
+        setAdjustForm({
+          type: "prepayment",
+          amount: "",
+          effectiveDate: new Date().toISOString().split("T")[0],
+          reason: "",
+        });
+        // Refresh rent changes
+        const rcRes = await fetch("/api/rent-changes");
+        if (rcRes.ok) setRentChanges(await rcRes.json());
+      }
+    } catch (error) {
+      console.error("Failed to save adjustment:", error);
+    }
+  }
+
   function startEdit(tenant: TenantWithUnit) {
     setEditingId(tenant.id);
     setShowNewForm(false);
@@ -158,8 +250,18 @@ export default function TenantsPage() {
       salutation2: tenant.salutation2 || "",
       firstName2: tenant.firstName2 || "",
       lastName2: tenant.lastName2 || "",
+      phone: tenant.phone || "",
+      email: tenant.email || "",
+      bankName: tenant.bankName || "",
+      iban: tenant.iban || "",
+      accountHolder: tenant.accountHolder || "",
       moveInDate: tenant.moveInDate.split("T")[0],
       moveOutDate: tenant.moveOutDate ? tenant.moveOutDate.split("T")[0] : "",
+      leaseType: tenant.leaseType || "standard",
+      indexBaseYear: tenant.indexBaseYear ? String(tenant.indexBaseYear) : "",
+      indexReferenceValue: tenant.indexReferenceValue ? String(tenant.indexReferenceValue) : "",
+      indexReferenceDate: tenant.indexReferenceDate ? tenant.indexReferenceDate.split("T")[0] : "",
+      indexMinMonths: String(tenant.indexMinMonths ?? 12),
     });
   }
 
@@ -186,6 +288,13 @@ export default function TenantsPage() {
     },
     {} as Record<string, TenantWithUnit[]>
   );
+
+  function getLatestRentChange(unitId: string, type: "rent" | "prepayment") {
+    const matches = rentChanges
+      .filter((rc) => rc.unitId === unitId && rc.type === type)
+      .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
+    return matches.length > 0 ? matches[0] : null;
+  }
 
   function renderForm(
     onSubmit: (e: React.FormEvent) => void,
@@ -274,6 +383,162 @@ export default function TenantsPage() {
               onChange={(v) => setForm({ ...form, moveOutDate: v })}
               placeholder="Noch nicht ausgezogen"
             />
+          </div>
+        </div>
+
+        {/* Mietvertrag */}
+        <div className="mt-5 border-t border-zinc-100 pt-4">
+          <p className="mb-3 text-sm font-medium text-zinc-500">
+            Mietvertrag
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-700">
+                Vertragsart
+              </label>
+              <Combobox
+                options={leaseTypeOptions}
+                value={form.leaseType}
+                onChange={(val) => setForm({ ...form, leaseType: val })}
+                placeholder="Vertragsart wählen..."
+              />
+            </div>
+          </div>
+          {form.leaseType === "index" && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">
+                  VPI Basisjahr
+                </label>
+                <input
+                  type="number"
+                  value={form.indexBaseYear}
+                  onChange={(e) => setForm({ ...form, indexBaseYear: e.target.value })}
+                  placeholder="z.B. 2020"
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">
+                  VPI Referenzwert
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.indexReferenceValue}
+                  onChange={(e) => setForm({ ...form, indexReferenceValue: e.target.value })}
+                  placeholder="z.B. 105.4"
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">
+                  Referenzdatum (letzte Anpassung)
+                </label>
+                <OptionalDateInput
+                  value={form.indexReferenceDate}
+                  onChange={(v) => setForm({ ...form, indexReferenceDate: v })}
+                  placeholder="Noch nicht angepasst"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">
+                  Min. Monate
+                </label>
+                <input
+                  type="number"
+                  value={form.indexMinMonths}
+                  onChange={(e) => setForm({ ...form, indexMinMonths: e.target.value })}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Kontaktdaten */}
+        <div className="mt-5 border-t border-zinc-100 pt-4">
+          <p className="mb-3 text-sm font-medium text-zinc-500">
+            Kontaktdaten
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-700">
+                Telefon / Handy
+              </label>
+              <input
+                type="tel"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="z.B. +49 170 1234567"
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-700">
+                E-Mail
+              </label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Bankverbindung */}
+        <div className="mt-5 border-t border-zinc-100 pt-4">
+          <p className="mb-3 text-sm font-medium text-zinc-500">
+            Bankverbindung (für Gutschriften)
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-700">
+                Bankname
+              </label>
+              <input
+                type="text"
+                value={form.bankName}
+                onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-700">
+                IBAN
+              </label>
+              <input
+                type="text"
+                value={form.iban}
+                onChange={(e) => setForm({ ...form, iban: e.target.value })}
+                onBlur={() => {
+                  if (form.iban) {
+                    setForm({ ...form, iban: formatIBAN(form.iban) });
+                  }
+                }}
+                className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                  form.iban && !validateIBAN(form.iban)
+                    ? "border-red-300 focus:border-red-500 focus:ring-red-500"
+                    : "border-zinc-300 focus:border-zinc-500 focus:ring-zinc-500"
+                }`}
+              />
+              {form.iban && !validateIBAN(form.iban) && (
+                <p className="mt-1 text-xs text-red-600">Ungültige IBAN</p>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-700">
+                Kontoinhaber
+              </label>
+              <input
+                type="text"
+                value={form.accountHolder}
+                onChange={(e) => setForm({ ...form, accountHolder: e.target.value })}
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              />
+            </div>
           </div>
         </div>
 
@@ -422,6 +687,16 @@ export default function TenantsPage() {
                                     Ausgezogen
                                   </span>
                                 )}
+                                {tenant.leaseType === "index" && (
+                                  <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                    Indexmiete
+                                  </span>
+                                )}
+                                {tenant.leaseType === "staffel" && (
+                                  <span className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+                                    Staffelmiete
+                                  </span>
+                                )}
                               </div>
                               {tenant.firstName2 && tenant.lastName2 && (
                                 <p className="mt-0.5 text-sm text-zinc-600">
@@ -432,7 +707,7 @@ export default function TenantsPage() {
                               <p className="mt-1 text-sm text-zinc-500">
                                 {tenant.unit?.name} – {tenant.unit?.property?.street}
                               </p>
-                              <div className="mt-2 flex gap-4 text-sm text-zinc-500">
+                              <div className="mt-2 flex flex-wrap gap-4 text-sm text-zinc-500">
                                 <span>
                                   Einzug: {formatDate(tenant.moveInDate)}
                                 </span>
@@ -441,9 +716,53 @@ export default function TenantsPage() {
                                     Auszug: {formatDate(tenant.moveOutDate)}
                                   </span>
                                 )}
+                                {tenant.phone && (
+                                  <span>Tel: {tenant.phone}</span>
+                                )}
+                                {tenant.email && (
+                                  <span>{tenant.email}</span>
+                                )}
                               </div>
+                              {(() => {
+                                const latestRent = getLatestRentChange(tenant.unitId, "rent");
+                                const latestPrepayment = getLatestRentChange(tenant.unitId, "prepayment");
+                                return (
+                                  <div className="mt-2 flex items-center gap-4 text-sm text-zinc-500">
+                                    <span>
+                                      Kaltmiete: {latestRent ? formatCurrency(latestRent.amount) : "–"}
+                                    </span>
+                                    <span>
+                                      NK-Vorauszahlung: {latestPrepayment ? formatCurrency(latestPrepayment.amount) : "–"}
+                                    </span>
+                                    <button
+                                      onClick={() => {
+                                        setAdjustTarget(adjustTarget === tenant.id ? null : tenant.id);
+                                        setAdjustForm({
+                                          type: latestRent ? "prepayment" : "rent",
+                                          amount: "",
+                                          effectiveDate: new Date().toISOString().split("T")[0],
+                                          reason: "",
+                                        });
+                                      }}
+                                      className="rounded border border-zinc-300 px-2 py-0.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
+                                    >
+                                      Anpassen
+                                    </button>
+                                  </div>
+                                );
+                              })()}
                             </div>
                             <div className="flex gap-1">
+                              <button
+                                onClick={() =>
+                                  setExpandedTenant(
+                                    expandedTenant === tenant.id ? null : tenant.id
+                                  )
+                                }
+                                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                              >
+                                {expandedTenant === tenant.id ? "Weniger" : "Dokumente"}
+                              </button>
                               <button
                                 onClick={() => startEdit(tenant)}
                                 className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
@@ -458,6 +777,104 @@ export default function TenantsPage() {
                               </button>
                             </div>
                           </div>
+
+                          {/* NK-Anpassung */}
+                          {adjustTarget === tenant.id && (
+                            <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+                              <p className="mb-3 text-sm font-medium text-zinc-700">
+                                Miete / Vorauszahlung anpassen
+                              </p>
+                              <div className="grid gap-3 sm:grid-cols-4">
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-zinc-500">
+                                    Art
+                                  </label>
+                                  <Combobox
+                                    options={[
+                                      { value: "prepayment", label: "NK-Vorauszahlung" },
+                                      { value: "rent", label: "Kaltmiete" },
+                                    ]}
+                                    value={adjustForm.type}
+                                    onChange={(val) =>
+                                      setAdjustForm({ ...adjustForm, type: val as "rent" | "prepayment" })
+                                    }
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-zinc-500">
+                                    Neuer Betrag
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={adjustForm.amount}
+                                    onChange={(e) =>
+                                      setAdjustForm({ ...adjustForm, amount: e.target.value })
+                                    }
+                                    placeholder="0,00"
+                                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-zinc-500">
+                                    Gültig ab
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={adjustForm.effectiveDate}
+                                    onChange={(e) =>
+                                      setAdjustForm({ ...adjustForm, effectiveDate: e.target.value })
+                                    }
+                                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-zinc-500">
+                                    Grund (optional)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={adjustForm.reason}
+                                    onChange={(e) =>
+                                      setAdjustForm({ ...adjustForm, reason: e.target.value })
+                                    }
+                                    placeholder="z.B. Anpassung NK"
+                                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                                  />
+                                </div>
+                              </div>
+                              <div className="mt-3 flex gap-2">
+                                <button
+                                  onClick={() => handleAdjustSubmit(tenant.unitId)}
+                                  disabled={!adjustForm.amount}
+                                  className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
+                                >
+                                  Speichern
+                                </button>
+                                <button
+                                  onClick={() => setAdjustTarget(null)}
+                                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                                >
+                                  Abbrechen
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Mietvertrag-Upload */}
+                          {expandedTenant === tenant.id && (
+                            <div className="mt-4 border-t border-zinc-100 pt-4">
+                              <p className="mb-2 text-sm font-medium text-zinc-700">
+                                Mietvertrag & Dokumente
+                              </p>
+                              <DocumentUpload
+                                tenantId={tenant.id}
+                                category="contract"
+                                label="Dokument hochladen"
+                                accept=".pdf,.jpg,.jpeg,.png,.webp"
+                              />
+                            </div>
+                          )}
                         </div>
                       )
                     )}

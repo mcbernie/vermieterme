@@ -7,6 +7,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Loading } from "@/components/ui/loading";
 import { DISTRIBUTION_KEY_OPTIONS } from "@/lib/constants";
+import { validateIBAN, formatIBAN } from "@/lib/iban";
 import type { LandlordInfo, CostCategory, AppUser } from "@/types";
 
 export default function SettingsPage() {
@@ -453,8 +454,20 @@ export default function SettingsPage() {
                     onChange={(e) =>
                       setLandlord({ ...landlord, iban: e.target.value })
                     }
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                    onBlur={() => {
+                      if (landlord.iban) {
+                        setLandlord({ ...landlord, iban: formatIBAN(landlord.iban) });
+                      }
+                    }}
+                    className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                      landlord.iban && !validateIBAN(landlord.iban)
+                        ? "border-red-300 focus:border-red-500 focus:ring-red-500"
+                        : "border-zinc-300 focus:border-zinc-500 focus:ring-zinc-500"
+                    }`}
                   />
+                  {landlord.iban && !validateIBAN(landlord.iban) && (
+                    <p className="mt-1 text-xs text-red-600">Ungültige IBAN</p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-zinc-700">
@@ -513,6 +526,25 @@ export default function SettingsPage() {
               className="inline-flex rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
             >
               PDF-Vorlage bearbeiten
+            </Link>
+          </div>
+        </section>
+
+        {/* VPI */}
+        <section className="mb-10">
+          <h2 className="mb-4 text-lg font-semibold text-zinc-900">
+            Verbraucherpreisindex (VPI)
+          </h2>
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <p className="mb-3 text-sm text-zinc-600">
+              Verwalten Sie die VPI-Werte für die automatische Berechnung von
+              Indexmietanpassungen.
+            </p>
+            <Link
+              href="/settings/vpi"
+              className="inline-flex rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
+            >
+              VPI-Werte verwalten
             </Link>
           </div>
         </section>

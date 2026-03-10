@@ -8,7 +8,11 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     billingPeriod: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
+    },
+    property: {
+      findUnique: vi.fn(),
     },
   },
 }));
@@ -60,6 +64,12 @@ describe("GET /api/billing-periods", () => {
 describe("POST /api/billing-periods", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: no overlapping period, property exists with units
+    vi.mocked(prisma.billingPeriod.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.property.findUnique).mockResolvedValue({
+      id: "p1",
+      _count: { units: 2 },
+    } as any);
   });
 
   it("creates a billing period", async () => {
@@ -116,5 +126,67 @@ describe("POST /api/billing-periods", () => {
 
     const createCall = vi.mocked(prisma.billingPeriod.create).mock.calls[0][0];
     expect(createCall.data.billingDate).toBeInstanceOf(Date);
+  });
+
+  it("rejects overlapping billing periods", async () => {
+    vi.mocked(prisma.billingPeriod.findFirst).mockResolvedValue({
+      id: "existing",
+      startDate: new Date("2025-01-01"),
+      endDate: new Date("2025-12-31"),
+    } as any);
+
+    const request = new Request("http://localhost/api/billing-periods", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        propertyId: "p1",
+        startDate: "2025-06-01",
+        endDate: "2026-05-31",
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(409);
+    const data = await response.json();
+    expect(data.error).toContain("Überlappender");
+  });
+
+  it("rejects end date before start date", async () => {
+    const request = new Request("http://localhost/api/billing-periods", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        propertyId: "p1",
+        startDate: "2025-12-31",
+        endDate: "2025-01-01",
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const data = await response.json();
+    expect(data.error).toContain("Enddatum");
+  });
+
+  it("rejects property with no units", async () => {
+    vi.mocked(prisma.property.findUnique).mockResolvedValue({
+      id: "p1",
+      _count: { units: 0 },
+    } as any);
+
+    const request = new Request("http://localhost/api/billing-periods", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        propertyId: "p1",
+        startDate: "2025-01-01",
+        endDate: "2025-12-31",
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const data = await response.json();
+    expect(data.error).toContain("keine Wohnungen");
   });
 });
