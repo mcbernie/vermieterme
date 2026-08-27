@@ -9,13 +9,15 @@ export function PUT(
     await requireAuth();
     const { id } = await paramsPromise;
     const body = await request.json();
-    const { name, distributionKey, sortOrder } = body;
+    const { name, distributionKey, apportionable, requiresAttachment, sortOrder } = body;
 
     const category = await prisma.costCategory.update({
       where: { id },
       data: {
         name,
         distributionKey,
+        apportionable: apportionable ?? true,
+        requiresAttachment: requiresAttachment ?? false,
         sortOrder,
       },
     });

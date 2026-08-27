@@ -1,7 +1,11 @@
 import { apiHandler, ApiError, jsonOk } from "@/lib/api-utils";
 import { prisma } from "@/lib/prisma";
 import { requireTenantAuth } from "@/lib/tenant-auth";
-import { calculateBillingTotals, calculateMEAAmount } from "@/lib/billing";
+import {
+  calculateAllocationAmount,
+  calculateMEAAmount,
+  getMonthsInPeriod,
+} from "@/lib/billing";
 import { NextRequest } from "next/server";
 
 export function GET(
@@ -14,7 +18,14 @@ export function GET(
 
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
-      include: { unit: { include: { property: true } } },
+      include: {
+        unit: {
+          include: {
+            property: true,
+            allocationKeys: true,
+          },
+        },
+      },
     });
 
     if (!tenant) {
@@ -38,31 +49,63 @@ export function GET(
     const unit = tenant.unit;
     const property = unit.property;
 
-    const visibleCosts = bp.costs.filter((cost) => cost.enabled !== false);
+    const visibleCosts = bp.costs.filter(
+      (cost) =>
+        cost.enabled !== false && cost.costCategory.apportionable !== false
+    );
 
     const costs = visibleCosts.map((cost) => {
       // Per-period override takes precedence over the category default.
       const distributionKey =
         cost.distributionKeyOverride ?? cost.costCategory.distributionKey;
-      let unitAmount = cost.unitAmount;
+      let unitAmount =
+        property.accountingMode === "weg" &&
+        cost.tenantAmountOverride !== null
+          ? cost.tenantAmountOverride
+          : cost.unitAmount;
       if (unitAmount == null && distributionKey.toLowerCase() === "mea") {
         unitAmount = calculateMEAAmount(cost.totalAmount, unit.shares, property.totalShares);
+      } else if (
+        distributionKey !== "laut Bescheid" &&
+        distributionKey !== "siehe Anlage"
+      ) {
+        const allocationKey = unit.allocationKeys.find(
+          (key) => key.key === distributionKey
+        );
+        if (allocationKey) {
+          unitAmount = calculateAllocationAmount(
+            cost.totalAmount,
+            allocationKey.unitValue,
+            allocationKey.totalValue
+          );
+        }
       }
 
       return {
         id: cost.id,
         category: cost.costCategory.name,
+        requiresAttachment: cost.costCategory.requiresAttachment,
         distributionKey,
         totalAmount: cost.totalAmount,
         unitAmount: unitAmount ?? 0,
       };
     });
 
-    const totals = calculateBillingTotals(
-      visibleCosts,
-      bp.prepayments,
+    const months = getMonthsInPeriod(
       bp.startDate.toISOString(),
       bp.endDate.toISOString()
+    );
+    const totalCosts = visibleCosts.reduce(
+      (sum, cost) => sum + cost.totalAmount,
+      0
+    );
+    const totalUnitCosts = costs.reduce(
+      (sum, cost) => sum + cost.unitAmount,
+      0
+    );
+    const totalPrepayment = bp.prepayments.reduce(
+      (sum, prepayment) => sum + prepayment.monthlyAmount * months,
+      0
     );
 
     const documents = bp.documents.map((doc) => ({
@@ -92,10 +135,10 @@ export function GET(
         monthlyAmount: p.monthlyAmount,
       })),
       totals: {
-        totalCosts: totals.totalCosts,
-        totalUnitCosts: totals.totalUnitCosts,
-        totalPrepayment: totals.totalPrepayment,
-        difference: totals.difference,
+        totalCosts,
+        totalUnitCosts,
+        totalPrepayment,
+        difference: totalPrepayment - totalUnitCosts,
       },
       documents,
     });

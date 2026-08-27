@@ -270,6 +270,11 @@ export interface BillingPdfProps {
     name: string;
     floor: string;
     shares: number;
+    allocationKeys?: Array<{
+      key: string;
+      unitValue: number;
+      totalValue: number;
+    }>;
   };
   tenant: {
     salutation: string;
@@ -281,6 +286,7 @@ export interface BillingPdfProps {
   };
   costs: Array<{
     categoryName: string;
+    requiresAttachment?: boolean;
     distributionKey: string;
     totalAmount: number;
     unitAmount: number;
@@ -326,10 +332,27 @@ export function BillingPdf({
     ? `${tenant.salutation2 ?? ""} ${tenant.firstName2} ${tenant.lastName2}`.trim()
     : null;
 
+  function getAllocationKey(key: string) {
+    return unit.allocationKeys?.find((allocationKey) => allocationKey.key === key);
+  }
+
+  function formatDistributionValue(value: number): string {
+    return new Intl.NumberFormat("de-DE", {
+      maximumFractionDigits: 6,
+      useGrouping: false,
+    }).format(value);
+  }
+
   function distributionKeyText(key: string, shares: number): string {
     if (key === "MEA") return `${shares} MEA`;
     if (key === "laut Bescheid") return "laut Bescheid";
     if (key === "siehe Anlage") return "siehe Anlage";
+    const allocationKey = getAllocationKey(key);
+    if (allocationKey) {
+      return `${formatDistributionValue(
+        allocationKey.unitValue
+      )} / ${formatDistributionValue(allocationKey.totalValue)}`;
+    }
     return key;
   }
 
@@ -442,7 +465,10 @@ export function BillingPdf({
 
             {costs.map((cost, index) => (
               <View style={styles.tableRow} key={index}>
-                <Text style={styles.colKostenart}>{cost.categoryName}</Text>
+                <Text style={styles.colKostenart}>
+                  {cost.categoryName}
+                  {cost.requiresAttachment ? " (Anlage)" : ""}
+                </Text>
                 <Text style={styles.colKosten}>
                   {formatCurrency(cost.totalAmount)} EUR
                 </Text>
@@ -525,6 +551,27 @@ export function BillingPdf({
                 <Text style={styles.distributionValues}></Text>
               </View>
             )}
+            {usedKeys
+              .filter(
+                (key) =>
+                  !["MEA", "laut Bescheid", "siehe Anlage"].includes(key) &&
+                  getAllocationKey(key)
+              )
+              .map((key) => {
+                const allocationKey = getAllocationKey(key)!;
+                return (
+                  <View style={styles.distributionRow} key={key}>
+                    <Text style={styles.distributionKey}>{key}</Text>
+                    <Text style={styles.distributionDesc}>
+                      Individueller Umlageschlüssel
+                    </Text>
+                    <Text style={styles.distributionValues}>
+                      {formatDistributionValue(allocationKey.unitValue)} /{" "}
+                      {formatDistributionValue(allocationKey.totalValue)}
+                    </Text>
+                  </View>
+                );
+              })}
           </View>
         )}
 

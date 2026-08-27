@@ -6,6 +6,7 @@ export function GET() {
     await requireAuth();
     const properties = await prisma.property.findMany({
       include: {
+        landlord: true,
         _count: {
           select: { units: true },
         },
@@ -20,7 +21,7 @@ export function POST(request: Request) {
   return apiHandler(async () => {
     await requireAuth();
     const body = await request.json();
-    const { street, zip, city, totalShares } = body;
+    const { street, zip, city, totalShares, landlordId, accountingMode } = body;
 
     const property = await prisma.property.create({
       data: {
@@ -28,6 +29,8 @@ export function POST(request: Request) {
         zip,
         city,
         totalShares,
+        landlordId: landlordId || null,
+        accountingMode: accountingMode || "standard",
       },
     });
 

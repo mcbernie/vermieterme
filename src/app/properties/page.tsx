@@ -2,11 +2,61 @@
 
 import { useEffect, useState } from "react";
 import { Nav } from "@/components/nav";
+import { Combobox } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Loading } from "@/components/ui/loading";
 import { EmptyState } from "@/components/ui/empty-state";
 import { formatCurrency } from "@/lib/format";
-import type { PropertyWithCount, PropertyWithUnits, UnitWithTenants, Tenant, RentChange } from "@/types";
+import { DISTRIBUTION_KEYS } from "@/lib/constants";
+import type { PropertyWithCount, PropertyWithUnits, UnitWithTenants, Tenant, RentChange, UnitAllocationKey, CostCategory, LandlordInfo } from "@/types";
+
+type AllocationKeyFormRow = {
+  key: string;
+  unitValue: string;
+  totalValue: string;
+};
+
+function parseDecimal(value: string | undefined): number {
+  const raw = value?.trim() ?? "";
+  if (raw.includes(",")) {
+    return Number(raw.replace(/\./g, "").replace(",", "."));
+  }
+  return Number(raw);
+}
+
+function formatDecimal(value: number): string {
+  return new Intl.NumberFormat("de-DE", {
+    maximumFractionDigits: 6,
+    useGrouping: false,
+  }).format(value);
+}
+
+function formatAllocationKeyRows(keys: UnitAllocationKey[] = []): AllocationKeyFormRow[] {
+  return keys.map((key) => ({
+    key: key.key,
+    unitValue: formatDecimal(key.unitValue),
+    totalValue: formatDecimal(key.totalValue),
+  }));
+}
+
+function parseAllocationKeyRows(rows: AllocationKeyFormRow[]) {
+  return rows
+    .map((row) => {
+      const unitValue = parseDecimal(row.unitValue);
+      const totalValue = parseDecimal(row.totalValue);
+
+      if (!row.key || !Number.isFinite(unitValue) || !Number.isFinite(totalValue)) {
+        return null;
+      }
+
+      return {
+        key: row.key,
+        unitValue,
+        totalValue,
+      };
+    })
+    .filter((key): key is { key: string; unitValue: number; totalValue: number } => key !== null);
+}
 
 export default function PropertiesPage() {
   const [properties, setProperties] = useState<PropertyWithCount[]>([]);
@@ -20,6 +70,8 @@ export default function PropertiesPage() {
   const [deletePropertyId, setDeletePropertyId] = useState<string | null>(null);
   const [deleteUnitTarget, setDeleteUnitTarget] = useState<{ unitId: string; propertyId: string } | null>(null);
   const [rentChanges, setRentChanges] = useState<RentChange[]>([]);
+  const [costCategories, setCostCategories] = useState<CostCategory[]>([]);
+  const [landlords, setLandlords] = useState<LandlordInfo[]>([]);
 
   // Property form state
   const [propertyForm, setPropertyForm] = useState({
@@ -27,6 +79,8 @@ export default function PropertiesPage() {
     zip: "",
     city: "",
     totalShares: 100,
+    landlordId: "",
+    accountingMode: "standard" as "standard" | "weg",
   });
 
   // Unit form state
@@ -34,11 +88,14 @@ export default function PropertiesPage() {
     name: "",
     floor: "",
     shares: 0,
+    allocationKeys: [] as AllocationKeyFormRow[],
   });
 
   useEffect(() => {
     fetchProperties();
     fetchRentChanges();
+    fetchCostCategories();
+    fetchLandlords();
   }, []);
 
   async function fetchProperties() {
@@ -63,6 +120,89 @@ export default function PropertiesPage() {
     } catch (error) {
       console.error("Failed to fetch rent changes:", error);
     }
+  }
+
+  async function fetchCostCategories() {
+    try {
+      const res = await fetch("/api/cost-categories");
+      if (res.ok) {
+        setCostCategories(await res.json());
+      }
+    } catch (error) {
+      console.error("Failed to fetch cost categories:", error);
+    }
+  }
+
+  async function fetchLandlords() {
+    try {
+      const res = await fetch("/api/landlords");
+      if (res.ok) {
+        setLandlords(await res.json());
+      }
+    } catch (error) {
+      console.error("Failed to fetch landlords:", error);
+    }
+  }
+
+  const landlordOptions = [
+    { value: "", label: "Kein Vermieter zugeordnet" },
+    ...landlords
+      .filter((landlord) => landlord.id)
+      .map((landlord) => ({
+        value: landlord.id!,
+        label: landlord.name,
+      })),
+  ];
+
+  function resetPropertyForm() {
+    setPropertyForm({
+      street: "",
+      zip: "",
+      city: "",
+      totalShares: 100,
+      landlordId: "",
+      accountingMode: "standard",
+    });
+  }
+
+  const allocationKeyOptions = Array.from(
+    new Set([
+      ...DISTRIBUTION_KEYS,
+      ...costCategories.map((category) => category.distributionKey),
+      ...unitForm.allocationKeys.map((row) => row.key),
+    ])
+  )
+    .filter((key) => key && key !== "MEA" && key !== "laut Bescheid" && key !== "siehe Anlage")
+    .map((key) => ({ value: key, label: key }));
+
+  function updateAllocationKeyRow(index: number, patch: Partial<AllocationKeyFormRow>) {
+    setUnitForm((current) => ({
+      ...current,
+      allocationKeys: current.allocationKeys.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, ...patch } : row
+      ),
+    }));
+  }
+
+  function addAllocationKeyRow() {
+    setUnitForm((current) => ({
+      ...current,
+      allocationKeys: [
+        ...current.allocationKeys,
+        {
+          key: allocationKeyOptions[0]?.value ?? "",
+          unitValue: "",
+          totalValue: "",
+        },
+      ],
+    }));
+  }
+
+  function removeAllocationKeyRow(index: number) {
+    setUnitForm((current) => ({
+      ...current,
+      allocationKeys: current.allocationKeys.filter((_, rowIndex) => rowIndex !== index),
+    }));
   }
 
   function getLatestRent(unitId: string): { rent: number | null; prepayment: number | null } {
@@ -109,7 +249,7 @@ export default function PropertiesPage() {
         body: JSON.stringify(propertyForm),
       });
       if (res.ok) {
-        setPropertyForm({ street: "", zip: "", city: "", totalShares: 100 });
+        resetPropertyForm();
         setShowNewPropertyForm(false);
         await fetchProperties();
       }
@@ -127,7 +267,7 @@ export default function PropertiesPage() {
       });
       if (res.ok) {
         setEditingPropertyId(null);
-        setPropertyForm({ street: "", zip: "", city: "", totalShares: 100 });
+        resetPropertyForm();
         await fetchProperties();
         if (expandedId === id) {
           await fetchPropertyDetail(id);
@@ -160,6 +300,8 @@ export default function PropertiesPage() {
       zip: property.zip,
       city: property.city,
       totalShares: property.totalShares,
+      landlordId: property.landlordId ?? "",
+      accountingMode: property.accountingMode ?? "standard",
     });
   }
 
@@ -169,10 +311,16 @@ export default function PropertiesPage() {
       const res = await fetch("/api/units", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...unitForm, propertyId }),
+        body: JSON.stringify({
+          propertyId,
+          name: unitForm.name,
+          floor: unitForm.floor,
+          shares: unitForm.shares,
+          allocationKeys: parseAllocationKeyRows(unitForm.allocationKeys),
+        }),
       });
       if (res.ok) {
-        setUnitForm({ name: "", floor: "", shares: 0 });
+        setUnitForm({ name: "", floor: "", shares: 0, allocationKeys: [] });
         setShowNewUnitForm(null);
         await fetchPropertyDetail(propertyId);
         await fetchProperties();
@@ -187,11 +335,17 @@ export default function PropertiesPage() {
       const res = await fetch(`/api/units/${unitId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...unitForm, propertyId }),
+        body: JSON.stringify({
+          propertyId,
+          name: unitForm.name,
+          floor: unitForm.floor,
+          shares: unitForm.shares,
+          allocationKeys: parseAllocationKeyRows(unitForm.allocationKeys),
+        }),
       });
       if (res.ok) {
         setEditingUnitId(null);
-        setUnitForm({ name: "", floor: "", shares: 0 });
+        setUnitForm({ name: "", floor: "", shares: 0, allocationKeys: [] });
         await fetchPropertyDetail(propertyId);
       }
     } catch (error) {
@@ -217,11 +371,83 @@ export default function PropertiesPage() {
       name: unit.name,
       floor: unit.floor,
       shares: unit.shares,
+      allocationKeys: formatAllocationKeyRows(unit.allocationKeys),
     });
   }
 
   function getCurrentTenant(tenants: Tenant[]): Tenant | undefined {
     return tenants.find((t) => !t.moveOutDate);
+  }
+
+  function renderAllocationKeyRows() {
+    return (
+      <div className="mt-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <label className="block text-xs font-medium text-zinc-700">
+            Weitere Umlageschlüssel
+          </label>
+          <button
+            type="button"
+            onClick={addAllocationKeyRow}
+            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            Schlüssel hinzufügen
+          </button>
+        </div>
+        {unitForm.allocationKeys.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-zinc-300 px-3 py-2 text-xs text-zinc-500">
+            Keine zusätzlichen Schlüssel hinterlegt.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {unitForm.allocationKeys.map((row, index) => (
+              <div
+                key={index}
+                className="grid gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
+              >
+                <Combobox
+                  options={allocationKeyOptions}
+                  value={row.key}
+                  onChange={(key) => updateAllocationKeyRow(index, { key })}
+                  placeholder="Schlüssel wählen"
+                  searchPlaceholder="Schlüssel suchen..."
+                />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={row.unitValue}
+                  onChange={(e) =>
+                    updateAllocationKeyRow(index, { unitValue: e.target.value })
+                  }
+                  placeholder="Einzelanteil"
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={row.totalValue}
+                  onChange={(e) =>
+                    updateAllocationKeyRow(index, { totalValue: e.target.value })
+                  }
+                  placeholder="Gesamtanteil"
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeAllocationKeyRow(index)}
+                  className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Entfernen
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="mt-1 text-xs text-zinc-500">
+          Die Auswahl muss zum Verteilerschlüssel der Kostenart passen.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -234,7 +460,7 @@ export default function PropertiesPage() {
             onClick={() => {
               setShowNewPropertyForm(!showNewPropertyForm);
               setEditingPropertyId(null);
-              setPropertyForm({ street: "", zip: "", city: "", totalShares: 100 });
+              resetPropertyForm();
             }}
             className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
           >
@@ -251,7 +477,7 @@ export default function PropertiesPage() {
             <h3 className="mb-4 text-lg font-semibold text-zinc-900">
               Neues Objekt anlegen
             </h3>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
               <div>
                 <label className="mb-1 block text-sm font-medium text-zinc-700">
                   Straße
@@ -311,6 +537,38 @@ export default function PropertiesPage() {
                   className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                 />
               </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">
+                  Vermieter
+                </label>
+                <Combobox
+                  options={landlordOptions}
+                  value={propertyForm.landlordId}
+                  onChange={(landlordId) =>
+                    setPropertyForm({ ...propertyForm, landlordId })
+                  }
+                  placeholder="Vermieter wählen..."
+                  searchPlaceholder="Vermieter suchen..."
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">
+                  Modus
+                </label>
+                <select
+                  value={propertyForm.accountingMode}
+                  onChange={(e) =>
+                    setPropertyForm({
+                      ...propertyForm,
+                      accountingMode: e.target.value as "standard" | "weg",
+                    })
+                  }
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                >
+                  <option value="standard">Standard</option>
+                  <option value="weg">ETW / WEG</option>
+                </select>
+              </div>
             </div>
             <div className="mt-4 flex gap-2">
               <button
@@ -347,7 +605,7 @@ export default function PropertiesPage() {
                     <h3 className="mb-4 text-lg font-semibold text-zinc-900">
                       Objekt bearbeiten
                     </h3>
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
                       <div>
                         <label className="mb-1 block text-sm font-medium text-zinc-700">
                           Straße
@@ -416,6 +674,40 @@ export default function PropertiesPage() {
                           className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                         />
                       </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-zinc-700">
+                          Vermieter
+                        </label>
+                        <Combobox
+                          options={landlordOptions}
+                          value={propertyForm.landlordId}
+                          onChange={(landlordId) =>
+                            setPropertyForm({ ...propertyForm, landlordId })
+                          }
+                          placeholder="Vermieter wählen..."
+                          searchPlaceholder="Vermieter suchen..."
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-zinc-700">
+                          Modus
+                        </label>
+                        <select
+                          value={propertyForm.accountingMode}
+                          onChange={(e) =>
+                            setPropertyForm({
+                              ...propertyForm,
+                              accountingMode: e.target.value as
+                                | "standard"
+                                | "weg",
+                            })
+                          }
+                          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                        >
+                          <option value="standard">Standard</option>
+                          <option value="weg">ETW / WEG</option>
+                        </select>
+                      </div>
                     </div>
                     <div className="mt-4 flex gap-2">
                       <button
@@ -427,12 +719,7 @@ export default function PropertiesPage() {
                       <button
                         onClick={() => {
                           setEditingPropertyId(null);
-                          setPropertyForm({
-                            street: "",
-                            zip: "",
-                            city: "",
-                            totalShares: 100,
-                          });
+                          resetPropertyForm();
                         }}
                         className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
                       >
@@ -452,6 +739,18 @@ export default function PropertiesPage() {
                       <p className="text-sm text-zinc-500">
                         {property.zip} {property.city}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        <span className="rounded bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600">
+                          {property.accountingMode === "weg"
+                            ? "ETW / WEG"
+                            : "Standard"}
+                        </span>
+                        {property.landlord && (
+                          <span className="rounded bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600">
+                            {property.landlord.name}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
@@ -514,7 +813,12 @@ export default function PropertiesPage() {
                             showNewUnitForm === property.id ? null : property.id
                           );
                           setEditingUnitId(null);
-                          setUnitForm({ name: "", floor: "", shares: 0 });
+                          setUnitForm({
+                            name: "",
+                            floor: "",
+                            shares: 0,
+                            allocationKeys: [],
+                          });
                         }}
                         className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
                       >
@@ -583,6 +887,7 @@ export default function PropertiesPage() {
                             />
                           </div>
                         </div>
+                        {renderAllocationKeyRows()}
                         <div className="mt-3 flex gap-2">
                           <button
                             type="submit"
@@ -667,7 +972,7 @@ export default function PropertiesPage() {
                                           className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                                         />
                                       </div>
-                                      <div className="flex gap-2">
+                                      <div>
                                         <input
                                           type="number"
                                           required
@@ -681,6 +986,10 @@ export default function PropertiesPage() {
                                           }
                                           className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                                         />
+                                      </div>
+                                    </div>
+                                    {renderAllocationKeyRows()}
+                                    <div className="mt-3 flex gap-2">
                                         <button
                                           onClick={() =>
                                             handleUpdateUnit(
@@ -699,13 +1008,13 @@ export default function PropertiesPage() {
                                               name: "",
                                               floor: "",
                                               shares: 0,
+                                              allocationKeys: [],
                                             });
                                           }}
                                           className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
                                         >
                                           Abbrechen
                                         </button>
-                                      </div>
                                     </div>
                                   </td>
                                 </tr>
@@ -718,7 +1027,16 @@ export default function PropertiesPage() {
                                     {unit.floor}
                                   </td>
                                   <td className="py-3 text-sm text-zinc-600">
-                                    {unit.shares}
+                                    <div>{unit.shares}</div>
+                                    {unit.allocationKeys && unit.allocationKeys.length > 0 && (
+                                      <div className="mt-1 space-y-0.5 text-xs text-zinc-400">
+                                        {unit.allocationKeys.map((key) => (
+                                          <div key={key.id}>
+                                            {key.key}: {formatDecimal(key.unitValue)} / {formatDecimal(key.totalValue)}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="py-3 text-sm text-zinc-600">
                                     {currentTenant

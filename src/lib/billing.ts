@@ -72,6 +72,15 @@ export function calculateMEAAmount(
   return totalAmount * (unitShares / propertyTotalShares);
 }
 
+export function calculateAllocationAmount(
+  totalAmount: number,
+  unitValue: number,
+  totalValue: number
+): number {
+  if (totalValue === 0) return 0;
+  return totalAmount * (unitValue / totalValue);
+}
+
 export function getMonthsInPeriod(startDate: string, endDate: string): number {
   const start = new Date(startDate);
   const end = new Date(endDate);

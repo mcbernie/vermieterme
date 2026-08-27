@@ -31,6 +31,8 @@ export function POST(
       costCategoryId,
       totalAmount,
       unitAmount,
+      ownerAmount,
+      tenantAmountOverride,
       reviewed,
       enabled,
       distributionKeyOverride,
@@ -53,6 +55,12 @@ export function POST(
       typeof totalAmount === "number" ? totalAmount : existing?.totalAmount ?? 0;
     const nextUnitAmount =
       unitAmount === undefined ? existing?.unitAmount ?? null : unitAmount;
+    const nextOwnerAmount =
+      ownerAmount === undefined ? existing?.ownerAmount ?? null : ownerAmount;
+    const nextTenantAmountOverride =
+      tenantAmountOverride === undefined
+        ? existing?.tenantAmountOverride ?? null
+        : tenantAmountOverride;
     const nextEnabled =
       typeof enabled === "boolean" ? enabled : existing?.enabled ?? true;
     const nextOverride =
@@ -71,7 +79,10 @@ export function POST(
       // the value changed, so it needs to be reviewed again.
       const valueChanged =
         existing.totalAmount !== nextTotalAmount ||
-        (existing.unitAmount ?? null) !== (nextUnitAmount ?? null);
+        (existing.unitAmount ?? null) !== (nextUnitAmount ?? null) ||
+        (existing.ownerAmount ?? null) !== (nextOwnerAmount ?? null) ||
+        (existing.tenantAmountOverride ?? null) !==
+          (nextTenantAmountOverride ?? null);
       nextReviewed = valueChanged ? false : existing.reviewed;
     } else {
       // Brand-new position the user just entered manually — counts as
@@ -89,6 +100,8 @@ export function POST(
       update: {
         totalAmount: nextTotalAmount,
         unitAmount: nextUnitAmount,
+        ownerAmount: nextOwnerAmount,
+        tenantAmountOverride: nextTenantAmountOverride,
         reviewed: nextReviewed,
         enabled: nextEnabled,
         distributionKeyOverride: nextOverride,
@@ -98,6 +111,8 @@ export function POST(
         costCategoryId,
         totalAmount: nextTotalAmount,
         unitAmount: nextUnitAmount,
+        ownerAmount: nextOwnerAmount,
+        tenantAmountOverride: nextTenantAmountOverride,
         reviewed: nextReviewed,
         enabled: nextEnabled,
         distributionKeyOverride: nextOverride,

@@ -16,6 +16,9 @@ export function GET(
             units: {
               include: {
                 tenants: true,
+                allocationKeys: {
+                  orderBy: { key: "asc" },
+                },
               },
             },
           },

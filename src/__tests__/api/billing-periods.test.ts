@@ -9,7 +9,14 @@ vi.mock("@/lib/prisma", () => ({
     billingPeriod: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       create: vi.fn(),
+    },
+    cost: {
+      createMany: vi.fn(),
+    },
+    prepayment: {
+      createMany: vi.fn(),
     },
     property: {
       findUnique: vi.fn(),
@@ -126,6 +133,54 @@ describe("POST /api/billing-periods", () => {
 
     const createCall = vi.mocked(prisma.billingPeriod.create).mock.calls[0][0];
     expect(createCall.data.billingDate).toBeInstanceOf(Date);
+  });
+
+  it("copies ETW fields and period overrides from source period", async () => {
+    vi.mocked(prisma.billingPeriod.create).mockResolvedValue({
+      id: "bp-copy",
+      propertyId: "p1",
+    } as any);
+    vi.mocked(prisma.billingPeriod.findUnique).mockResolvedValue({
+      id: "bp-source",
+      costs: [
+        {
+          costCategoryId: "cat-1",
+          totalAmount: 5700.92,
+          unitAmount: null,
+          ownerAmount: 91.11,
+          tenantAmountOverride: 91.11,
+          enabled: true,
+          distributionKeyOverride: "Wohnfläche ab 1.OG - Aufzug (m2)",
+        },
+      ],
+      prepayments: [],
+    } as any);
+    vi.mocked(prisma.cost.createMany).mockResolvedValue({ count: 1 } as any);
+
+    const request = new Request("http://localhost/api/billing-periods", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        propertyId: "p1",
+        startDate: "2026-01-01",
+        endDate: "2026-12-31",
+        copyFromId: "bp-source",
+      }),
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    const createManyCall = vi.mocked(prisma.cost.createMany).mock.calls[0]?.[0];
+    const copiedCost = Array.isArray(createManyCall?.data)
+      ? createManyCall.data[0]
+      : null;
+    expect(copiedCost).toMatchObject({
+      ownerAmount: 91.11,
+      tenantAmountOverride: 91.11,
+      distributionKeyOverride: "Wohnfläche ab 1.OG - Aufzug (m2)",
+      reviewed: false,
+    });
   });
 
   it("rejects overlapping billing periods", async () => {

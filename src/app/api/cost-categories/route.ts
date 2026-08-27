@@ -16,12 +16,14 @@ export function POST(request: Request) {
   return apiHandler(async () => {
     await requireAuth();
     const body = await request.json();
-    const { name, distributionKey, sortOrder } = body;
+    const { name, distributionKey, apportionable, requiresAttachment, sortOrder } = body;
 
     const category = await prisma.costCategory.create({
       data: {
         name,
         distributionKey,
+        apportionable: apportionable ?? true,
+        requiresAttachment: requiresAttachment ?? false,
         sortOrder,
       },
     });

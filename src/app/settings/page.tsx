@@ -23,6 +23,7 @@ export default function SettingsPage() {
     accountHolder: "",
   });
   const [costCategories, setCostCategories] = useState<CostCategory[]>([]);
+  const [landlords, setLandlords] = useState<LandlordInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingLandlord, setSavingLandlord] = useState(false);
   const [landlordStatus, setLandlordStatus] = useState<string | null>(null);
@@ -34,6 +35,8 @@ export default function SettingsPage() {
   const [categoryForm, setCategoryForm] = useState({
     name: "",
     distributionKey: "MEA",
+    apportionable: true,
+    requiresAttachment: false,
     sortOrder: 0,
   });
   const [deleteCategoryId, setDeleteCategoryId] = useState<string | null>(null);
@@ -58,26 +61,27 @@ export default function SettingsPage() {
 
   async function fetchData() {
     try {
-      const [landlordRes, categoriesRes, usersRes] = await Promise.all([
-        fetch("/api/settings"),
+      const [landlordsRes, categoriesRes, usersRes] = await Promise.all([
+        fetch("/api/landlords"),
         fetch("/api/cost-categories"),
         fetch("/api/users"),
       ]);
 
-      if (landlordRes.ok) {
-        const data = await landlordRes.json();
-        if (data && !data.error) {
+      if (landlordsRes.ok) {
+        const data = await landlordsRes.json();
+        setLandlords(data);
+        if (data[0]) {
           setLandlord({
-            id: data.id,
-            name: data.name || "",
-            street: data.street || "",
-            zip: data.zip || "",
-            city: data.city || "",
-            phone: data.phone || "",
-            email: data.email || "",
-            bankName: data.bankName || "",
-            iban: data.iban || "",
-            accountHolder: data.accountHolder || "",
+            id: data[0].id,
+            name: data[0].name || "",
+            street: data[0].street || "",
+            zip: data[0].zip || "",
+            city: data[0].city || "",
+            phone: data[0].phone || "",
+            email: data[0].email || "",
+            bankName: data[0].bankName || "",
+            iban: data[0].iban || "",
+            accountHolder: data[0].accountHolder || "",
           });
         }
       }
@@ -102,15 +106,24 @@ export default function SettingsPage() {
     setLandlordStatus(null);
 
     try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(landlord),
-      });
+      const res = await fetch(
+        landlord.id ? `/api/landlords/${landlord.id}` : "/api/landlords",
+        {
+          method: landlord.id ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(landlord),
+        }
+      );
 
       if (res.ok) {
         const data = await res.json();
         setLandlord((prev) => ({ ...prev, id: data.id }));
+        setLandlords((prev) => {
+          const existing = prev.some((item) => item.id === data.id);
+          return existing
+            ? prev.map((item) => (item.id === data.id ? data : item))
+            : [...prev, data];
+        });
         setLandlordStatus("Gespeichert");
         setTimeout(() => setLandlordStatus(null), 2000);
       } else {
@@ -122,6 +135,35 @@ export default function SettingsPage() {
     } finally {
       setSavingLandlord(false);
     }
+  }
+
+  function resetLandlordForm() {
+    setLandlord({
+      name: "",
+      street: "",
+      zip: "",
+      city: "",
+      phone: "",
+      email: "",
+      bankName: "",
+      iban: "",
+      accountHolder: "",
+    });
+  }
+
+  function editLandlord(item: LandlordInfo) {
+    setLandlord({
+      id: item.id,
+      name: item.name || "",
+      street: item.street || "",
+      zip: item.zip || "",
+      city: item.city || "",
+      phone: item.phone || "",
+      email: item.email || "",
+      bankName: item.bankName || "",
+      iban: item.iban || "",
+      accountHolder: item.accountHolder || "",
+    });
   }
 
   async function fetchCategories() {
@@ -144,7 +186,7 @@ export default function SettingsPage() {
         body: JSON.stringify(categoryForm),
       });
       if (res.ok) {
-        setCategoryForm({ name: "", distributionKey: "MEA", sortOrder: 0 });
+        setCategoryForm({ name: "", distributionKey: "MEA", apportionable: true, requiresAttachment: false, sortOrder: 0 });
         setShowNewCategoryForm(false);
         await fetchCategories();
       }
@@ -162,7 +204,7 @@ export default function SettingsPage() {
       });
       if (res.ok) {
         setEditingCategoryId(null);
-        setCategoryForm({ name: "", distributionKey: "MEA", sortOrder: 0 });
+        setCategoryForm({ name: "", distributionKey: "MEA", apportionable: true, requiresAttachment: false, sortOrder: 0 });
         await fetchCategories();
       }
     } catch (error) {
@@ -309,6 +351,8 @@ export default function SettingsPage() {
     setCategoryForm({
       name: cat.name,
       distributionKey: cat.distributionKey,
+      apportionable: cat.apportionable ?? true,
+      requiresAttachment: cat.requiresAttachment ?? false,
       sortOrder: cat.sortOrder,
     });
   }
@@ -334,9 +378,36 @@ export default function SettingsPage() {
 
         {/* Landlord Info */}
         <section className="mb-10">
-          <h2 className="mb-4 text-lg font-semibold text-zinc-900">
-            Vermieter-Informationen
-          </h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-zinc-900">
+              Vermieter-Informationen
+            </h2>
+            <button
+              type="button"
+              onClick={resetLandlordForm}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              Neuer Vermieter
+            </button>
+          </div>
+          {landlords.length > 0 && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {landlords.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => editLandlord(item)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                    landlord.id === item.id
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                >
+                  {item.name}
+                </button>
+              ))}
+            </div>
+          )}
           <form
             onSubmit={handleSaveLandlord}
             className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm"
@@ -562,6 +633,8 @@ export default function SettingsPage() {
                 setCategoryForm({
                   name: "",
                   distributionKey: "MEA",
+                  apportionable: true,
+                  requiresAttachment: false,
                   sortOrder:
                     costCategories.length > 0
                       ? Math.max(...costCategories.map((c) => c.sortOrder)) + 1
@@ -583,7 +656,7 @@ export default function SettingsPage() {
               <h3 className="mb-4 text-sm font-semibold text-zinc-700">
                 Neue Kostenart anlegen
               </h3>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-5">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-zinc-700">
                     Name
@@ -637,6 +710,34 @@ export default function SettingsPage() {
                     className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                   />
                 </div>
+                <label className="flex items-center gap-2 self-end rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={categoryForm.apportionable}
+                    onChange={(e) =>
+                      setCategoryForm({
+                        ...categoryForm,
+                        apportionable: e.target.checked,
+                      })
+                    }
+                    className="h-4 w-4 rounded border-zinc-300"
+                  />
+                  Umlagefähig
+                </label>
+                <label className="flex items-center gap-2 self-end rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={categoryForm.requiresAttachment}
+                    onChange={(e) =>
+                      setCategoryForm({
+                        ...categoryForm,
+                        requiresAttachment: e.target.checked,
+                      })
+                    }
+                    className="h-4 w-4 rounded border-zinc-300"
+                  />
+                  Anlage erforderlich
+                </label>
               </div>
               <div className="mt-4 flex gap-2">
                 <button
@@ -677,6 +778,12 @@ export default function SettingsPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-zinc-500">
                       Verteilerschlüssel
                     </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-zinc-500">
+                      Umlagefähig
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-zinc-500">
+                      Anlage
+                    </th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-zinc-500">
                       Aktionen
                     </th>
@@ -686,8 +793,8 @@ export default function SettingsPage() {
                   {costCategories.map((cat) =>
                     editingCategoryId === cat.id ? (
                       <tr key={cat.id}>
-                        <td className="px-4 py-3" colSpan={4}>
-                          <div className="grid gap-3 sm:grid-cols-3">
+                        <td className="px-4 py-3" colSpan={6}>
+                          <div className="grid gap-3 sm:grid-cols-5">
                             <div>
                               <input
                                 type="text"
@@ -728,6 +835,34 @@ export default function SettingsPage() {
                                 }
                                 className="w-20 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                               />
+                              <label className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700">
+                                <input
+                                  type="checkbox"
+                                  checked={categoryForm.apportionable}
+                                  onChange={(e) =>
+                                    setCategoryForm({
+                                      ...categoryForm,
+                                      apportionable: e.target.checked,
+                                    })
+                                  }
+                                  className="h-4 w-4 rounded border-zinc-300"
+                                />
+                                Umlagefähig
+                              </label>
+                              <label className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700">
+                                <input
+                                  type="checkbox"
+                                  checked={categoryForm.requiresAttachment}
+                                  onChange={(e) =>
+                                    setCategoryForm({
+                                      ...categoryForm,
+                                      requiresAttachment: e.target.checked,
+                                    })
+                                  }
+                                  className="h-4 w-4 rounded border-zinc-300"
+                                />
+                                Anlage
+                              </label>
                               <button
                                 onClick={() => handleUpdateCategory(cat.id)}
                                 className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800"
@@ -740,6 +875,8 @@ export default function SettingsPage() {
                                   setCategoryForm({
                                     name: "",
                                     distributionKey: "MEA",
+                                    apportionable: true,
+                                    requiresAttachment: false,
                                     sortOrder: 0,
                                   });
                                 }}
@@ -762,6 +899,28 @@ export default function SettingsPage() {
                         <td className="px-4 py-3">
                           <span className="inline-flex rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-700">
                             {cat.distributionKey}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              cat.apportionable
+                                ? "bg-green-100 text-green-700"
+                                : "bg-zinc-100 text-zinc-600"
+                            }`}
+                          >
+                            {cat.apportionable ? "Ja" : "Nein"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              cat.requiresAttachment
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-zinc-100 text-zinc-500"
+                            }`}
+                          >
+                            {cat.requiresAttachment ? "Ja" : "Nein"}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">

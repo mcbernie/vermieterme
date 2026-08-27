@@ -98,7 +98,11 @@ export function POST(request: Request) {
               costCategoryId: c.costCategoryId,
               totalAmount: c.totalAmount,
               unitAmount: c.unitAmount,
+              ownerAmount: c.ownerAmount,
+              tenantAmountOverride: c.tenantAmountOverride,
               reviewed: false,
+              enabled: c.enabled,
+              distributionKeyOverride: c.distributionKeyOverride,
             })),
           });
         }

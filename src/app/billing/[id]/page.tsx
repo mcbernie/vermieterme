@@ -7,6 +7,7 @@ import { EyeIcon, EyeOffIcon } from "lucide-react";
 import { Nav } from "@/components/nav";
 import { formatCurrency, formatDate } from "@/lib/format";
 import {
+  calculateAllocationAmount,
   calculateMEAAmount,
   dayAfter,
   getDaysInPeriod,
@@ -37,6 +38,8 @@ interface NkSuggestionTarget {
 interface CostFormValue {
   totalAmount: string;
   unitAmount: string;
+  ownerAmount: string;
+  tenantAmountOverride: string;
   enabled: boolean;
   distributionKeyOverride: string | null;
 }
@@ -44,6 +47,8 @@ interface CostFormValue {
 const DEFAULT_COST_VALUE: CostFormValue = {
   totalAmount: "",
   unitAmount: "",
+  ownerAmount: "",
+  tenantAmountOverride: "",
   enabled: true,
   distributionKeyOverride: null,
 };
@@ -91,6 +96,8 @@ export default function BillingDetailPage() {
           costs[cost.costCategoryId] = {
             totalAmount: cost.totalAmount.toString(),
             unitAmount: cost.unitAmount?.toString() || "",
+            ownerAmount: cost.ownerAmount?.toString() || "",
+            tenantAmountOverride: cost.tenantAmountOverride?.toString() || "",
             enabled: cost.enabled !== false,
             distributionKeyOverride: cost.distributionKeyOverride ?? null,
           };
@@ -132,7 +139,7 @@ export default function BillingDetailPage() {
 
   function handleCostChange(
     categoryId: string,
-    field: "totalAmount" | "unitAmount",
+    field: "totalAmount" | "unitAmount" | "ownerAmount" | "tenantAmountOverride",
     value: string
   ) {
     setCostValues((prev) => ({
@@ -215,6 +222,10 @@ export default function BillingDetailPage() {
               costCategoryId: categoryId,
               totalAmount: parseFloat(val.totalAmount) || 0,
               unitAmount: val.unitAmount ? parseFloat(val.unitAmount) : null,
+              ownerAmount: val.ownerAmount ? parseFloat(val.ownerAmount) : null,
+              tenantAmountOverride: val.tenantAmountOverride
+                ? parseFloat(val.tenantAmountOverride)
+                : null,
             }),
           })
         );
@@ -252,7 +263,7 @@ export default function BillingDetailPage() {
     }
   }
 
-  async function handleDateChange(field: "sentDate" | "paidDate", value: string) {
+  async function handleDateChange(field: "billingDate" | "sentDate" | "paidDate", value: string) {
     try {
       const res = await fetch(`/api/billing-periods/${id}`, {
         method: "PUT",
@@ -280,6 +291,10 @@ export default function BillingDetailPage() {
           costCategoryId,
           totalAmount: parseFloat(costVal.totalAmount) || 0,
           unitAmount: costVal.unitAmount ? parseFloat(costVal.unitAmount) : null,
+          ownerAmount: costVal.ownerAmount ? parseFloat(costVal.ownerAmount) : null,
+          tenantAmountOverride: costVal.tenantAmountOverride
+            ? parseFloat(costVal.tenantAmountOverride)
+            : null,
           reviewed: true,
         }),
       });
@@ -344,11 +359,31 @@ export default function BillingDetailPage() {
       const costVal = costValues[cat.id];
       if (!costVal || !costVal.totalAmount) return;
       if (costVal.enabled === false) return;
+      if (cat.apportionable === false) return;
       const totalAmount = parseFloat(costVal.totalAmount) || 0;
       const effectiveKey = costVal.distributionKeyOverride ?? cat.distributionKey;
+      const tenantAmountOverride = costVal.tenantAmountOverride
+        ? parseFloat(costVal.tenantAmountOverride)
+        : null;
+
+      if (tenantAmountOverride !== null && billingPeriod!.property.accountingMode === "weg") {
+        total += tenantAmountOverride;
+        return;
+      }
 
       if (effectiveKey === "MEA") {
         total += calculateMEAAmount(totalAmount, unit.shares, billingPeriod!.property.totalShares);
+      } else if (effectiveKey !== "laut Bescheid" && effectiveKey !== "siehe Anlage") {
+        const allocationKey = unit.allocationKeys?.find(
+          (key) => key.key === effectiveKey
+        );
+        total += allocationKey
+          ? calculateAllocationAmount(
+              totalAmount,
+              allocationKey.unitValue,
+              allocationKey.totalValue
+            )
+          : 0;
       } else {
         const unitAmount = costVal.unitAmount
           ? parseFloat(costVal.unitAmount)
@@ -415,8 +450,16 @@ export default function BillingDetailPage() {
 
   const property = billingPeriod.property;
   const units = property.units || [];
+  const allocationKeyNames = Array.from(
+    new Set(
+      units.flatMap((unit) =>
+        (unit.allocationKeys ?? []).map((allocationKey) => allocationKey.key)
+      )
+    )
+  );
   const monthsInPeriod = getMonthsInPeriod(billingPeriod.startDate, billingPeriod.endDate);
   const daysInPeriod = getDaysInPeriod(billingPeriod.startDate, billingPeriod.endDate);
+  const isWegMode = property.accountingMode === "weg";
 
   // Disabled cost positions are excluded from review tracking — they aren't
   // part of this period's calculation, so they shouldn't show as "ungeprüft".
@@ -464,6 +507,15 @@ export default function BillingDetailPage() {
               </p>
             )}
             <div className="mt-2 flex flex-wrap gap-4">
+              <div className="w-48">
+                <label className="mb-1 block text-xs font-medium text-zinc-500">
+                  Abrechnungsdatum
+                </label>
+                <OptionalDateInput
+                  value={billingPeriod.billingDate || ""}
+                  onChange={(value) => handleDateChange("billingDate", value)}
+                />
+              </div>
               <div className="w-48">
                 <label className="mb-1 block text-xs font-medium text-zinc-500">
                   Versendet am
@@ -587,26 +639,57 @@ export default function BillingDetailPage() {
                   {costCategories.map((cat) => {
                     const costVal = costValues[cat.id] || DEFAULT_COST_VALUE;
                     const enabled = costVal.enabled !== false;
+                    const apportionable = cat.apportionable !== false;
                     const effectiveKey =
                       costVal.distributionKeyOverride ?? cat.distributionKey;
                     const isMEA = effectiveKey === "MEA";
+                    const isManual =
+                      effectiveKey === "laut Bescheid" ||
+                      effectiveKey === "siehe Anlage";
+                    const isCustomAllocationKey = !isMEA && !isManual;
                     const needsUnitAmount =
                       effectiveKey === "laut Bescheid" ||
                       effectiveKey === "siehe Anlage";
+                    const tenantAmountOverride = costVal.tenantAmountOverride
+                      ? parseFloat(costVal.tenantAmountOverride)
+                      : null;
 
-                    let meaDisplay = "";
-                    if (isMEA && costVal.totalAmount && units.length > 0) {
+                    let calculatedDisplay = "";
+                    if (
+                      apportionable &&
+                      isWegMode &&
+                      tenantAmountOverride !== null
+                    ) {
+                      calculatedDisplay = formatCurrency(tenantAmountOverride);
+                    } else if (apportionable && costVal.totalAmount && units.length > 0) {
                       const amounts = units.map(
-                        (u) =>
-                          `${u.name}: ${formatCurrency(
-                            calculateMEAAmount(
-                              parseFloat(costVal.totalAmount) || 0,
+                        (u) => {
+                          const totalAmount =
+                            parseFloat(costVal.totalAmount) || 0;
+                          let amount = 0;
+                          if (isMEA) {
+                            amount = calculateMEAAmount(
+                              totalAmount,
                               u.shares,
                               property.totalShares
-                            )
-                          )}`
+                            );
+                          } else if (isCustomAllocationKey) {
+                            const allocationKey = u.allocationKeys?.find(
+                              (key) => key.key === effectiveKey
+                            );
+                            amount = allocationKey
+                              ? calculateAllocationAmount(
+                                  totalAmount,
+                                  allocationKey.unitValue,
+                                  allocationKey.totalValue
+                                )
+                              : 0;
+                          }
+
+                          return `${u.name}: ${formatCurrency(amount)}`;
+                        }
                       );
-                      meaDisplay = amounts.join(", ");
+                      calculatedDisplay = amounts.join(", ");
                     }
 
                     const isUnreviewed =
@@ -624,6 +707,12 @@ export default function BillingDetailPage() {
                         value: k,
                         label: k,
                       })),
+                      ...allocationKeyNames
+                        .filter((key) => !DISTRIBUTION_KEYS.includes(key))
+                        .map((key) => ({
+                          value: key,
+                          label: key,
+                        })),
                     ];
 
                     return (
@@ -632,6 +721,8 @@ export default function BillingDetailPage() {
                         className={
                           !enabled
                             ? "bg-zinc-50/60 text-zinc-400"
+                            : !apportionable
+                              ? "bg-zinc-50"
                             : isUnreviewed
                               ? "border-l-4 border-amber-400 bg-amber-50/50"
                               : ""
@@ -662,6 +753,16 @@ export default function BillingDetailPage() {
                             <span className={!enabled ? "line-through" : ""}>
                               {cat.name}
                             </span>
+                            {!apportionable && (
+                              <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600">
+                                nicht umlagefähig
+                              </span>
+                            )}
+                            {cat.requiresAttachment && (
+                              <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                Anlage
+                              </span>
+                            )}
                             {isUnreviewed && (
                               <button
                                 type="button"
@@ -695,26 +796,82 @@ export default function BillingDetailPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex justify-end">
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={costVal.totalAmount}
-                              disabled={!enabled}
-                              onChange={(e) =>
-                                handleCostChange(
-                                  cat.id,
-                                  "totalAmount",
-                                  e.target.value
-                                )
-                              }
-                              placeholder="0,00"
-                              className="w-32 rounded-lg border border-zinc-300 px-3 py-2 text-right text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:bg-zinc-100 disabled:text-zinc-400"
-                            />
+                          <div className="space-y-2">
+                            <div className="flex justify-end">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={costVal.totalAmount}
+                                disabled={!enabled}
+                                onChange={(e) =>
+                                  handleCostChange(
+                                    cat.id,
+                                    "totalAmount",
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="0,00"
+                                className="w-32 rounded-lg border border-zinc-300 px-3 py-2 text-right text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:bg-zinc-100 disabled:text-zinc-400"
+                              />
+                            </div>
+                            {isWegMode && (
+                              <div>
+                                <label className="mb-1 block text-right text-xs text-zinc-500">
+                                  Ihr Anteil
+                                </label>
+                                <div className="flex justify-end">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={costVal.ownerAmount}
+                                    disabled={!enabled}
+                                    onChange={(e) =>
+                                      handleCostChange(
+                                        cat.id,
+                                        "ownerAmount",
+                                        e.target.value
+                                      )
+                                    }
+                                    placeholder="0,00"
+                                    className="w-32 rounded-lg border border-zinc-300 px-3 py-2 text-right text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:bg-zinc-100 disabled:text-zinc-400"
+                                  />
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {needsUnitAmount ? (
+                          {isWegMode && apportionable ? (
+                            <div className="space-y-2">
+                              <label className="block text-right text-xs text-zinc-500">
+                                davon umlagefähig
+                              </label>
+                              <div className="flex justify-end">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={costVal.tenantAmountOverride}
+                                  disabled={!enabled}
+                                  onChange={(e) =>
+                                    handleCostChange(
+                                      cat.id,
+                                      "tenantAmountOverride",
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder="automatisch"
+                                  className="w-32 rounded-lg border border-zinc-300 px-3 py-2 text-right text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:bg-zinc-100 disabled:text-zinc-400"
+                                />
+                              </div>
+                              <div className="text-sm text-zinc-500">
+                                {calculatedDisplay || "Automatisch"}
+                              </div>
+                            </div>
+                          ) : !apportionable ? (
+                            <div className="text-sm text-zinc-400">
+                              Nicht berechnet
+                            </div>
+                          ) : needsUnitAmount ? (
                             <div className="flex justify-end">
                               <input
                                 type="number"
@@ -732,9 +889,10 @@ export default function BillingDetailPage() {
                                 className="w-32 rounded-lg border border-zinc-300 px-3 py-2 text-right text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 disabled:bg-zinc-100 disabled:text-zinc-400"
                               />
                             </div>
-                          ) : isMEA ? (
+                          ) : isMEA || isCustomAllocationKey ? (
                             <div className="text-sm text-zinc-500">
-                              {meaDisplay || "Automatisch (MEA)"}
+                              {calculatedDisplay ||
+                                `Automatisch (${effectiveKey})`}
                             </div>
                           ) : (
                             <div className="text-sm text-zinc-400">

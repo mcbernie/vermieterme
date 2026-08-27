@@ -56,28 +56,48 @@ model VerificationToken {
 // App models
 model Property {
   id             String          @id @default(cuid())
+  landlordId     String?
+  accountingMode String          @default("standard")
   street         String
   zip            String
   city           String
   totalShares    Int             @default(100)
+  landlord       LandlordInfo?    @relation(fields: [landlordId], references: [id], onDelete: SetNull)
   units          Unit[]
   billingPeriods BillingPeriod[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
+
+  @@index([landlordId])
 }
 
 model Unit {
-  id          String       @id @default(cuid())
-  propertyId  String
-  name        String
-  floor       String
-  shares      Int
-  property    Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  tenants     Tenant[]
-  prepayments Prepayment[]
-  rentChanges RentChange[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id             String              @id @default(cuid())
+  propertyId     String
+  name           String
+  floor          String
+  shares         Int
+  property       Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenants        Tenant[]
+  prepayments    Prepayment[]
+  rentChanges    RentChange[]
+  allocationKeys UnitAllocationKey[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model UnitAllocationKey {
+  id         String   @id @default(cuid())
+  unitId     String
+  key        String
+  unitValue  Float
+  totalValue Float
+  unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([unitId, key])
+  @@index([key])
 }
 
 model Tenant {
@@ -112,6 +132,8 @@ model CostCategory {
   id              String   @id @default(cuid())
   name            String
   distributionKey String
+  apportionable   Boolean  @default(true)
+  requiresAttachment Boolean @default(false)
   sortOrder       Int      @default(0)
   costs           Cost[]
   createdAt       DateTime @default(now())
@@ -143,6 +165,8 @@ model Cost {
   costCategoryId          String
   totalAmount             Float
   unitAmount              Float?
+  ownerAmount             Float?
+  tenantAmountOverride    Float?
   reviewed                Boolean       @default(true)
   // Per-period overrides for the linked CostCategory. `enabled` hides this
   // category from this billing period without deleting it. `distributionKeyOverride`
@@ -237,6 +261,7 @@ model LandlordInfo {
   bankName      String?
   iban          String?
   accountHolder String?
+  properties    Property[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
