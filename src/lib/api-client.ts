@@ -149,7 +149,9 @@ export async function apiJson<T = unknown>(url: string, options: JsonOptions<T> 
     if (type !== "" && !type.includes("json")) throw expired(res.status);
     try {
       data = await res.json();
-    } catch {
+    } catch (error) {
+      // Aborted while reading the body: no sign of an expired session, rethrow unchanged as in `apiFetch`.
+      if (options.signal?.aborted) throw error;
       throw expired(res.status);
     }
   }

@@ -94,6 +94,21 @@ describe("apiJson: failures", () => {
     await expect(apiJson("/api/x", { signal: controller.signal })).rejects.toBe(abort);
   });
 
+  it("rethrows an abort while reading the body, without reporting an expired session", async () => {
+    const { spy, off } = sessionSpy();
+    const controller = new AbortController();
+    const abort = new DOMException("aborted", "AbortError");
+    const res = fakeResponse({ id: "1" });
+    res.json = async () => {
+      controller.abort();
+      throw abort;
+    };
+    answer(res);
+    await expect(apiJson("/api/x", { signal: controller.signal })).rejects.toBe(abort);
+    expect(spy).not.toHaveBeenCalled();
+    off();
+  });
+
   it("rejects an answer of the wrong shape", async () => {
     answer(json({ not: "a list" }));
     await expect(apiJson("/api/x", { accept: Array.isArray as (d: unknown) => d is unknown[] })).rejects.toMatchObject({
