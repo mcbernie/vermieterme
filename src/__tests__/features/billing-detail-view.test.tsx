@@ -1,62 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { ConfirmProvider, UiProvider } from "@zweiund40gmbh/ui";
-import { BillingDetailView } from "@/features/billing/billing-detail-view";
-import { categories, detail, json } from "./billing-fixtures";
-
-type Handler = (url: string, init?: RequestInit) => Response | undefined;
-
-/** Routes fetch: GETs answer with the fixture, `writes` may answer writes (default: ok). */
-function stub(writes: Handler = () => undefined, periodStatus = 200, period = detail) {
-  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    const method = init?.method ?? "GET";
-    if (method !== "GET") return writes(url, init) ?? json({});
-    if (url === "/api/billing-periods/bp") return json(periodStatus === 200 ? period() : { error: "x" }, periodStatus);
-    if (url === "/api/cost-categories") return json(categories);
-    return json([]);
-  });
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
-async function mount() {
-  await act(async () => {
-    render(
-      <UiProvider locale="de-DE">
-        <ConfirmProvider>
-          <BillingDetailView id="bp" />
-        </ConfirmProvider>
-      </UiProvider>,
-    );
-  });
-}
-
-const writesTo = (fetchMock: ReturnType<typeof stub>, part: string) =>
-  fetchMock.mock.calls.filter((c) => c[1]?.method && c[1].method !== "GET" && c[0].includes(part));
-
-/** Bodies of the amount saves (not the single-field updates) sent to `/costs`. */
-const amountSaves = (fetchMock: ReturnType<typeof stub>) =>
-  writesTo(fetchMock, "/costs")
-    .map((c) => JSON.parse(c[1]?.body as string))
-    .filter((b) => "totalAmount" in b && !("reviewed" in b));
-
-/** Types into a money field without leaving it (one input event). */
-async function typeOnly(label: string, text: string) {
-  const input = screen.getByLabelText(label);
-  await act(async () => fireEvent.focus(input));
-  await act(async () => fireEvent.input(input, { target: { value: text } }));
-  return input;
-}
-
-const clickSave = () => act(async () => fireEvent.click(screen.getByRole("button", { name: "Speichern" })));
-
-/** Types into a money field and leaves it. */
-async function typeMoney(label: string, text: string) {
-  const input = screen.getByLabelText(label);
-  await act(async () => fireEvent.focus(input));
-  await act(async () => fireEvent.change(input, { target: { value: text } }));
-  await act(async () => fireEvent.blur(input));
-}
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { detail, json } from "./billing-fixtures";
+import { amountSaves, clickSave, mount, stub, typeMoney, typeOnly, writesTo } from "./billing-detail-harness";
 
 describe("BillingDetailView", () => {
   beforeEach(() => vi.spyOn(console, "error").mockImplementation(() => {}));

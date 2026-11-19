@@ -41,23 +41,49 @@ export function seedValues(bp: BillingPeriodDetail): { costs: CostValues; prepay
   return { costs, prepayments };
 }
 
+/** Key of a cost position in the set of unsaved amounts. */
+export function costKey(categoryId: string): string {
+  return `cost:${categoryId}`;
+}
+
+/** Key of a prepayment in the set of unsaved amounts. */
+export function prepaymentKey(unitId: string): string {
+  return `prepayment:${unitId}`;
+}
+
 /**
- * Combines freshly loaded cost values with the ones on the page after a reload. Amounts typed but
- * not saved yet stay (the server value would overwrite them); flags such as shown or distribution
- * key come from the server, which is the source of truth for them.
+ * Combines freshly loaded cost values with the ones on the page after a reload. Only amounts with an
+ * unsaved change (`dirty`, see {@link costKey}) stay, since the server value would overwrite them;
+ * everything else, and all flags such as shown or distribution key, comes from the server, which is
+ * the source of truth. A position without a server entry falls back to {@link DEFAULT_COST_VALUE}.
+ * @param server Values just loaded from the server.
+ * @param local Values on the page.
+ * @param dirty Keys of the amounts changed since the last successful save.
  */
-export function mergeCosts(server: CostValues, local: CostValues): CostValues {
+export function mergeCosts(server: CostValues, local: CostValues, dirty: ReadonlySet<string>): CostValues {
   const merged: CostValues = { ...server };
   for (const [id, mine] of Object.entries(local)) {
-    const theirs = server[id];
-    merged[id] = theirs ? { ...theirs, totalAmount: mine.totalAmount, unitAmount: mine.unitAmount } : mine;
+    if (!dirty.has(costKey(id))) continue;
+    const theirs = server[id] ?? DEFAULT_COST_VALUE;
+    merged[id] = { ...theirs, totalAmount: mine.totalAmount, unitAmount: mine.unitAmount };
   }
   return merged;
 }
 
-/** Like {@link mergeCosts} for prepayments: amounts on the page win over the loaded ones. */
-export function mergePrepayments(server: PrepaymentValues, local: PrepaymentValues): PrepaymentValues {
-  return { ...server, ...local };
+/**
+ * Like {@link mergeCosts} for prepayments: only unsaved amounts on the page (see {@link prepaymentKey})
+ * win over the loaded ones.
+ */
+export function mergePrepayments(
+  server: PrepaymentValues,
+  local: PrepaymentValues,
+  dirty: ReadonlySet<string>,
+): PrepaymentValues {
+  const merged: PrepaymentValues = { ...server };
+  for (const [id, mine] of Object.entries(local)) {
+    if (dirty.has(prepaymentKey(id))) merged[id] = mine;
+  }
+  return merged;
 }
 
 /** Distribution key in effect for a category in this period (override first). */

@@ -13,12 +13,21 @@ import {
   type CostValues,
   type PrepaymentValues,
 } from "./billing-calc";
+import type { DirtyKeys } from "./use-billing-save";
+
+/** No unsaved amounts: a reload takes everything from the server. */
+const NOTHING_DIRTY: Pick<DirtyKeys, "keys" | "revision"> = { keys: () => new Set(), revision: () => 0 };
 
 /** Load state of the detail page. */
 export type DetailStatus = "loading" | "ready" | "notFound" | "failed";
 
-/** Billing period detail: loading, editable values and the single-position mutations. */
-export function useBillingDetail(id: string) {
+/**
+ * Billing period detail: loading, editable values and the single-position mutations.
+ * @param id Billing period id.
+ * @param dirty Amounts with unsaved changes (from the save); only these survive a reload, flags and
+ *   all other amounts come from the server.
+ */
+export function useBillingDetail(id: string, dirty: Pick<DirtyKeys, "keys" | "revision"> = NOTHING_DIRTY) {
   const [period, setPeriod] = useState<BillingPeriodDetail | null>(null);
   const [categories, setCategories] = useState<CostCategory[]>([]);
   const [costs, setCosts] = useState<CostValues>({});
@@ -30,14 +39,15 @@ export function useBillingDetail(id: string) {
   const disposed = useRef(false);
 
   /**
-   * Loads the period and the cost categories and seeds the form values (amounts already on the page are kept). The request is aborted on
-   * unmount (no new load starts afterwards) and a response is dropped when a newer load started.
-   * Returns false when loading failed.
+   * Loads the period and the cost categories and seeds the form values; amounts with unsaved changes
+   * on the page are kept. The request is aborted on unmount (no new load starts afterwards) and a
+   * response is dropped when a newer load started. Returns false when loading failed.
    */
   const load = useCallback(
     async (controllers: Set<AbortController>): Promise<boolean> => {
       if (disposed.current) return true;
       const current = ++request.current;
+      const since = dirty.revision();
       const ctrl = new AbortController();
       controllers.add(ctrl);
       const [bp, cc] = await Promise.all([
@@ -54,13 +64,14 @@ export function useBillingDetail(id: string) {
       const seeded = seedValues(bp.data);
       setPeriod(bp.data);
       setCategories(cc.data);
-      // Amounts typed since the last save must survive the reload (they are saved on their own).
-      setCosts((prev) => mergeCosts(seeded.costs, prev));
-      setPrepayments((prev) => mergePrepayments(seeded.prepayments, prev));
+      // Amounts typed since the last successful save survive the reload (they are saved on their own).
+      const unsaved = dirty.keys(since);
+      setCosts((prev) => mergeCosts(seeded.costs, prev, unsaved));
+      setPrepayments((prev) => mergePrepayments(seeded.prepayments, prev, unsaved));
       setStatus("ready");
       return true;
     },
-    [id],
+    [id, dirty],
   );
 
   /** Reloads after a mutation. */

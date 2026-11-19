@@ -12,7 +12,7 @@ import {
   type AutosaveStatus,
 } from "@zweiund40gmbh/ui";
 import { DocumentUpload } from "@/components/document-upload";
-import { nkRecommendations, reviewProgress, unitResults } from "./billing-calc";
+import { costKey, nkRecommendations, prepaymentKey, reviewProgress, unitResults } from "./billing-calc";
 import { BillingDetailHeader } from "./billing-detail-header";
 import { CostTable } from "./cost-table";
 import { NkRecommendations } from "./nk-recommendations";
@@ -20,7 +20,7 @@ import { PrepaymentTable } from "./prepayment-table";
 import { ReviewProgress } from "./review-progress";
 import { SummaryTable } from "./summary-table";
 import { useBillingDetail } from "./use-billing-detail";
-import { useBillingSave, type SaveState } from "./use-billing-save";
+import { useBillingSave, useDirtyKeys, type SaveState } from "./use-billing-save";
 
 type TabKey = "costs" | "prepayments" | "summary" | "documents";
 const TABS_ID = "billing-tabs";
@@ -49,12 +49,14 @@ function indicator(saver: { saving: boolean; pending: boolean; state: SaveState 
 
 /** Billing period editor: costs, prepayments, summary with recommendations and receipts in tabs. */
 export function BillingDetailView({ id }: { id: string }) {
-  const detail = useBillingDetail(id);
+  // Unsaved amounts: the save marks and settles them, a reload keeps only these from the page.
+  const dirty = useDirtyKeys();
+  const detail = useBillingDetail(id, dirty);
   const values = useMemo(
     () => ({ costs: detail.costs, prepayments: detail.prepayments }),
     [detail.costs, detail.prepayments],
   );
-  const saver = useBillingSave(id, values);
+  const saver = useBillingSave(id, values, dirty);
   const [tab, setTab] = useState<TabKey>("costs");
   const { period, categories } = detail;
 
@@ -114,7 +116,7 @@ export function BillingDetailView({ id }: { id: string }) {
           costs={detail.costs}
           onAmount={(categoryId, field, euros) => {
             detail.patchCost(categoryId, { [field]: euros });
-            saver.schedule();
+            saver.schedule(costKey(categoryId));
           }}
           onProblem={saver.reportProblem}
           onToggle={detail.toggleEnabled}
@@ -128,7 +130,7 @@ export function BillingDetailView({ id }: { id: string }) {
           prepayments={detail.prepayments}
           onChange={(unitId, euros) => {
             detail.setPrepayment(unitId, euros);
-            saver.schedule();
+            saver.schedule(prepaymentKey(unitId));
           }}
           onProblem={saver.reportProblem}
           onConfirm={detail.confirmPrepayment}

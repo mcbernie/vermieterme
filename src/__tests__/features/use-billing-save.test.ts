@@ -1,7 +1,12 @@
 import { act, renderHook } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AUTOSAVE_DELAY, useBillingSave, type SaveValues } from "@/features/billing/use-billing-save";
+import {
+  AUTOSAVE_DELAY,
+  createDirtyKeys,
+  useBillingSave,
+  type SaveValues,
+} from "@/features/billing/use-billing-save";
 
 const json = (ok = true) => ({ ok, json: async () => ({}) }) as Response;
 
@@ -209,5 +214,41 @@ describe("useBillingSave", () => {
     expect(leave()).toBe(true);
     await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
     expect(leave()).toBe(false);
+  });
+
+  it("settles the shared unsaved amounts only after a successful save", async () => {
+    const dirty = createDirtyKeys();
+    fetchMock.mockImplementation(async () => json(false));
+    const { result } = renderHook(() => useBillingSave("bp", values, dirty));
+    act(() => result.current.schedule("cost:c1"));
+    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
+    expect([...dirty.keys()]).toEqual(["cost:c1"]);
+    fetchMock.mockImplementation(async () => json());
+    await act(async () => result.current.save());
+    expect([...dirty.keys()]).toEqual([]);
+  });
+});
+
+describe("createDirtyKeys", () => {
+  it("settles only the changes up to the saved revision", () => {
+    const dirty = createDirtyKeys();
+    dirty.mark("cost:c1");
+    const sent = dirty.revision();
+    dirty.mark("prepayment:u1");
+    dirty.settle(sent);
+    expect([...dirty.keys()]).toEqual(["prepayment:u1"]);
+    dirty.mark("cost:c1");
+    expect(new Set(dirty.keys())).toEqual(new Set(["cost:c1", "prepayment:u1"]));
+  });
+
+  it("also lists keys changed after a load started, even when saved meanwhile", () => {
+    const dirty = createDirtyKeys();
+    dirty.mark("cost:c1");
+    dirty.settle(dirty.revision());
+    const loadStart = dirty.revision();
+    dirty.mark("cost:c2");
+    dirty.settle(dirty.revision());
+    expect([...dirty.keys()]).toEqual([]);
+    expect([...dirty.keys(loadStart)]).toEqual(["cost:c2"]);
   });
 });
