@@ -60,16 +60,21 @@ export function useBillingSave(id: string, values: SaveValues) {
     valuesRef.current = values;
   }, [values]);
 
-  /** Sends the latest values until no further save was requested; sets no state. */
-  const drain = useCallback(async (): Promise<boolean> => {
+  /**
+   * Sends the latest values until no further save was requested; sets no state. A requested repeat is
+   * not sent while a field holds unreadable text (the values may be an outdated intermediate state):
+   * the result is then "invalid" and the change stays pending.
+   */
+  const drain = useCallback(async (): Promise<"saved" | "error" | "invalid"> => {
     running.current = true;
     let ok = true;
     do {
       again.current = false;
       ok = await saveAll(id, valuesRef.current);
-    } while (again.current);
+    } while (again.current && problemsRef.current.size === 0);
     running.current = false;
-    return ok;
+    if (again.current) return "invalid";
+    return ok ? "saved" : "error";
   }, [id]);
 
   /** Saves now (cancelling a pending automatic save). */
@@ -89,11 +94,12 @@ export function useBillingSave(id: string, values: SaveValues) {
     }
     setSaving(true);
     setState(null);
-    const ok = await drain();
+    const result = await drain();
     if (!mounted.current) return;
     setSaving(false);
-    setState(ok ? "saved" : "error");
-    if (ok) setLastSavedAt(new Date());
+    setState(result);
+    if (result === "invalid") setPending(true);
+    if (result === "saved") setLastSavedAt(new Date());
   }, [drain]);
 
   /** Schedules an automatic save after the last change. */

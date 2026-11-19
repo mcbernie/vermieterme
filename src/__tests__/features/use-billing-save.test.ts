@@ -170,4 +170,29 @@ describe("useBillingSave", () => {
       });
     }
   });
+  it("does not resend an intermediate value once the field became unreadable", async () => {
+    const one = (amount: number): SaveValues => ({
+      costs: { c1: { totalAmount: amount, unitAmount: null, enabled: true, distributionKeyOverride: null } },
+      prepayments: {},
+    });
+    const open: ((r: Response) => void)[] = [];
+    fetchMock.mockImplementation(() => new Promise<Response>((r) => open.push(r)));
+    const { result, rerender } = renderHook(({ v }) => useBillingSave("bp", v), { initialProps: { v: one(1) } });
+    let first: Promise<void> = Promise.resolve();
+    act(() => {
+      first = result.current.save();
+    });
+    rerender({ v: one(12) }); // readable "12" while the first save runs
+    act(() => result.current.schedule());
+    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY)); // requests a repeat
+    act(() => result.current.reportProblem("cost-total-c1", true)); // typed on to "12x"
+    fetchMock.mockImplementation(async () => json());
+    await act(async () => {
+      open.forEach((r) => r(json()));
+      await first;
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.state).toBe("invalid");
+    expect(result.current.pending).toBe(true);
+  });
 });
