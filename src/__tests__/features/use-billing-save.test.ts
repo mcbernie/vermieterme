@@ -71,6 +71,27 @@ describe("useBillingSave", () => {
       await first;
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(result.current).toMatchObject({ pending: false, saving: false, state: "saved" });
+  });
+
+  it("shows no unsaved changes after an automatic save that ran during a slow save", async () => {
+    const pending: ((r: Response) => void)[] = [];
+    fetchMock.mockImplementation(() => new Promise<Response>((r) => pending.push(r)));
+    const { result } = renderHook(() => useBillingSave("bp", values));
+    let first: Promise<void> = Promise.resolve();
+    act(() => {
+      first = result.current.save();
+    });
+    act(() => result.current.schedule());
+    expect(result.current.pending).toBe(true);
+    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
+    fetchMock.mockImplementation(async () => json());
+    await act(async () => {
+      pending.forEach((r) => r(json()));
+      await first;
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(result.current).toMatchObject({ pending: false, saving: false, state: "saved" });
   });
 
   it("saves nothing when the page is left with an unreadable amount", async () => {

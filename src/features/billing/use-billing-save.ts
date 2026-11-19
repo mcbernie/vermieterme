@@ -80,12 +80,13 @@ export function useBillingSave(id: string, values: SaveValues) {
       setState("invalid");
       return;
     }
+    // From here on the change is on its way: a running save takes it over.
+    setPending(false);
     if (running.current) {
       again.current = true;
       return;
     }
     setSaving(true);
-    setPending(false);
     setState(null);
     const ok = await drain();
     if (!mounted.current) return;
