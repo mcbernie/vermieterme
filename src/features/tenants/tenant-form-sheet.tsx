@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { InlineNotice, Sheet, SheetFooter, type DateInputProblem } from "@zweiund40gmbh/ui";
 import type { PropertyWithUnits, Tenant } from "@/types";
 import { TenantContactFields } from "./tenant-contact-fields";
@@ -10,6 +10,7 @@ import {
   validateTenantForm,
   type TenantDateField,
   type TenantDateProblems,
+  type TenantFormErrors,
   type TenantFormValues,
 } from "./tenant-form-values";
 import { unitOptions } from "./tenant-helpers";
@@ -28,7 +29,8 @@ interface Props {
 
 /**
  * Side panel to create or edit a tenant. Validates on submit and shows errors at the fields;
- * a failed save keeps the panel open with the server error. Mount it only while it should be open.
+ * a failed save keeps the panel open with the server error. While saving, the panel cannot be closed,
+ * and an answer arriving after it was unmounted is ignored. Mount it only while it should be open.
  */
 export function TenantFormSheet({ tenant, properties, onSave, onClose }: Props) {
   const formId = useId();
@@ -38,10 +40,21 @@ export function TenantFormSheet({ tenant, properties, onSave, onClose }: Props) 
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const units = useMemo(() => unitOptions(properties), [properties]);
+  const mounted = useRef(true);
 
-  const errors = attempted ? validateTenantForm(form, problems) : {};
-  // Unreadable dates are flagged right away, not only after the first submit.
-  const shownErrors = { ...errors, ...dateProblemErrors(form, problems) };
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const shownErrors = visibleErrors(validateTenantForm(form, problems), problems, attempted);
+
+  /** Closes the panel unless a save is running. */
+  function close() {
+    if (!busy) onClose();
+  }
 
   /** Sets one field of the form. */
   function set<K extends keyof TenantFormValues>(key: K, value: TenantFormValues[K]) {
@@ -62,6 +75,7 @@ export function TenantFormSheet({ tenant, properties, onSave, onClose }: Props) 
     if (Object.keys(validateTenantForm(form, problems)).length > 0) return;
     setBusy(true);
     const error = await onSave(form);
+    if (!mounted.current) return;
     setBusy(false);
     if (error) setSaveError(error);
     else onClose();
@@ -72,9 +86,9 @@ export function TenantFormSheet({ tenant, properties, onSave, onClose }: Props) 
     <Sheet
       title={tenant ? "Mieter bearbeiten" : "Neuen Mieter anlegen"}
       wide
-      onClose={onClose}
+      onClose={close}
       footer={
-        <SheetFooter onClose={onClose} formId={formId} busy={busy} saveLabel={tenant ? "Aktualisieren" : "Speichern"} />
+        <SheetFooter onClose={close} formId={formId} busy={busy} saveLabel={tenant ? "Aktualisieren" : "Speichern"} />
       }
     >
       <form id={formId} noValidate onSubmit={submit} className="grid gap-6 p-6">
@@ -87,12 +101,15 @@ export function TenantFormSheet({ tenant, properties, onSave, onClose }: Props) 
   );
 }
 
-/** Errors of date fields whose text is currently unreadable (shown before any submit). */
-function dateProblemErrors(form: TenantFormValues, problems: TenantDateProblems) {
-  const all = validateTenantForm(form, problems);
-  const out: Partial<Record<TenantDateField, string>> = {};
+/**
+ * Errors to show: all of them after the first submit, before that only unreadable dates
+ * (flagged right away while typing).
+ */
+function visibleErrors(errors: TenantFormErrors, problems: TenantDateProblems, attempted: boolean): TenantFormErrors {
+  if (attempted) return errors;
+  const out: TenantFormErrors = {};
   for (const field of Object.keys(problems) as TenantDateField[]) {
-    if (problems[field] && all[field]) out[field] = all[field];
+    if (problems[field] && errors[field]) out[field] = errors[field];
   }
   return out;
 }

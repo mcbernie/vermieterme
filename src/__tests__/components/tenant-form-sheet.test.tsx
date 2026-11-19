@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { UiProvider } from "@zweiund40gmbh/ui";
 import { TenantFormSheet } from "@/features/tenants/tenant-form-sheet";
 import { PROPERTY, TENANT } from "../features/tenant-fixtures";
@@ -65,12 +65,38 @@ describe("TenantFormSheet", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("rejects an invalid IBAN at the field", () => {
+  it("shows an invalid IBAN as hint but still saves", async () => {
     const { onSave, form } = setup({ edit: true });
     fireEvent.change(screen.getByLabelText("IBAN"), { target: { value: "DE00 1234" } });
-    fireEvent.submit(form);
-    expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByText("Ungültige IBAN")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toMatchObject({ iban: "DE00 1234" });
+  });
+
+  it("cannot be closed while saving and closes once after the save", async () => {
+    let finish: (error: string | null) => void = () => undefined;
+    const onSave = vi.fn(() => new Promise<string | null>((resolve) => (finish = resolve)));
+    const { onClose, form } = setup({ edit: true, onSave });
+    fireEvent.submit(form);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Aktualisieren/ })).toBeDisabled());
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => finish(null));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a save answer that arrives after the sheet was unmounted", async () => {
+    let finish: (error: string | null) => void = () => undefined;
+    const onSave = vi.fn(() => new Promise<string | null>((resolve) => (finish = resolve)));
+    const { onClose, form } = setup({ edit: true, onSave });
+    fireEvent.submit(form);
+    cleanup();
+    await act(async () => finish(null));
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("keeps the sheet open and shows the server error when saving fails", async () => {

@@ -117,6 +117,14 @@ export function formToPayload(form: TenantFormValues) {
   };
 }
 
+/**
+ * Hint for an IBAN that fails the check digits, or undefined. It is only a hint and does not block
+ * saving (as before the redesign).
+ */
+export function ibanHint(iban: string): string | undefined {
+  return iban && !validateIBAN(iban) ? "Ungültige IBAN" : undefined;
+}
+
 /** Error text of a date field, or undefined when it is fine. */
 function dateError(problem: DateInputProblem | null | undefined, value: string, required: boolean) {
   if (problem) return "Bitte ein gültiges Datum eingeben.";
@@ -136,7 +144,6 @@ export function validateTenantForm(form: TenantFormValues, problems: TenantDateP
   if (!form.lastName.trim()) errors.lastName = "Bitte einen Nachnamen angeben.";
   errors.moveInDate = dateError(problems.moveInDate, form.moveInDate, true);
   errors.moveOutDate = dateError(problems.moveOutDate, form.moveOutDate, false);
-  if (form.iban && !validateIBAN(form.iban)) errors.iban = "Ungültige IBAN";
   if (form.leaseType === "index") {
     errors.indexReferenceDate = dateError(problems.indexReferenceDate, form.indexReferenceDate, false);
     if (form.indexBaseYear && !/^\d{4}$/.test(form.indexBaseYear.trim())) {

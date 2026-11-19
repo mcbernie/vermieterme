@@ -2,12 +2,13 @@ import { Field, Select, TextInput } from "@zweiund40gmbh/ui";
 import { SALUTATIONS_SECONDARY } from "@/lib/constants";
 import { formatIBAN } from "@/lib/iban";
 import { FormSection, type TenantFieldsProps } from "./form-section";
+import { ibanHint } from "./tenant-form-values";
 
 /** Salutations of the second tenant without the empty entry (the select is clearable instead). */
 const SECOND_SALUTATIONS = SALUTATIONS_SECONDARY.filter((o) => o.value !== "");
 
 /** Contact data, bank account and optional second tenant of the tenant form. */
-export function TenantContactFields({ form, errors, set }: Omit<TenantFieldsProps, "onDateProblem">) {
+export function TenantContactFields({ form, set }: Omit<TenantFieldsProps, "onDateProblem" | "errors">) {
   return (
     <>
       <FormSection title="Kontaktdaten">
@@ -31,7 +32,7 @@ export function TenantContactFields({ form, errors, set }: Omit<TenantFieldsProp
           <Field label="Bankname">
             <TextInput value={form.bankName} onChange={(e) => set("bankName", e.target.value)} />
           </Field>
-          <Field label="IBAN" error={errors.iban}>
+          <Field label="IBAN" error={ibanHint(form.iban)}>
             <TextInput
               className="num"
               value={form.iban}

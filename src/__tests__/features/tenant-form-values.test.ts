@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_TENANT_FORM,
   formToPayload,
+  ibanHint,
   tenantToForm,
   validateTenantForm,
   type TenantFormValues,
@@ -41,6 +42,30 @@ describe("formToPayload", () => {
     expect(payload.indexMinMonths).toBe(12);
   });
 
+  it("builds the complete request body", () => {
+    expect(formToPayload(tenantToForm(TENANT))).toEqual({
+      unitId: "u1",
+      salutation: "Frau",
+      firstName: "Erika",
+      lastName: "Muster",
+      salutation2: null,
+      firstName2: null,
+      lastName2: null,
+      phone: null,
+      email: "erika@example.org",
+      bankName: null,
+      iban: null,
+      accountHolder: null,
+      moveInDate: "2022-04-01",
+      moveOutDate: null,
+      leaseType: "index",
+      indexBaseYear: 2020,
+      indexReferenceValue: 105.4,
+      indexReferenceDate: "2023-01-01",
+      indexMinMonths: 12,
+    });
+  });
+
   it("accepts a dot as decimal separator for the index value", () => {
     expect(formToPayload({ ...VALID, indexReferenceValue: "105.4" }).indexReferenceValue).toBe(105.4);
   });
@@ -62,9 +87,8 @@ describe("validateTenantForm", () => {
     expect(errors.moveOutDate).toBe("Bitte ein gültiges Datum eingeben.");
   });
 
-  it("rejects an invalid IBAN but accepts a valid one", () => {
-    expect(validateTenantForm({ ...VALID, iban: "DE00 1234" }, {}).iban).toBe("Ungültige IBAN");
-    expect(validateTenantForm({ ...VALID, iban: "DE89 3704 0044 0532 0130 00" }, {}).iban).toBeUndefined();
+  it("does not block saving for an invalid IBAN", () => {
+    expect(validateTenantForm({ ...VALID, iban: "DE00 1234" }, {})).toEqual({});
   });
 
   it("checks the index fields only for index leases", () => {
@@ -77,5 +101,13 @@ describe("validateTenantForm", () => {
       "indexReferenceDate",
       "indexReferenceValue",
     ]);
+  });
+});
+
+describe("ibanHint", () => {
+  it("hints at an invalid IBAN only", () => {
+    expect(ibanHint("")).toBeUndefined();
+    expect(ibanHint("DE00 1234")).toBe("Ungültige IBAN");
+    expect(ibanHint("DE89 3704 0044 0532 0130 00")).toBeUndefined();
   });
 });
