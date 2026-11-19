@@ -114,4 +114,75 @@ describe("PdfTemplateView", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(push).toHaveBeenCalledTimes(1);
   });
+  describe("compares the content, not the object (#38)", () => {
+    /** Renders the editor inside the settings frame with the stored template and waits for the preview. */
+    async function renderFrame(stored = getDefaultConfig()) {
+      mockFetch({
+        "GET /api/pdf-template": json({ config: stored }),
+        "PUT /api/pdf-template": json({ id: "t1" }),
+      });
+      render(
+        <UiProvider locale="de-DE">
+          <ConfirmProvider>
+            <SettingsFrame>
+              <PdfTemplateView />
+            </SettingsFrame>
+          </ConfirmProvider>
+        </UiProvider>,
+      );
+      await screen.findByTestId("pdf-preview");
+    }
+
+    /** Clicks the VPI tab and expects it to navigate at once, without the leave dialog. */
+    async function expectLeaveWithoutDialog() {
+      fireEvent.click(screen.getByRole("link", { name: "VPI-Werte" }));
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/settings/vpi"));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    }
+
+    it("does not count clicking the alignment that is already active", async () => {
+      await renderFrame();
+      fireEvent.click(preview().getByRole("button", { name: "Titel" }));
+      fireEvent.click(screen.getByRole("radio", { name: "Mitte" }));
+      await expectLeaveWithoutDialog();
+    });
+
+    it("does not count a switch toggled twice", async () => {
+      await renderFrame();
+      fireEvent.click(preview().getByRole("button", { name: "Titel" }));
+      fireEvent.click(screen.getByRole("switch", { name: "Fett" }));
+      fireEvent.click(screen.getByRole("switch", { name: "Fett" }));
+      await expectLeaveWithoutDialog();
+    });
+
+    it("does not count a reset when the stored template already is the default", async () => {
+      const stored = getDefaultConfig();
+      const reordered = { sections: stored.sections, page: stored.page } as PdfTemplateConfig;
+      await renderFrame(reordered);
+      fireEvent.click(screen.getByRole("button", { name: "Zurücksetzen" }));
+      await expectLeaveWithoutDialog();
+    });
+
+    it("still asks for a real change (counter-check)", async () => {
+      await renderFrame();
+      fireEvent.click(preview().getByRole("button", { name: "Titel" }));
+      fireEvent.click(screen.getByRole("radio", { name: "Links" }));
+      fireEvent.click(screen.getByRole("link", { name: "VPI-Werte" }));
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("keeps „Gespeichert“ after a switch was toggled twice and drops it for a real change", async () => {
+      await renderFrame();
+      fireEvent.click(preview().getByRole("button", { name: "Titel" }));
+      fireEvent.click(screen.getByRole("switch", { name: "Kursiv" }));
+      fireEvent.click(screen.getByRole("button", { name: "Speichern" }));
+      expect(await screen.findByText("Gespeichert")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("switch", { name: "Fett" }));
+      fireEvent.click(screen.getByRole("switch", { name: "Fett" }));
+      expect(screen.getByText("Gespeichert")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("switch", { name: "Fett" }));
+      expect(screen.queryByText("Gespeichert")).not.toBeInTheDocument();
+    });
+  });
 });

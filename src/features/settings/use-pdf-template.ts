@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { getDefaultConfig } from "@/lib/pdf-template";
 import type { PageConfig, PdfTemplateConfig, SectionConfig, SectionId, SectionStyle } from "@/types/pdf-template";
 import { requestJson } from "./request";
+import { stableKey } from "./stable-key";
 import { useAction } from "./use-action";
 import { LOAD_FAILED, useLoad } from "./use-load";
 
@@ -23,8 +24,10 @@ function withSection(
 /**
  * State of the template editor: loads the stored configuration, keeps the edited copy and saves it.
  * Editing starts only after loading succeeded, so a failed load can never overwrite the stored template.
- * „Saved“ and „dirty“ compare object identity with the last stored configuration: every edit creates a
- * new object, so an edit made while a save runs is neither reported as saved nor lost from `dirty`.
+ * „Saved“ and „dirty“ compare the content (a stable serialisation) with the last stored configuration, so an
+ * edit that changes nothing (clicking the active option, toggling twice, resetting to an unchanged default)
+ * does not count. The sent configuration is kept as it was, so an edit made while a save runs differs from
+ * it and is neither reported as saved nor lost from `dirty`.
  */
 export function usePdfTemplate() {
   const loaded = useLoad(loadConfig);
@@ -34,6 +37,9 @@ export function usePdfTemplate() {
   const stored = loaded.data;
   const config = edited ?? stored;
   const baseline = lastSaved ?? stored;
+  const configKey = useMemo(() => stableKey(config), [config]);
+  const baselineKey = useMemo(() => stableKey(baseline), [baseline]);
+  const savedKey = useMemo(() => stableKey(lastSaved), [lastSaved]);
 
   /** Applies a change to the edited configuration. */
   const edit = useCallback(
@@ -63,10 +69,10 @@ export function usePdfTemplate() {
     retry: loaded.retry,
     saving: save.busy,
     saveError: save.error,
-    /** The shown configuration is exactly the one saved last. */
-    saved: lastSaved !== null && config === lastSaved,
-    /** The shown configuration differs from the stored one. */
-    dirty: config !== null && config !== baseline,
+    /** The shown configuration has the same content as the one saved last. */
+    saved: savedKey !== null && configKey === savedKey,
+    /** The shown configuration differs in content from the stored one. */
+    dirty: configKey !== null && configKey !== baselineKey,
     saveConfig,
     reset: () => edit(() => getDefaultConfig()),
     setPage: (page: PageConfig) => edit((c) => ({ ...c, page })),
