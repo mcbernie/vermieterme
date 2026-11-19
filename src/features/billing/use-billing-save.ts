@@ -84,7 +84,8 @@ export async function saveAll(id: string, values: SaveValues): Promise<boolean> 
  * is left. Otherwise a pending automatic save is still sent when the page unmounts. Nothing is
  * scheduled after the unmount. A save that fails after the unmount is lost without notice, since no
  * page is left to show it; the send after leaving is a best effort, not a guarantee. Closing the tab
- * or reloading cannot send anything, so the browser is asked to warn while changes are unsaved.
+ * or reloading cannot send anything, so the browser is asked to warn while changes are unsaved, also
+ * after a failed save.
  * @param dirty Unsaved amounts, shared with the loader; marked by `schedule(key)`, settled by saves.
  */
 export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys) {
@@ -94,6 +95,7 @@ export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys
   const [pending, setPending] = useState(false);
   const [state, setState] = useState<SaveState>(null);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [unsavedCount, setUnsavedCount] = useState(0);
   const [problems, setProblems] = useState<ReadonlySet<string>>(new Set());
   const valuesRef = useRef(values);
   const problemsRef = useRef(problems);
@@ -147,10 +149,11 @@ export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys
     const result = await drain();
     if (!mounted.current) return;
     setSaving(false);
+    setUnsavedCount(changes.keys().size);
     setState(result);
     if (result === "invalid") setPending(true);
     if (result === "saved") setLastSavedAt(new Date());
-  }, [drain]);
+  }, [drain, changes]);
 
   /**
    * Schedules an automatic save after the last change.
@@ -159,7 +162,10 @@ export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys
   const schedule = useCallback(
     (key?: string) => {
       if (!mounted.current) return;
-      if (key !== undefined) changes.mark(key);
+      if (key !== undefined) {
+        changes.mark(key);
+        setUnsavedCount(changes.keys().size);
+      }
       if (debounce.current) clearTimeout(debounce.current);
       setPending(true);
       debounce.current = setTimeout(() => void save(), AUTOSAVE_DELAY);
@@ -201,7 +207,7 @@ export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys
   }, [drain]);
 
   // Closing or reloading the tab sends nothing: warn while changes are unsaved or on their way.
-  const unsaved = pending || saving;
+  const unsaved = pending || saving || unsavedCount > 0;
   useEffect(() => {
     if (!unsaved) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();

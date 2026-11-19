@@ -216,6 +216,26 @@ describe("useBillingSave", () => {
     expect(leave()).toBe(false);
   });
 
+  /** Dispatches `beforeunload` like the browser does and reports whether the page asked to stay. */
+  function leave() {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it("keeps warning after a failed save until a save succeeds (#62)", async () => {
+    fetchMock.mockImplementation(async () => json(false));
+    const { result } = renderHook(() => useBillingSave("bp", values));
+    act(() => result.current.schedule("cost:c1"));
+    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
+    expect(result.current).toMatchObject({ state: "error", pending: false, saving: false });
+    expect(leave()).toBe(true);
+    fetchMock.mockImplementation(async () => json());
+    await act(async () => result.current.save());
+    expect(result.current.state).toBe("saved");
+    expect(leave()).toBe(false);
+  });
+
   it("settles the shared unsaved amounts only after a successful save", async () => {
     const dirty = createDirtyKeys();
     fetchMock.mockImplementation(async () => json(false));
