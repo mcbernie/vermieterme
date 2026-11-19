@@ -81,6 +81,43 @@ describe("useProperties", () => {
     expect(result.current.detail).toBeNull();
   });
 
+  it("keeps the detail of the expanded property when a unit of another one is deleted or saved", async () => {
+    const { pending } = setup();
+    const { result } = renderHook(() => useProperties());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let expanding: Promise<void>;
+    act(() => {
+      expanding = result.current.toggleExpand("b");
+    });
+    await act(async () => {
+      await result.current.deleteUnit("ua", "a");
+      await result.current.saveUnit({ propertyId: "a", values: { name: "n", floor: "f", shares: 1 }, unitId: "ua" });
+    });
+    await act(async () => {
+      pending.b(json(detailOf("b")));
+      await expanding;
+    });
+    expect(result.current.detail?.id).toBe("b");
+    expect(result.current.detailFailed).toBe(false);
+  });
+
+  it("reports a failed detail request", async () => {
+    const { pending } = setup();
+    const { result } = renderHook(() => useProperties());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let expanding: Promise<void>;
+    act(() => {
+      expanding = result.current.toggleExpand("a");
+    });
+    await act(async () => {
+      pending.a(json({}, false));
+      await expanding;
+    });
+    expect(result.current.detail).toBeNull();
+    expect(result.current.detailFailed).toBe(true);
+  });
+
   it("sends payloads to the right URLs and reloads after delete", async () => {
     const { calls, setList } = setup(false);
     const { result } = renderHook(() => useProperties());

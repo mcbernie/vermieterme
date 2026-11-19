@@ -62,7 +62,9 @@ export function useProperties() {
   const [loadedDetail, setDetail] = useState<PropertyWithUnits | null>(null);
   const [rentChanges, setRentChanges] = useState<RentChange[]>([]);
   const [loading, setLoading] = useState(true);
+  const [detailFailed, setDetailFailed] = useState(false);
   const detailRequest = useRef(0);
+  const expandedRef = useRef<string | null>(null);
   const mounted = useRef(true);
 
   /** Stores a loaded property list; ignored after unmount. */
@@ -80,7 +82,22 @@ export function useProperties() {
     const request = ++detailRequest.current;
     const data = await load<PropertyWithUnits>(`/api/properties/${id}`);
     if (request !== detailRequest.current || !mounted.current) return;
+    setDetailFailed(!data);
     if (data) setDetail(data);
+  }, []);
+
+  /** Reloads the detail after a mutation, but only while that property is still expanded. */
+  const refreshDetail = useCallback(
+    async (id: string) => {
+      if (expandedRef.current === id) await fetchDetail(id);
+    },
+    [fetchDetail],
+  );
+
+  /** Sets the expanded property in state and in the ref used by async callbacks. */
+  const expand = useCallback((id: string | null) => {
+    expandedRef.current = id;
+    setExpandedId(id);
   }, []);
 
   useEffect(() => {
@@ -105,11 +122,12 @@ export function useProperties() {
   async function toggleExpand(id: string) {
     detailRequest.current++;
     setDetail(null);
+    setDetailFailed(false);
     if (expandedId === id) {
-      setExpandedId(null);
+      expand(null);
       return;
     }
-    setExpandedId(id);
+    expand(id);
     await fetchDetail(id);
   }
 
@@ -120,7 +138,7 @@ export function useProperties() {
       : await send("/api/properties", "POST", values);
     if (!ok) return false;
     await fetchProperties();
-    if (id && expandedId === id) await fetchDetail(id);
+    if (id) await refreshDetail(id);
     return true;
   }
 
@@ -129,7 +147,7 @@ export function useProperties() {
     if (!(await send(`/api/properties/${id}`, "DELETE"))) return;
     if (expandedId === id) {
       detailRequest.current++;
-      setExpandedId(null);
+      expand(null);
       setDetail(null);
     }
     await fetchProperties();
@@ -142,7 +160,7 @@ export function useProperties() {
       ? await send(`/api/units/${unitId}`, "PUT", body)
       : await send("/api/units", "POST", body);
     if (!ok) return false;
-    await fetchDetail(propertyId);
+    await refreshDetail(propertyId);
     if (!unitId) await fetchProperties();
     return true;
   }
@@ -150,7 +168,7 @@ export function useProperties() {
   /** Deletes a unit and refreshes the detail and counts. */
   async function deleteUnit(unitId: string, propertyId: string) {
     if (!(await send(`/api/units/${unitId}`, "DELETE"))) return;
-    await fetchDetail(propertyId);
+    await refreshDetail(propertyId);
     await fetchProperties();
   }
 
@@ -158,6 +176,7 @@ export function useProperties() {
     properties,
     expandedId,
     detail,
+    detailFailed,
     rentChanges,
     loading,
     toggleExpand,

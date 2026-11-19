@@ -63,6 +63,7 @@ export function PropertiesView() {
               property={property}
               expanded={data.expandedId === property.id}
               detail={data.detail}
+              detailFailed={data.detailFailed}
               rentChanges={data.rentChanges}
               onToggle={() => data.toggleExpand(property.id)}
               onEdit={() => setDialog({ kind: "property", property })}

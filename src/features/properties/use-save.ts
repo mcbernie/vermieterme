@@ -17,8 +17,14 @@ export function useSave() {
     running.current = true;
     setSaving(true);
     setError(null);
-    const ok = await action();
-    running.current = false;
+    let ok = false;
+    try {
+      ok = await action();
+    } catch (error) {
+      console.error("Save failed:", error);
+    } finally {
+      running.current = false;
+    }
     if (ok) {
       onDone();
       return;

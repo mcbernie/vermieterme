@@ -1,4 +1,4 @@
-import { Button } from "@zweiund40gmbh/ui";
+import { Button, InlineNotice, LoadingState } from "@zweiund40gmbh/ui";
 import type { PropertyWithCount, PropertyWithUnits, RentChange, UnitWithTenants } from "@/types";
 import { UnitTable } from "./unit-table";
 
@@ -6,6 +6,7 @@ interface Props {
   property: PropertyWithCount;
   expanded: boolean;
   detail: PropertyWithUnits | null;
+  detailFailed: boolean;
   rentChanges: RentChange[];
   onToggle: () => void;
   onEdit: () => void;
@@ -43,6 +44,16 @@ export function PropertyCard(p: Props) {
           </Button>
         </div>
       </div>
+
+      {expanded && !detail && (
+        <div className="border-t border-line p-4">
+          {p.detailFailed ? (
+            <InlineNotice tone="bad">Die Wohnungen konnten nicht geladen werden.</InlineNotice>
+          ) : (
+            <LoadingState />
+          )}
+        </div>
+      )}
 
       {expanded && detail && (
         <div className="border-t border-line p-4">
