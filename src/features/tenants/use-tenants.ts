@@ -68,14 +68,15 @@ async function loadSnapshot(): Promise<Snapshot> {
   }
 }
 
-/** First error of a snapshot, or null when everything loaded. */
-function firstError(snapshot: Snapshot): string | null {
-  return errorOf(snapshot.tenants) ?? errorOf(snapshot.properties) ?? errorOf(snapshot.rentChanges);
-}
+/** Load error per list (null = the list is current). */
+type ListErrors = Record<ListKey, string | null>;
+
+const NO_ERRORS: ListErrors = { tenants: null, properties: null, rentChanges: null };
 
 /**
  * Data and mutations of the tenants page: tenants, properties with units (for the unit select) and
- * rent changes. Load errors are collected in `error`; mutations return their own error text.
+ * rent changes. Load errors are kept per list and `error` shows the first one, so a later successful
+ * load of a list clears its error; mutations return their own error text.
  * Every list only takes the answer of its latest request, so a slow early answer never overwrites
  * a newer one.
  */
@@ -84,7 +85,8 @@ export function useTenants() {
   const [properties, setProperties] = useState<PropertyWithUnits[]>([]);
   const [rentChanges, setRentChanges] = useState<RentChangeWithUnit[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<ListErrors>(NO_ERRORS);
+  const error = errors.tenants ?? errors.properties ?? errors.rentChanges;
   // Number of the latest request per list (and of the latest full load).
   const latest = useRef({ tenants: 0, properties: 0, rentChanges: 0, all: 0 });
 
@@ -106,10 +108,10 @@ export function useTenants() {
     if (snapshot.tenants.ok && ticket.current("tenants")) setTenants(snapshot.tenants.data);
     if (snapshot.properties.ok && ticket.current("properties")) setProperties(snapshot.properties.data);
     if (snapshot.rentChanges.ok && ticket.current("rentChanges")) setRentChanges(snapshot.rentChanges.data);
-    if (ticket.isLatestRun()) {
-      setError(firstError(snapshot));
-      setLoading(false);
-    }
+    // Only lists without a newer request report their result (an outdated error is dropped).
+    const keys = (Object.keys(NO_ERRORS) as ListKey[]).filter((key) => ticket.current(key));
+    setErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((key) => [key, errorOf(snapshot[key])])) }));
+    if (ticket.isLatestRun()) setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -125,14 +127,14 @@ export function useTenants() {
     apply(await loadSnapshot(), ticket);
   }
 
-  /** Reloads one list after a successful change; a failure shows up as page error. */
+  /** Reloads one list after a successful change; a failure shows up as page error, a success clears it. */
   const refresh = useCallback(
     async <T,>(key: ListKey, url: string, setData: (data: T[]) => void) => {
       const current = begin([key]);
       const res = await requestJson<T[]>(url, { accept: isArray });
       if (!current(key)) return;
       if (res.ok) setData(res.data);
-      else setError(res.error);
+      setErrors((prev) => ({ ...prev, [key]: errorOf(res) }));
     },
     [begin],
   );

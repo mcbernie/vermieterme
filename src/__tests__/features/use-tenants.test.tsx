@@ -133,4 +133,43 @@ describe("useTenants", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.tenants).toEqual([]);
   });
+
+  it("clears the page error once the failed list reloads successfully", async () => {
+    const { answers } = stubApi();
+    const { result } = await loaded();
+    answers["GET /api/tenants"] = { status: 500, body: {} };
+    await act(async () => {
+      await result.current.deleteTenant("t1");
+    });
+    expect(result.current.error).not.toBeNull();
+    answers["GET /api/tenants"] = { status: 200, body: [] };
+    await act(async () => {
+      await result.current.deleteTenant("t1");
+    });
+    expect(result.current.error).toBeNull();
+  });
+
+  it("drops the error of an outdated initial load when a newer reload of that list succeeded", async () => {
+    const { fetchMock, answers } = stubApi();
+    const plain = fetchMock.getMockImplementation();
+    let releaseInitial: () => void = () => undefined;
+    let first = true;
+    // The first GET of the tenants fails late; the reload after the delete succeeds before it.
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/tenants" && !init?.method?.match(/POST|PUT|DELETE/) && first) {
+        first = false;
+        const late = Response.json({}, { status: 500 });
+        return new Promise<Response>((resolve) => (releaseInitial = () => resolve(late)));
+      }
+      return plain!(url, init);
+    });
+    const { result } = renderHook(() => useTenants());
+    answers["GET /api/tenants"] = { status: 200, body: [] };
+    await act(async () => {
+      await result.current.deleteTenant("t1");
+    });
+    await act(async () => releaseInitial());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeNull();
+  });
 });

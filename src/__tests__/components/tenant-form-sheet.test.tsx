@@ -76,14 +76,21 @@ describe("TenantFormSheet", () => {
     expect(onSave.mock.calls[0][0]).toMatchObject({ iban: "DE00 1234" });
   });
 
+  it("closes on Escape when no save is running", () => {
+    const { onClose } = setup({ edit: true });
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("cannot be closed while saving and closes once after the save", async () => {
     let finish: (error: string | null) => void = () => undefined;
     const onSave = vi.fn(() => new Promise<string | null>((resolve) => (finish = resolve)));
     const { onClose, form } = setup({ edit: true, onSave });
     fireEvent.submit(form);
     await waitFor(() => expect(screen.getByRole("button", { name: /Aktualisieren/ })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Abbrechen" })).toBeDisabled();
+    // Same path as the test above, which shows that Escape reaches the sheet's close handler.
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
-    fireEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
     expect(onClose).not.toHaveBeenCalled();
     await act(async () => finish(null));
     expect(onClose).toHaveBeenCalledTimes(1);

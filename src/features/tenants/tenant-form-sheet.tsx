@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
-import { InlineNotice, Sheet, SheetFooter, type DateInputProblem } from "@zweiund40gmbh/ui";
+import { InlineNotice, Sheet, type DateInputProblem } from "@zweiund40gmbh/ui";
+import { FormSheetFooter } from "./form-sheet-footer";
 import type { PropertyWithUnits, Tenant } from "@/types";
 import { TenantContactFields } from "./tenant-contact-fields";
 import {
@@ -88,7 +89,7 @@ export function TenantFormSheet({ tenant, properties, onSave, onClose }: Props) 
       wide
       onClose={close}
       footer={
-        <SheetFooter onClose={close} formId={formId} busy={busy} saveLabel={tenant ? "Aktualisieren" : "Speichern"} />
+        <FormSheetFooter onCancel={close} formId={formId} busy={busy} saveLabel={tenant ? "Aktualisieren" : "Speichern"} />
       }
     >
       <form id={formId} noValidate onSubmit={submit} className="grid gap-6 p-6">

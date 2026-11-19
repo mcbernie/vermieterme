@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfirmProvider, UiProvider } from "@zweiund40gmbh/ui";
 import { TenantAccessToken } from "@/components/tenant-access-token";
 
@@ -18,14 +18,19 @@ function stubFetch(answers: Record<string, { status: number; body: unknown }>) {
   return fetchMock;
 }
 
-function setup() {
-  render(
+/** The component inside the providers it needs. */
+function view(tenantId = "t1") {
+  return (
     <UiProvider locale="de-DE">
       <ConfirmProvider>
-        <TenantAccessToken tenantId="t1" tenantName="Erika Muster" onClose={() => undefined} />
+        <TenantAccessToken tenantId={tenantId} tenantName="Erika Muster" onClose={() => undefined} />
       </ConfirmProvider>
-    </UiProvider>,
+    </UiProvider>
   );
+}
+
+function setup() {
+  return render(view());
 }
 
 describe("TenantAccessToken", () => {
@@ -97,5 +102,26 @@ describe("TenantAccessToken", () => {
     stubFetch({ GET: { status: 500, body: { error: "Internal Server Error" } } });
     setup();
     expect(await screen.findByText("Die Anfrage ist fehlgeschlagen (Status 500).")).toBeInTheDocument();
+  });
+
+  it("drops a generated code that arrives after switching to another tenant", async () => {
+    let releasePost: () => void = () => undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return new Promise<Response>((resolve) => (releasePost = () => resolve(Response.json({ token: "ALT111" }))));
+        }
+        const token = url.includes("/t2/") ? "NEU222" : null;
+        return Promise.resolve(Response.json({ hasToken: token !== null, token }));
+      }),
+    );
+    const { rerender } = setup();
+    fireEvent.click(await screen.findByRole("button", { name: "Einladungscode generieren" }));
+    rerender(view("t2"));
+    expect(await screen.findByText("NEU222")).toBeInTheDocument();
+    await act(async () => releasePost());
+    expect(screen.getByText("NEU222")).toBeInTheDocument();
+    expect(screen.queryByText("ALT111")).not.toBeInTheDocument();
   });
 });

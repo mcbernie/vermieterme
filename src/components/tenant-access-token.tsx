@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, CopyField, InlineNotice, LoadingState, useConfirm } from "@zweiund40gmbh/ui";
 import { requestJson } from "@/features/tenants/request";
 
@@ -40,6 +40,8 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   const [failure, setFailure] = useState<TenantError | null>(null);
   const loading = loadedFor !== tenantId;
   const error = failure?.tenantId === tenantId ? failure.text : null;
+  // Tenant shown right now; answers of `generate`/`revoke` for another tenant are dropped.
+  const shownTenant = useRef(tenantId);
 
   /** Stores the error of a request for this tenant, or clears it. */
   function report(id: string, text: string | null) {
@@ -47,6 +49,7 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   }
 
   useEffect(() => {
+    shownTenant.current = tenantId;
     let active = true;
     void requestJson(`/api/tenants/${tenantId}/access-token`, { accept: isTokenResponse }).then((res) => {
       if (!active) return;
@@ -61,14 +64,13 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
 
   /** Creates a new invitation code. */
   async function generate() {
+    const id = tenantId;
     setBusy(true);
-    const res = await requestJson(`/api/tenants/${tenantId}/access-token`, {
-      method: "POST",
-      accept: isTokenResponse,
-    });
-    if (res.ok) setToken(res.data.token);
-    report(tenantId, res.ok ? null : res.error);
+    const res = await requestJson(`/api/tenants/${id}/access-token`, { method: "POST", accept: isTokenResponse });
     setBusy(false);
+    if (shownTenant.current !== id) return;
+    if (res.ok) setToken(res.data.token);
+    report(id, res.ok ? null : res.error);
   }
 
   /** Asks for confirmation and revokes the code. */
@@ -80,11 +82,13 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
       danger: true,
     });
     if (!ok) return;
+    const id = tenantId;
     setBusy(true);
-    const res = await requestJson(`/api/tenants/${tenantId}/access-token`, { method: "DELETE" });
-    if (res.ok) setToken(null);
-    report(tenantId, res.ok ? null : res.error);
+    const res = await requestJson(`/api/tenants/${id}/access-token`, { method: "DELETE" });
     setBusy(false);
+    if (shownTenant.current !== id) return;
+    if (res.ok) setToken(null);
+    report(id, res.ok ? null : res.error);
   }
 
   return (
