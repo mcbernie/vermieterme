@@ -16,7 +16,6 @@
   --pal-mint: #50ffda;
   --pal-aqua: #73dcc6;
   --pal-coral: #ff5176;
-  --pal-rose: #da7186;
   --pal-teal: #258d78;
   --pal-wine: #8d253a;
   --pal-slate: #435356;
@@ -214,12 +213,14 @@
 /* Small app-level helpers (everything else comes from @zweiund40gmbh/ui and Tailwind). */
 @layer components {
   .panel { background: var(--layer); border: 1px solid var(--border); padding: 1rem; }
-  /* Dark app header with accent underline: the library header re-themed through its `--zui-header-*` tokens (set directly: the library resolves them in `:root`, so overriding `--zui-surface` etc. would not arrive) (the popover of the
-     user menu is portaled, so it keeps the normal theme). Contrasts: see src/__tests__/design/globals-contrast.test.ts. */
+  /* Dark app header with accent underline: the library header re-themed through its `--zui-header-*` tokens, set directly because the library resolves them in `:root`
+     (overriding `--zui-surface` etc. would not arrive). `--zui-hover` is set too: icon and ghost buttons read it on
+     hover. The popover of the user menu is portaled, so it keeps the normal theme. Contrasts: see src/__tests__/design/globals-contrast.test.ts. */
   .app-header {
     --zui-header-bg: var(--hdr);
     --zui-header-text: var(--hdr-ink);
     --zui-header-hover: var(--hdr-hover);
+    --zui-hover: var(--hdr-hover); /* hover of icon/ghost buttons (`.zui-icon-button:hover` outranks the menu rule) */
     --zui-accent: var(--hdr-accent);
     --zui-accent-strong: var(--hdr-accent); /* text of ghost/tertiary buttons in the header */
     --zui-accent-contrast: var(--hdr-accent-ink);
@@ -229,7 +230,7 @@
   /* Centred modal windows: footer buttons sit bottom left at natural width with a gap, padded like the modal body
      (1.5rem), and wrap on narrow screens. Side panels (`.zui-sheet__footer`) keep the library's full-width buttons. */
   .zui-modal__footer { justify-content: flex-start; flex-wrap: wrap; gap: 0.75rem; padding: 0 1.5rem 1.5rem; }
-  .zui-modal__footer .zui-button { flex: 0 0 auto; }
+  .zui-modal__footer .zui-button { flex: 0 0 auto; height: var(--zui-control-h); justify-content: center; } /* same height for confirm buttons */
   /* Scroll shadows: a faint fade under the sheet header and above the footer, visible only while content is
      scrolled out of view. The `local` covers (surface colour) hide the `scroll` shadows at the scroll ends. */
   .zui-sheet__body {

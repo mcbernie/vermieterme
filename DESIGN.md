@@ -11,8 +11,9 @@ keine Landingpage.
 - **Flach:** keine `shadow-*`, keine Verläufe, keine Glas-/Blur-Effekte, keine dekorativen Icons in Kreisen.
 - **Farben nur über Tokens**, nie Tailwind-Palettenfarben (`zinc-*`, `red-*`, `gray-*`, `green-*` …) oder Hex-Werte.
   Hell und Dunkel funktionieren damit automatisch.
-- **Palette** „Become Vacation“: Vanille als Grund, Schiefer für Text und Kopfzeile (die Kopfzeile setzt die `--zui-header-*`-Tokens der Bibliothek direkt), Petrolgrün als Akzent, Koralle
-  nur dekorativ (Linie unter der Kopfzeile), Mint als Akzent in der Kopfzeile. Die Palette gilt nur für dieses
+- **Palette** „Become Vacation“: Vanille als Grund, Schiefer für Text und Kopfzeile, Petrolgrün als Akzent, Koralle
+  nur dekorativ (Linie unter der Kopfzeile), Mint als Akzent in der Kopfzeile. Die Kopfzeile setzt die `--zui-header-*`-Tokens und `--zui-hover` der
+  Bibliothek direkt. Die Chart-Tokens (`--zui-chart-*`) bleiben auf den Standardfarben, solange es keine Diagramme gibt. Die Palette gilt nur für dieses
   Projekt (Konfiguration in `globals.css`), nicht in `@zweiund40gmbh/ui`. Alle Kontraste (Text 4,5:1, Rahmen/Fokus
   3:1) prüft `src/__tests__/design/globals-contrast.test.ts`; wer ein Token ändert, lässt ihn laufen.
 - **Akzent sparsam:** Petrolgrün (`--accent`) für primäre Aktion, aktive Navigation, Links. Als Textfarbe für Links

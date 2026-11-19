@@ -63,9 +63,14 @@ export function loadHeaderDecls(): Decls {
   return parseDecls(blockBody(readGlobalsCss(), ".app-header {"));
 }
 
+/** Reads the compiled CSS of @zweiund40gmbh/ui. */
+export function readLibraryCss(): string {
+  return readFileSync(path.resolve(__dirname, "../../../node_modules/@zweiund40gmbh/ui/dist/styles.css"), "utf8");
+}
+
 /** The hover fill of the library's danger button (`color-mix(...)` with `var(--zui-bad)`), read from its CSS. */
 export function libraryDangerHover(): string {
-  const lib = readFileSync(path.resolve(__dirname, "../../../node_modules/@zweiund40gmbh/ui/dist/styles.css"), "utf8");
+  const lib = readLibraryCss();
   const m = /\.zui-button\[data-variant='danger'\]:hover:not\(:disabled\)\s*\{\s*background:\s*([^;]+);/.exec(lib);
   if (!m) throw new Error("Danger hover rule not found in the library CSS");
   return m[1].trim();

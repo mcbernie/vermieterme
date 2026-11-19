@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contrast, libraryDangerHover, loadHeaderDecls, loadTokenBlocks, loadZuiMapping, over, resolveColor, type Decls } from "./css-tokens";
+import { contrast, libraryDangerHover, readLibraryCss, loadHeaderDecls, loadTokenBlocks, loadZuiMapping, over, resolveColor, type Decls } from "./css-tokens";
 
 /**
  * Single source of truth for the colour contrasts of `src/app/globals.css`: WCAG 2.x, text 4.5:1,
@@ -58,6 +58,8 @@ function pairs(): Pair[] {
 const HEADER_PAIRS: Pair[] = [
   { fg: "--zui-header-text", bg: "--zui-header-bg", min: 4.5 },
   { fg: "--zui-header-text", bg: "--zui-header-hover", min: 4.5 },
+  { fg: "--zui-header-text", bg: "--zui-hover", min: 4.5 }, // menu button: `.zui-icon-button:hover` reads --zui-hover
+  { fg: "--zui-accent-strong", bg: "--zui-hover", min: 4.5 }, // ghost buttons
   { fg: "--zui-accent-strong", bg: "--zui-header-bg", min: 4.5 },
   { fg: "--zui-accent-strong", bg: "--zui-header-hover", min: 4.5 },
   { fg: "--zui-accent", bg: "--zui-header-bg", min: 4.5 },
@@ -87,8 +89,13 @@ describe.each(Object.entries(themes))("Kontraste (%s)", (_name, decls) => {
 
   it("Kopfzeile setzt die Tokens, die die Bibliothek wirklich liest", () => {
     const h = loadHeaderDecls();
-    for (const t of ["--zui-header-bg", "--zui-header-text", "--zui-header-hover", "--zui-accent-strong"]) {
+    for (const t of ["--zui-header-bg", "--zui-header-text", "--zui-header-hover", "--zui-hover", "--zui-accent-strong"]) {
       expect(h[t], t).toBeDefined();
+    }
+    expect(h["--zui-hover"]).toBe(h["--zui-header-hover"]);
+    const lib = readLibraryCss();
+    for (const t of ["--zui-header-bg", "--zui-header-text", "--zui-header-hover"]) {
+      expect(new RegExp(`var\\(${t}\\)`).test(lib), `Bibliothek liest ${t} nicht mehr`).toBe(true);
     }
   });
 
