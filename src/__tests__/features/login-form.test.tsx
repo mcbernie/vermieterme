@@ -7,6 +7,7 @@ const refresh = vi.fn();
 const signIn = vi.fn();
 const getProviders = vi.fn();
 let search = "";
+let sessionStatus = "unauthenticated";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, refresh }),
@@ -15,7 +16,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("next-auth/react", () => ({
   signIn: (...args: unknown[]) => signIn(...args),
   getProviders: () => getProviders(),
-  useSession: () => ({ status: "unauthenticated" }),
+  useSession: () => ({ status: sessionStatus }),
 }));
 
 /** Renders the form and waits for the provider lookup, so no state update lands after the test. */
@@ -35,6 +36,7 @@ describe("LoginForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     search = "";
+    sessionStatus = "unauthenticated";
     getProviders.mockResolvedValue({ credentials: {} });
     signIn.mockResolvedValue({ error: null });
   });
@@ -86,6 +88,44 @@ describe("LoginForm", () => {
     expect(signIn).toHaveBeenCalledTimes(1);
     resolve({ error: null });
     await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows a neutral notice and unlocks the form when sign-in throws", async () => {
+    signIn.mockRejectedValueOnce(new Error("x"));
+    await renderForm();
+    fill("a@b.de", "geheim");
+    submit();
+    expect(await screen.findByText("Anmeldung derzeit nicht möglich. Bitte versuchen Sie es erneut.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Anmelden" })).toBeEnabled());
+    submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(signIn).toHaveBeenCalledTimes(2);
+  });
+
+  it("redirects an existing session to the callback url", async () => {
+    sessionStatus = "authenticated";
+    search = "callbackUrl=%2Ftenants";
+    await renderForm();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/tenants"));
+  });
+
+  it("redirects an existing session to / for a foreign callback url", async () => {
+    sessionStatus = "authenticated";
+    search = "callbackUrl=%2F%2Fx.de";
+    await renderForm();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+  });
+
+  it("passes the callback url to Apple and starts only one sign-in on a double click", async () => {
+    search = "callbackUrl=%2Fbilling";
+    signIn.mockReturnValue(new Promise(() => {}));
+    getProviders.mockResolvedValue({ credentials: {}, apple: {} });
+    await renderForm();
+    const apple = await screen.findByRole("button", { name: "Mit Apple anmelden" });
+    fireEvent.click(apple);
+    fireEvent.click(apple);
+    expect(signIn).toHaveBeenCalledTimes(1);
+    expect(signIn).toHaveBeenCalledWith("apple", { callbackUrl: "/billing" });
   });
 
   it("offers Apple only when the provider is configured", async () => {
