@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { RentChangeDialogValue } from "@/components/rent-change-dialog";
-import { apiFetch, apiSend, RequestError } from "@/lib/api-client";
+import { apiFetch, apiSend, logRequestFailure, RequestError } from "@/lib/api-client";
 import type { VpiSuggestion } from "@/types";
 import { vpiReason } from "./vpi-text";
 
@@ -66,7 +66,7 @@ export function useVpiAdjustment(refetch: () => Promise<void>) {
       await refetch();
     } catch (err) {
       if (err instanceof ApplyError) throw err;
-      console.error("Failed to apply VPI adjustment:", err);
+      logRequestFailure("Request POST /api/rent-changes", err);
       return fail("Die Mietanpassung konnte nicht durchgeführt werden.");
     }
   }

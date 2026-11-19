@@ -12,7 +12,7 @@ export const REFRESH_FAILED = "Die Anzeige konnte nicht aktualisiert werden. Bit
 /**
  * Loads data for a page: aborts on unmount, drops responses of older requests and keeps the shown data
  * when a later refresh fails (that failure is reported separately as `refreshError`).
- * @param load Stable loader (module-level function); receives the abort signal.
+ * @param load Loader with a stable reference (module-level function or `useCallback` without changing dependencies); receives the abort signal.
  */
 export function useLoad<T>(load: (signal: AbortSignal) => Promise<T>) {
   const [data, setData] = useState<T | null>(null);
