@@ -90,7 +90,7 @@ export function RentChangeDialog({
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>Abbrechen</Button>
-          <Button type="submit" form={formId} variant="primary" disabled={submitting || date.problem !== null}>
+          <Button type="submit" form={formId} variant="primary" disabled={submitting}>
             {submitting ? "Speichern..." : submitLabel}
           </Button>
         </>

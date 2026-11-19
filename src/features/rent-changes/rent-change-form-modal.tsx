@@ -92,7 +92,7 @@ export function RentChangeFormModal({ open, editing, unitOptions, onClose, onSub
       footer={
         <>
           <Button onClick={onClose}>Abbrechen</Button>
-          <Button type="submit" form={formId} variant="primary" disabled={submitting || date.problem !== null}>
+          <Button type="submit" form={formId} variant="primary" disabled={submitting}>
             {editing ? "Aktualisieren" : "Speichern"}
           </Button>
         </>

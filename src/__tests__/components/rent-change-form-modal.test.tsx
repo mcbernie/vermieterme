@@ -57,6 +57,8 @@ describe("RentChangeFormModal", () => {
     await submit();
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByText("Bitte ein gültiges Datum eingeben.")).toBeInTheDocument();
+    // The check runs on submit; the button is only locked while saving.
+    expect(screen.getByRole("button", { name: /Speichern|Aktualisieren/ })).toBeEnabled();
   });
 
   it("asks for date, amount and unit when creating an empty entry", async () => {

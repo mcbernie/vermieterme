@@ -41,6 +41,8 @@ describe("RentChangeDialog", () => {
     fireEvent.submit(form);
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByText("Bitte ein gültiges Datum eingeben.")).toBeInTheDocument();
+    // The check runs on submit; the button is only locked while saving.
+    expect(screen.getByRole("button", { name: "Anpassung anlegen" })).toBeEnabled();
   });
 
   it("shows an error for an empty date after a submit attempt", () => {
