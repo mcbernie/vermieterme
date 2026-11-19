@@ -1,13 +1,13 @@
-import type { ComboboxOption } from "@/components/ui/combobox";
+import type { SelectOption } from "@zweiund40gmbh/ui";
 
-export const SALUTATIONS: ComboboxOption[] = [
+export const SALUTATIONS: SelectOption<string>[] = [
   { value: "Herr", label: "Herr" },
   { value: "Frau", label: "Frau" },
   { value: "Herr und Frau", label: "Herr und Frau" },
   { value: "Firma", label: "Firma" },
 ];
 
-export const SALUTATIONS_SECONDARY: ComboboxOption[] = [
+export const SALUTATIONS_SECONDARY: SelectOption<string>[] = [
   { value: "", label: "---" },
   { value: "Herr", label: "Herr" },
   { value: "Frau", label: "Frau" },
@@ -15,7 +15,7 @@ export const SALUTATIONS_SECONDARY: ComboboxOption[] = [
 
 export const DISTRIBUTION_KEYS = ["MEA", "laut Bescheid", "siehe Anlage"];
 
-export const DISTRIBUTION_KEY_OPTIONS: ComboboxOption[] = DISTRIBUTION_KEYS.map(
+export const DISTRIBUTION_KEY_OPTIONS: SelectOption<string>[] = DISTRIBUTION_KEYS.map(
   (key) => ({ value: key, label: key })
 );
 
