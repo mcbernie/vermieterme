@@ -3,8 +3,8 @@
   "version": "1.0.9",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate && next build",
+    "dev": "pnpm theme-init && next dev",
+    "build": "pnpm theme-init && prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -13,7 +13,9 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:local": "tsx prisma/seed.local.ts",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "theme-init": "node scripts/copy-theme-init.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -34,6 +36,7 @@
     "@base-ui/react": "^1.2.0",
     "@prisma/client": "^5.22.0",
     "@react-pdf/renderer": "^4.3.2",
+    "@zweiund40gmbh/ui": "0.10.0",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

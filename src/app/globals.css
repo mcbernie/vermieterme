@@ -1,137 +1,250 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import 'tailwindcss';
+@import '@zweiund40gmbh/ui/styles.css' layer(components);
+@import '@zweiund40gmbh/ui/tailwind.css';
 
-@custom-variant dark (&:is(.dark *));
+/*
+ * Design tokens. Brand palette (`--z40-*`) is the single source of the brand colours; the app
+ * tokens below only reference it. Light is the default; dark follows `prefers-color-scheme` unless the user
+ * forced a theme with `<html data-zui-theme="light|dark">`. The dark block is written twice (media query +
+ * attribute) because CSS cannot share it. The `--zui-*` tokens of @zweiund40gmbh/ui follow the app tokens.
+ */
+:root {
+  /* Brand palette (do not use directly in components; map to an app token first). */
+  --z40-petrol: #00939d;
+  --z40-petrol-dark: #007a83;
+  --z40-petrol-deep: #016068;
+  --z40-turquoise: #0cd0d3;
+  --z40-orange: #ff914d;
+  --z40-ink: #1a1a1a;
+  --z40-anthracite: #222222;
+  --z40-graphite: #444444;
+  --z40-light: #f2f2f2;
+  --z40-white: #ffffff;
+  --z40-glow-rgb: 12, 208, 211;
+  --z40-orange-rgb: 255, 145, 77;
 
-@theme inline {
-  --color-background: #f9fafb;
-  --color-foreground: #111827;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  color-scheme: light;
+  --bg: var(--z40-light);
+  --layer: var(--z40-white);
+  --field: var(--z40-light);
+  --hover: #e6e6e6;
+  --border: #dedede;
+  --border-strong: #8d8d8d;
+  --text: var(--z40-ink);
+  --text2: var(--z40-graphite);
+  --text3: #6b6b6b;
+  --accent: var(--z40-petrol);
+  --accent-fill: var(--z40-petrol-dark); /* background of filled controls with --on-accent text */
+  --on-accent: var(--z40-white);
+  --accent-hover: var(--z40-petrol-deep);
+  --accent-strong: var(--z40-petrol-deep); /* accent as text/link color on light surfaces */
+  --accent-soft: color-mix(in srgb, var(--z40-petrol) 12%, transparent);
+  --highlight: var(--z40-orange); /* sparing highlight (search hits), always with --z40-ink text */
+  --ok: #198038;
+  --warn: #8a6800;
+  --bad: #da1e28;
+  --info: #0043ce;
+  --ok-soft: #defbe6;
+  --warn-soft: #fcf4d6;
+  --bad-soft: #fff1f1;
+  --info-soft: #edf5ff;
+  --gray-soft: #e6e6e6;
+  --th: #e6e6e6;
+  --hdr: var(--z40-anthracite);
+  --hdr-ink: var(--z40-white);
+  --hdr-hover: #333333;
+  --band: var(--z40-anthracite);
+  --band-ink: var(--z40-white);
+  --danger: #da1e28; /* fill of destructive buttons, same in both themes (white text) */
+  --danger-hover: #b81921;
+  --btn2: var(--z40-graphite);
+  --btn2-hover: var(--z40-anthracite);
+  --btn2-ink: var(--z40-white);
+  --toast: var(--z40-anthracite);
+  --toast-ink: var(--z40-white);
+  --r: 0px;
+  --row: 40px;
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  --overlay: rgba(22, 22, 22, 0.5); /* backdrop of dialogs, same in both themes */
+  --app-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --app-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-body {
-  background: var(--color-background);
-  color: var(--color-foreground);
+@media (prefers-color-scheme: dark) {
+  :root:not([data-zui-theme='light']) {
+    color-scheme: dark;
+    --bg: var(--z40-ink);
+    --layer: var(--z40-anthracite);
+    --field: #2e2e2e;
+    --hover: #333333;
+    --border: var(--z40-graphite);
+    --border-strong: #6f6f6f;
+    --text: var(--z40-light);
+    --text2: #c6c6c6;
+    --text3: #a8a8a8;
+    --accent: var(--z40-turquoise);
+    --accent-fill: var(--z40-petrol);
+    --on-accent: var(--z40-ink);
+    --accent-hover: var(--z40-turquoise);
+    --accent-strong: var(--z40-turquoise);
+    --accent-soft: color-mix(in srgb, var(--z40-turquoise) 12%, transparent);
+    --ok: #42be65;
+    --warn: #f1c21b;
+    --bad: #fa4d56;
+    --info: #78a9ff;
+    --ok-soft: #044317;
+    --warn-soft: #3d3300;
+    --bad-soft: #520408;
+    --info-soft: #001d6c;
+    --gray-soft: #333333;
+    --th: #2e2e2e;
+    --hdr: #111111;
+    --hdr-hover: var(--z40-anthracite);
+    --band: #111111;
+    --btn2: var(--z40-graphite);
+    --btn2-hover: #555555;
+    --toast: var(--z40-graphite);
+    --shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  }
+}
+
+:root[data-zui-theme='dark'] {
+  color-scheme: dark;
+  --bg: var(--z40-ink);
+  --layer: var(--z40-anthracite);
+  --field: #2e2e2e;
+  --hover: #333333;
+  --border: var(--z40-graphite);
+  --border-strong: #6f6f6f;
+  --text: var(--z40-light);
+  --text2: #c6c6c6;
+  --text3: #a8a8a8;
+  --accent: var(--z40-turquoise);
+  --accent-fill: var(--z40-petrol);
+  --on-accent: var(--z40-ink);
+  --accent-hover: var(--z40-turquoise);
+  --accent-strong: var(--z40-turquoise);
+  --accent-soft: color-mix(in srgb, var(--z40-turquoise) 12%, transparent);
+  --ok: #42be65;
+  --warn: #f1c21b;
+  --bad: #fa4d56;
+  --info: #78a9ff;
+  --ok-soft: #044317;
+  --warn-soft: #3d3300;
+  --bad-soft: #520408;
+  --info-soft: #001d6c;
+  --gray-soft: #333333;
+  --th: #2e2e2e;
+  --hdr: #111111;
+  --hdr-hover: var(--z40-anthracite);
+  --band: #111111;
+  --btn2: var(--z40-graphite);
+  --btn2-hover: #555555;
+  --toast: var(--z40-graphite);
+  --shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+
+@theme inline {
+  --font-sans: var(--app-sans);
+  --font-mono: var(--app-mono);
+  --color-bg: var(--bg);
+  --color-layer: var(--layer);
+  --color-field: var(--field);
+  --color-hover: var(--hover);
+  --color-line: var(--border);
+  --color-strong: var(--border-strong);
+  --color-ink: var(--text);
+  --color-ink2: var(--text2);
+  --color-ink3: var(--text3);
+  --color-accent: var(--accent);
+  --color-accentstrong: var(--accent-strong);
+  --color-accentsoft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --color-hdr: var(--hdr);
+  --color-hdrink: var(--hdr-ink);
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.444 0.177 27);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.971 0.013 17);
-  --accent-foreground: oklch(0.444 0.177 27);
-  --destructive: oklch(0.58 0.22 27);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.87 0.00 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.371 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --zui-bg: var(--bg);
+  --zui-surface: var(--layer);
+  --zui-field: var(--field);
+  --zui-hover: var(--hover);
+  --zui-border: var(--border);
+  --zui-border-strong: var(--border-strong);
+  --zui-overlay: var(--overlay);
+  --zui-text: var(--text);
+  --zui-text-muted: var(--text2);
+  --zui-text-subtle: var(--text3);
+  --zui-accent: var(--accent);
+  --zui-accent-contrast: var(--on-accent);
+  --zui-accent-soft: var(--accent-soft);
+  --zui-accent-strong: var(--accent-strong);
+  --zui-focus: var(--accent);
+  --zui-ok: var(--ok);
+  --zui-warn: var(--warn);
+  --zui-bad: var(--bad);
+  --zui-info: var(--info);
+  --zui-ok-soft: var(--ok-soft);
+  --zui-warn-soft: var(--warn-soft);
+  --zui-bad-soft: var(--bad-soft);
+  --zui-info-soft: var(--info-soft);
+  --zui-neutral-soft: var(--gray-soft);
+  --zui-radius: var(--r);
+  --zui-shadow: var(--shadow);
+  --zui-font-sans: var(--app-sans);
+  --zui-font-mono: var(--app-mono);
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+  html,
+  body {
+    min-height: 100%;
   }
   body {
-    @apply bg-background text-foreground;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--app-sans);
+    font-size: 14px;
   }
-  html {
-    @apply font-sans;
+  *:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
-  h1, h2 {
-    font-family: var(--font-serif);
+  button {
+    cursor: pointer;
   }
+}
+
+/* Small app-level helpers (everything else comes from @zweiund40gmbh/ui and Tailwind). */
+@layer components {
+  .panel { background: var(--layer); border: 1px solid var(--border); padding: 1rem; }
+  /* Dark app header with accent underline: the library header re-themed through its tokens (the popover of the
+     user menu is portaled, so it keeps the normal theme). Text on --hdr: white on #222/#111 (> 15:1). */
+  .app-header {
+    --zui-surface: var(--hdr);
+    --zui-text: var(--hdr-ink);
+    --zui-hover: var(--hdr-hover);
+    --zui-accent: var(--accent-fill);
+    --zui-accent-contrast: var(--on-accent);
+    --zui-focus: var(--z40-turquoise);
+    border-bottom: 3px solid var(--accent);
+  }
+  /* Modal footer buttons fill the width like the library's own dialogs. */
+  .footer-btn { flex: 1 1 0; height: 3rem; justify-content: flex-start; }
+  .toast { border-radius: var(--r); }
+}
+
+/* App helpers of VermieterMe: headings, tables and status tones on top of the tokens. */
+@layer components {
+  .page-title { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
+  .section-title { font-size: 1rem; font-weight: 600; color: var(--text); }
+  .label-caps { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text3); }
+  .num { font-variant-numeric: tabular-nums; }
+  .table-plain { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .table-plain th { background: var(--th); color: var(--text); font-weight: 600; text-align: left; height: var(--row); padding: 0 1rem; }
+  .table-plain td { border-top: 1px solid var(--border); height: var(--row); padding: 0 1rem; }
+  .table-plain tbody tr:hover { background: var(--hover); }
 }

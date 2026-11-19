@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Nav } from "@/components/nav";
 import { Combobox } from "@/components/ui/combobox";
 import { Loading } from "@/components/ui/loading";
 import {
@@ -104,7 +103,6 @@ export default function PdfTemplatePage() {
   if (loading) {
     return (
       <>
-        <Nav />
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <Loading />
         </main>
@@ -114,7 +112,6 @@ export default function PdfTemplatePage() {
 
   return (
     <>
-      <Nav />
       <main className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Nav } from "@/components/nav";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Loading } from "@/components/ui/loading";
@@ -176,7 +175,6 @@ export default function VpiPage() {
   if (loading) {
     return (
       <>
-        <Nav />
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <Loading />
         </main>
@@ -186,7 +184,6 @@ export default function VpiPage() {
 
   return (
     <>
-      <Nav />
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Breadcrumb & Header */}
         <div className="mb-8">

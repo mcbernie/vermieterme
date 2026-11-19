@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
-import { Nav } from "@/components/nav";
 import { formatCurrency, formatDate } from "@/lib/format";
 import {
   calculateMEAAmount,
@@ -387,7 +386,6 @@ export default function BillingDetailPage() {
   if (loading) {
     return (
       <>
-        <Nav />
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <Loading />
         </main>
@@ -398,7 +396,6 @@ export default function BillingDetailPage() {
   if (!billingPeriod) {
     return (
       <>
-        <Nav />
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <EmptyState message="Abrechnung nicht gefunden.">
             <Link
@@ -439,7 +436,6 @@ export default function BillingDetailPage() {
 
   return (
     <>
-      <Nav />
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">

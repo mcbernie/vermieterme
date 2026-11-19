@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Nav } from "@/components/nav";
 import { formatDate, formatCurrency } from "@/lib/format";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -611,7 +610,6 @@ export default function TenantsPage() {
 
   return (
     <>
-      <Nav />
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-zinc-900">Mieter</h1>

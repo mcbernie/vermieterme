@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Nav } from "@/components/nav";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Loading } from "@/components/ui/loading";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -226,7 +225,6 @@ export default function PropertiesPage() {
 
   return (
     <>
-      <Nav />
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-zinc-900">Objekte</h1>

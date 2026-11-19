@@ -63,3 +63,4 @@ apps/mieter-app/.expo/
 apps/mieter-app/dist/
 apps/mieter-app/android/
 apps/mieter-app/ios/
+/public/theme-init.js

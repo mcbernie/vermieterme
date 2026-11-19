@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Nav } from "@/components/nav";
 import { Combobox } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Loading } from "@/components/ui/loading";
@@ -316,7 +315,6 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <>
-        <Nav />
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <Loading />
         </main>
@@ -326,7 +324,6 @@ export default function SettingsPage() {
 
   return (
     <>
-      <Nav />
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <h1 className="mb-8 text-2xl font-bold text-zinc-900">
           Einstellungen

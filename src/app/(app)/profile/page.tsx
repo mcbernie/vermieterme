@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Nav } from "@/components/nav";
 import { Loading } from "@/components/ui/loading";
 import { PASSWORD_MIN_LENGTH } from "@/lib/constants";
 import type { AppUser } from "@/types";
@@ -122,7 +121,6 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <>
-        <Nav />
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <Loading />
         </main>
@@ -132,7 +130,6 @@ export default function ProfilePage() {
 
   return (
     <>
-      <Nav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <h1 className="mb-8 text-2xl font-bold text-zinc-900">Mein Profil</h1>
 

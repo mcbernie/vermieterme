@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Nav } from "@/components/nav";
 import { formatDate, formatCurrency } from "@/lib/format";
 import { getBillingStatus, calculateBillingTotals, getUnreviewedCount } from "@/lib/billing";
 import { useMultiFetch } from "@/hooks/use-fetch";
@@ -169,7 +168,6 @@ export default function BillingPage() {
 
   return (
     <>
-      <Nav />
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-zinc-900">Abrechnungen</h1>
