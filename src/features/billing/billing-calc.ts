@@ -41,6 +41,25 @@ export function seedValues(bp: BillingPeriodDetail): { costs: CostValues; prepay
   return { costs, prepayments };
 }
 
+/**
+ * Combines freshly loaded cost values with the ones on the page after a reload. Amounts typed but
+ * not saved yet stay (the server value would overwrite them); flags such as shown or distribution
+ * key come from the server, which is the source of truth for them.
+ */
+export function mergeCosts(server: CostValues, local: CostValues): CostValues {
+  const merged: CostValues = { ...server };
+  for (const [id, mine] of Object.entries(local)) {
+    const theirs = server[id];
+    merged[id] = theirs ? { ...theirs, totalAmount: mine.totalAmount, unitAmount: mine.unitAmount } : mine;
+  }
+  return merged;
+}
+
+/** Like {@link mergeCosts} for prepayments: amounts on the page win over the loaded ones. */
+export function mergePrepayments(server: PrepaymentValues, local: PrepaymentValues): PrepaymentValues {
+  return { ...server, ...local };
+}
+
 /** Distribution key in effect for a category in this period (override first). */
 export function effectiveKey(value: CostFormValue, category: CostCategory): string {
   return value.distributionKeyOverride ?? category.distributionKey;

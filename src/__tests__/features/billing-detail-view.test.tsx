@@ -240,4 +240,20 @@ describe("BillingDetailView", () => {
     expect(amountSaves(fetchMock)).toContainEqual({ costCategoryId: "c1", totalAmount: 13, unitAmount: null });
     expect(screen.queryByText(/Nicht gespeichert/)).not.toBeInTheDocument();
   });
+
+  it("keeps an unsaved amount when a toggle reloads the period (#19)", async () => {
+    stub();
+    await mount();
+    await typeMoney("Gesamtbetrag Grundsteuer", "1500");
+    await act(async () => fireEvent.click(screen.getAllByRole("button", { name: "In dieser Abrechnung ausblenden" })[1]!));
+    expect(screen.getByLabelText("Gesamtbetrag Grundsteuer")).toHaveValue("1.500,00\u00a0€");
+  });
+
+  it("keeps an unsaved amount when confirming another position reloads the period (#19)", async () => {
+    stub();
+    await mount();
+    await typeMoney("Gesamtbetrag Grundsteuer", "1500");
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Bestätigen" })));
+    expect(screen.getByLabelText("Gesamtbetrag Grundsteuer")).toHaveValue("1.500,00\u00a0€");
+  });
 });

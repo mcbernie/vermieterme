@@ -6,6 +6,8 @@ import { loadJson, sendJson } from "./billing-http";
 import {
   DEFAULT_COST_VALUE,
   costPayload,
+  mergeCosts,
+  mergePrepayments,
   seedValues,
   type CostFormValue,
   type CostValues,
@@ -28,7 +30,7 @@ export function useBillingDetail(id: string) {
   const disposed = useRef(false);
 
   /**
-   * Loads the period and the cost categories and re-seeds the form values. The request is aborted on
+   * Loads the period and the cost categories and seeds the form values (amounts already on the page are kept). The request is aborted on
    * unmount (no new load starts afterwards) and a response is dropped when a newer load started.
    * Returns false when loading failed.
    */
@@ -52,8 +54,9 @@ export function useBillingDetail(id: string) {
       const seeded = seedValues(bp.data);
       setPeriod(bp.data);
       setCategories(cc.data);
-      setCosts(seeded.costs);
-      setPrepayments(seeded.prepayments);
+      // Amounts typed since the last save must survive the reload (they are saved on their own).
+      setCosts((prev) => mergeCosts(seeded.costs, prev));
+      setPrepayments((prev) => mergePrepayments(seeded.prepayments, prev));
       setStatus("ready");
       return true;
     },
