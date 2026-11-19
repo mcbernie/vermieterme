@@ -49,10 +49,10 @@ describe("useVpiAdjustment.apply", () => {
     const refetch = vi.fn().mockResolvedValue(undefined);
     const { result } = renderHook(() => useVpiAdjustment(refetch));
     await act(async () => {
-      await expect(result.current.apply(suggestion, value)).rejects.toThrow("Referenz-VPI");
+      await expect(result.current.apply(suggestion, value)).rejects.toThrow("Bezugswert");
     });
     expect(refetch).toHaveBeenCalledTimes(1);
-    expect(result.current.error).toContain("Referenz-VPI");
+    expect(result.current.error).toContain("Bezugswert");
     expect(result.current.appliedIds.has("t1")).toBe(false);
   });
 
@@ -64,5 +64,22 @@ describe("useVpiAdjustment.apply", () => {
       await expect(result.current.apply(suggestion, value)).rejects.toThrow("nicht durchgeführt");
     });
     expect(result.current.error).toContain("nicht durchgeführt");
+  });
+
+  it("repeats only the PUT after a failed PUT, without a second POST", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(reply(true))
+      .mockResolvedValueOnce(reply(false))
+      .mockResolvedValueOnce(reply(true));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useVpiAdjustment(vi.fn().mockResolvedValue(undefined)));
+    await act(async () => {
+      await expect(result.current.apply(suggestion, value)).rejects.toThrow("Bezugswert");
+    });
+    await act(() => result.current.apply(suggestion, value));
+    expect(fetchMock.mock.calls.map((c) => c[1].method)).toEqual(["POST", "PUT", "PUT"]);
+    expect(result.current.appliedIds.has("t1")).toBe(true);
+    expect(result.current.error).toBeNull();
   });
 });

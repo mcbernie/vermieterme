@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { RentChangeDialogValue } from "@/components/rent-change-dialog";
 import type { VpiSuggestion } from "@/types";
 import { vpiReason } from "./vpi-text";
 
 /** Expected failure of the adjustment with a message for the user. */
 class ApplyError extends Error {}
+
+const PUT_FAILED =
+  "Die Mietanpassung ist angelegt, der VPI-Bezugswert konnte nicht gespeichert werden. Erneut versuchen speichert nur den Bezugswert.";
 
 /**
  * State and action for applying a VPI rent adjustment: creates the rent change, updates the tenant's
@@ -16,6 +19,8 @@ class ApplyError extends Error {}
 export function useVpiAdjustment(refetch: () => Promise<void>) {
   const [target, setTarget] = useState<VpiSuggestion | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Tenants whose rent change was already created; a retry then only repeats the PUT (no duplicate POST).
+  const createdRef = useRef<Set<string>>(new Set());
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
 
   /** Fails by throwing, so the dialog stays open with its inputs; the message is also kept in `error`. */
@@ -26,32 +31,42 @@ export function useVpiAdjustment(refetch: () => Promise<void>) {
       throw new ApplyError(message);
     };
     try {
-      const res = await fetch("/api/rent-changes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          unitId: suggestion.unitId,
-          type: "rent",
-          amount: value.amount,
-          effectiveDate: value.effectiveDate,
-          reason: value.reason ?? vpiReason(suggestion),
-        }),
-      });
-      if (!res.ok) {
-        return fail("Die Mietanpassung konnte nicht angelegt werden.");
+      if (!createdRef.current.has(suggestion.tenantId)) {
+        const res = await fetch("/api/rent-changes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            unitId: suggestion.unitId,
+            type: "rent",
+            amount: value.amount,
+            effectiveDate: value.effectiveDate,
+            reason: value.reason ?? vpiReason(suggestion),
+          }),
+        });
+        if (!res.ok) {
+          return fail("Die Mietanpassung konnte nicht angelegt werden.");
+        }
+        createdRef.current.add(suggestion.tenantId);
       }
-      const put = await fetch(`/api/tenants/${suggestion.tenantId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          indexReferenceValue: suggestion.currentVpi,
-          indexReferenceDate: value.effectiveDate,
-        }),
-      });
-      if (!put.ok) {
+      let putOk = false;
+      try {
+        const put = await fetch(`/api/tenants/${suggestion.tenantId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            indexReferenceValue: suggestion.currentVpi,
+            indexReferenceDate: value.effectiveDate,
+          }),
+        });
+        putOk = put.ok;
+      } catch (err) {
+        console.error("Failed to save the VPI reference value:", err);
+      }
+      if (!putOk) {
         await refetch();
-        return fail("Die Mietanpassung wurde angelegt, der Referenz-VPI des Mieters konnte aber nicht aktualisiert werden.");
+        return fail(PUT_FAILED);
       }
+      createdRef.current.delete(suggestion.tenantId);
       setAppliedIds((prev) => new Set(prev).add(suggestion.tenantId));
       await refetch();
     } catch (err) {
