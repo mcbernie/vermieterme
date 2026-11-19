@@ -1,4 +1,4 @@
-import { apiFetch, apiJson, errorText, RequestError } from "@/lib/api-client";
+import { apiFetch, apiJson, errorText, logRequestFailure, RequestError } from "@/lib/api-client";
 
 /** Outcome of a write request: success, or a German message for the user. */
 export interface WriteResult {
@@ -8,11 +8,6 @@ export interface WriteResult {
 
 /** Outcome of a read request; `status` is 0 when the request did not reach the server. */
 export type LoadResult<T> = { ok: true; data: T } | { ok: false; status: number };
-
-/** Logs failures that are no answer of the API (network errors); answers carry their own text. */
-function logUnexpected(error: unknown, what: string) {
-  if (!(error instanceof RequestError) || error.kind === "network") console.error(`${what} failed:`, error);
-}
 
 /**
  * Sends a JSON request and reports whether it succeeded, in the result form of the billing hooks.
@@ -31,7 +26,7 @@ export async function sendJson(
     await apiFetch(url, { method, json: body, fallback });
     return { ok: true, error: null };
   } catch (error) {
-    logUnexpected(error, `Request ${method} ${url}`);
+    logRequestFailure(`Request ${method} ${url}`, error);
     return { ok: false, error: errorText(error, fallback) };
   }
 }
@@ -44,7 +39,7 @@ export async function loadJson<T>(url: string, signal?: AbortSignal): Promise<Lo
   try {
     return { ok: true, data: await apiJson<T>(url, { signal }) };
   } catch (error) {
-    if (!signal?.aborted) logUnexpected(error, `Fetch ${url}`);
+    if (!signal?.aborted) logRequestFailure(`Fetch ${url}`, error);
     return { ok: false, status: error instanceof RequestError ? error.status : 0 };
   }
 }

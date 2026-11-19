@@ -23,12 +23,12 @@ export type RequestErrorKind = "session" | "network" | "status" | "unexpected";
 export class RequestError extends Error {
   /**
    * @param message Text for the user.
-   * @param kind What went wrong.
+   * @param kind What went wrong; defaults to `"unexpected"`, since `"status"` needs an HTTP answer.
    * @param status HTTP status of the answer, `0` when there was none.
    */
   constructor(
     message: string,
-    public readonly kind: RequestErrorKind = "status",
+    public readonly kind: RequestErrorKind = "unexpected",
     public readonly status = 0,
   ) {
     super(message);
@@ -159,11 +159,11 @@ export async function apiJson<T = unknown>(url: string, options: JsonOptions<T> 
   return data as T;
 }
 
-/** Result of [`apiResult`]: the checked body on success, otherwise a German error text for the UI. */
+/** Result of {@link apiResult}: the checked body on success, otherwise a German error text for the UI. */
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 /**
- * Like [`apiJson`], but returns the failure as value instead of throwing. JSON `null` counts as unexpected
+ * Like {@link apiJson}, but returns the failure as value instead of throwing. JSON `null` counts as unexpected
  * answer here: callers of this form always expect data.
  */
 export async function apiResult<T = unknown>(url: string, options: JsonOptions<T> = {}): Promise<ApiResult<T>> {
@@ -176,8 +176,12 @@ export async function apiResult<T = unknown>(url: string, options: JsonOptions<T
   }
 }
 
-/** Logs a failed request by method and path only (paths carry IDs, never personal data). */
-function logFailure(what: string, error: unknown) {
+/**
+ * Logs a failed request, the one log rule of all callers: what was requested (method and path; paths carry
+ * IDs, never personal data) and the user-facing text of a `RequestError`, other errors as they are.
+ * @param what E.g. `Request POST /api/x` or `Fetch /api/x`.
+ */
+export function logRequestFailure(what: string, error: unknown) {
   console.error(`${what} failed:`, error instanceof RequestError ? error.message : error);
 }
 
@@ -190,7 +194,7 @@ export async function apiSend(url: string, options: RequestOptions = {}): Promis
     await apiFetch(url, options);
     return true;
   } catch (error) {
-    logFailure(`Request ${options.method ?? "GET"} ${url}`, error);
+    logRequestFailure(`Request ${options.method ?? "GET"} ${url}`, error);
     return false;
   }
 }
@@ -203,7 +207,7 @@ export async function apiLoad<T>(url: string, options: JsonOptions<T> = {}): Pro
   try {
     return await apiJson<T>(url, options);
   } catch (error) {
-    if (!options.signal?.aborted) logFailure(`Fetch ${url}`, error);
+    if (!options.signal?.aborted) logRequestFailure(`Fetch ${url}`, error);
     return null;
   }
 }

@@ -37,11 +37,14 @@ export async function downloadBackup(): Promise<void> {
   } catch (error) {
     // A failed export always reads „Export fehlgeschlagen“, as before; only an expired session differs.
     if (error instanceof SessionExpiredError) throw error;
-    throw new RequestError(EXPORT_FAILED);
+    throw error instanceof RequestError
+      ? new RequestError(EXPORT_FAILED, error.kind, error.status)
+      : new RequestError(EXPORT_FAILED);
   }
   try {
     saveBlob(await res.blob(), backupFileName(res.headers.get("Content-Disposition"), new Date()));
   } catch {
+    // Reading or offering the file failed after a good answer: no HTTP error, kind stays "unexpected".
     throw new RequestError(EXPORT_FAILED);
   }
 }
@@ -55,6 +58,7 @@ export async function importBackup(file: File): Promise<void> {
   try {
     data = JSON.parse(await file.text());
   } catch {
+    // The file is unreadable or no JSON; nothing was sent, kind stays "unexpected".
     throw new RequestError(IMPORT_FAILED);
   }
   await apiJson("/api/backup", { fallback: IMPORT_FAILED, method: "POST", json: data });

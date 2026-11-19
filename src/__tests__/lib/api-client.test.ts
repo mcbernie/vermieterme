@@ -6,6 +6,7 @@ import {
   apiResult,
   apiSend,
   errorText,
+  logRequestFailure,
   RequestError,
   SESSION_EXPIRED,
   SessionExpiredError,
@@ -234,5 +235,26 @@ describe("errorText", () => {
   it("shows only messages of request errors", () => {
     expect(errorText(new RequestError("Klartext"), "Fallback")).toBe("Klartext");
     expect(errorText(new Error("intern"), "Fallback")).toBe("Fallback");
+  });
+});
+
+describe("RequestError", () => {
+  it("is of kind unexpected without status unless the caller names an HTTP answer", () => {
+    expect(new RequestError("Klartext")).toMatchObject({ kind: "unexpected", status: 0 });
+    expect(new RequestError("Klartext", "status", 409)).toMatchObject({ kind: "status", status: 409 });
+  });
+});
+
+describe("logRequestFailure", () => {
+  it("logs what was requested with the text of a request error, other errors unchanged", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    logRequestFailure("Fetch /api/x", new RequestError("Klartext", "status", 400));
+    const other = new Error("intern");
+    logRequestFailure("Request POST /api/x", other);
+    expect(log.mock.calls).toEqual([
+      ["Fetch /api/x failed:", "Klartext"],
+      ["Request POST /api/x failed:", other],
+    ]);
+    log.mockRestore();
   });
 });

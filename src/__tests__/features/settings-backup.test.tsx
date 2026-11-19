@@ -48,9 +48,15 @@ describe("backup helpers", () => {
     expect(clicked).toEqual([]);
   });
 
+  it("keeps kind and status of a failed export answer behind the export text", async () => {
+    mockFetch({ "GET /api/backup": json({ error: "x" }, 500) });
+    await expect(downloadBackup()).rejects.toMatchObject({ message: "Export fehlgeschlagen", kind: "status", status: 500 });
+  });
+
   it("rejects a file without JSON before sending anything", async () => {
     const { calls } = mockFetch({});
-    await expect(importBackup(new File(["kein json"], "x.json"))).rejects.toThrow("Import fehlgeschlagen");
+    const error = importBackup(new File(["kein json"], "x.json"));
+    await expect(error).rejects.toMatchObject({ message: "Import fehlgeschlagen", kind: "unexpected", status: 0 });
     expect(calls).toHaveLength(0);
   });
 });
