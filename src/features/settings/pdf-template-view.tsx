@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button, ErrorState, InlineNotice, LoadingState } from "@zweiund40gmbh/ui";
+import { PdfHiddenSections } from "./pdf-hidden-sections";
 import { PdfPageEditor } from "./pdf-page-editor";
 import { PdfPreview, type Selection } from "./pdf-preview";
 import { PdfSectionEditor } from "./pdf-section-editor";
@@ -63,6 +64,7 @@ export function PdfTemplateView() {
                     Seiten-Einstellungen öffnen
                   </Button>
                 )}
+                <PdfHiddenSections config={config} onSelect={setSelected} />
                 {selected === "page" && <PdfPageEditor page={config.page} onChange={t.setPage} />}
                 {selected && selected !== "page" && (
                   <PdfSectionEditor

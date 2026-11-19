@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDefaultConfig } from "@/lib/pdf-template";
 import { PdfTemplateView } from "@/features/settings/pdf-template-view";
@@ -56,6 +56,39 @@ describe("PdfTemplateView", () => {
     expect(await screen.findByText(SESSION_EXPIRED)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Zurücksetzen" }));
     expect(preview().getByRole("button", { name: "Titel" })).toBeInTheDocument();
+  });
+
+  it("does not report „Gespeichert“ for edits made while saving", async () => {
+    let release: (r: Response) => void = () => {};
+    const { calls } = mockFetch({
+      "GET /api/pdf-template": json({ config: getDefaultConfig() }),
+      "PUT /api/pdf-template": () => new Promise<Response>((r) => (release = r)),
+    });
+    renderWithUi(<PdfTemplateView />);
+    await screen.findByTestId("pdf-preview");
+    fireEvent.click(preview().getByRole("button", { name: "Titel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Speichern" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Fett" }));
+    await act(async () => release(json({ id: "t1" })));
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+    expect(screen.queryByText("Gespeichert")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Speichern" }));
+    await act(async () => release(json({ id: "t1" })));
+    expect(await screen.findByText("Gespeichert")).toBeInTheDocument();
+  });
+
+  it("lists hidden sections so they can be switched on again", async () => {
+    const stored = getDefaultConfig();
+    stored.sections.closing.visible = false;
+    mockFetch({ "GET /api/pdf-template": json({ config: stored }) });
+    renderWithUi(<PdfTemplateView />);
+    await screen.findByTestId("pdf-preview");
+    const aside = within(screen.getByRole("complementary", { name: "Eigenschaften" }));
+    fireEvent.click(aside.getByRole("button", { name: "Schlusstext" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Sichtbar" }));
+    expect(preview().getByRole("button", { name: "Schlusstext" })).toBeInTheDocument();
+    expect(screen.queryByText("Ausgeblendete Bereiche")).not.toBeInTheDocument();
   });
 
   it("navigates between the settings tabs", async () => {

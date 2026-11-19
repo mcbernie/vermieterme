@@ -1,6 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ensureOk, errorText, RequestError, requestJson, SESSION_EXPIRED } from "@/features/settings/request";
+import {
+  ensureOk,
+  errorText,
+  RequestError,
+  requestJson,
+  SESSION_EXPIRED,
+  SessionExpiredError,
+} from "@/features/settings/request";
 import { useAction } from "@/features/settings/use-action";
 import { LOAD_FAILED, REFRESH_FAILED, useLoad } from "@/features/settings/use-load";
 import { fakeResponse, json, loginPage, mockFetch } from "./settings-helpers";
@@ -16,9 +23,12 @@ describe("requestJson", () => {
     expect(init?.body).toBe('{"a":1}');
   });
 
-  it("treats a redirect to the login page as an expired session", async () => {
+  it("treats a redirect to the login page as an expired session, marked by type", async () => {
     mockFetch({ "GET /api/x": loginPage() });
     await expect(requestJson("/api/x", "fehlt")).rejects.toThrow(SESSION_EXPIRED);
+    await expect(requestJson("/api/x", "fehlt")).rejects.toBeInstanceOf(SessionExpiredError);
+    mockFetch({ "GET /api/x": json({ error: SESSION_EXPIRED }, 400) });
+    await expect(requestJson("/api/x", "fehlt")).rejects.not.toBeInstanceOf(SessionExpiredError);
   });
 
   it("treats a 2xx answer without JSON as an expired session", async () => {
@@ -97,7 +107,8 @@ describe("useLoad", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  it("drops the answer of an older request", async () => {
+  it("drops a late answer of an older request even when the loader ignores the signal", async () => {
+    // The loader never looks at the signal, so only the hook's own check can drop the old answer.
     const resolvers: ((value: string) => void)[] = [];
     const load = vi.fn(() => new Promise<string>((resolve) => resolvers.push(resolve)));
     const { result } = renderHook(() => useLoad(load));
@@ -105,6 +116,13 @@ describe("useLoad", () => {
     await act(async () => resolvers[1]?.("neu"));
     await act(async () => resolvers[0]?.("alt"));
     expect(result.current.data).toBe("neu");
+
+    act(() => result.current.retry());
+    act(() => result.current.retry());
+    await act(async () => resolvers[3]?.("neuer"));
+    await act(async () => resolvers[2]?.("veraltet"));
+    expect(result.current.data).toBe("neuer");
+    expect(result.current.loading).toBe(false);
   });
 
   it("shows a load error and keeps data when only a refresh fails", async () => {

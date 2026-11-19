@@ -15,6 +15,14 @@ export class RequestError extends Error {
   }
 }
 
+/** The session ran out; callers tell it apart from other failures by type, not by its text. */
+export class SessionExpiredError extends RequestError {
+  constructor() {
+    super(SESSION_EXPIRED);
+    this.name = "SessionExpiredError";
+  }
+}
+
 /** Whether a response came from the login redirect instead of the API. */
 function isLoginRedirect(res: Response): boolean {
   if (res.redirected) return true;
@@ -41,7 +49,7 @@ async function apiErrorText(res: Response): Promise<string | null> {
  * @param fallback Message when the API sent no own error text.
  */
 export async function ensureOk(res: Response, fallback: string): Promise<void> {
-  if (isLoginRedirect(res)) throw new RequestError(SESSION_EXPIRED);
+  if (isLoginRedirect(res)) throw new SessionExpiredError();
   if (!res.ok) throw new RequestError((await apiErrorText(res)) ?? fallback);
 }
 
@@ -74,7 +82,9 @@ export async function requestJson<T>(
   try {
     return (await res.json()) as T;
   } catch {
-    throw new RequestError(SESSION_EXPIRED);
+    // A 2xx answer without a JSON body is read as the login page. All routes used here answer with JSON;
+    // a future 204 answer would be misreported, see #17.
+    throw new SessionExpiredError();
   }
 }
 

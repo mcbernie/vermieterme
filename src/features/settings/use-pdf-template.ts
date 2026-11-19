@@ -23,35 +23,37 @@ function withSection(
 /**
  * State of the template editor: loads the stored configuration, keeps the edited copy and saves it.
  * Editing starts only after loading succeeded, so a failed load can never overwrite the stored template.
+ * „Saved“ and „dirty“ compare object identity with the last stored configuration: every edit creates a
+ * new object, so an edit made while a save runs is neither reported as saved nor lost from `dirty`.
  */
 export function usePdfTemplate() {
   const loaded = useLoad(loadConfig);
   const [edited, setEdited] = useState<PdfTemplateConfig | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [lastSaved, setLastSaved] = useState<PdfTemplateConfig | null>(null);
   const save = useAction("Fehler beim Speichern");
   const stored = loaded.data;
   const config = edited ?? stored;
+  const baseline = lastSaved ?? stored;
 
-  /** Applies a change to the edited configuration and hides an old success message. */
+  /** Applies a change to the edited configuration. */
   const edit = useCallback(
     (change: (config: PdfTemplateConfig) => PdfTemplateConfig) => {
       setEdited((current) => {
         const base = current ?? stored;
         return base ? change(base) : current;
       });
-      setSaved(false);
     },
     [stored],
   );
 
-  /** Saves the edited configuration; ignored while a save runs. */
+  /** Saves the configuration as it is now; ignored while a save runs. */
   async function saveConfig() {
     if (!config) return;
-    setSaved(false);
+    const sent = config;
     const ok = await save.run(async () => {
-      await requestJson("/api/pdf-template", "Fehler beim Speichern", { method: "PUT", json: { config } });
+      await requestJson("/api/pdf-template", "Fehler beim Speichern", { method: "PUT", json: { config: sent } });
     });
-    setSaved(ok);
+    if (ok) setLastSaved(sent);
   }
 
   return {
@@ -61,7 +63,10 @@ export function usePdfTemplate() {
     retry: loaded.retry,
     saving: save.busy,
     saveError: save.error,
-    saved,
+    /** The shown configuration is exactly the one saved last. */
+    saved: lastSaved !== null && config === lastSaved,
+    /** The shown configuration differs from the stored one. */
+    dirty: config !== null && config !== baseline,
     saveConfig,
     reset: () => edit(() => getDefaultConfig()),
     setPage: (page: PageConfig) => edit((c) => ({ ...c, page })),

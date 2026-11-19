@@ -1,5 +1,5 @@
 import type { VpiEntry } from "@/types";
-import { RequestError, requestJson, SESSION_EXPIRED } from "./request";
+import { requestJson, SessionExpiredError } from "./request";
 import { LOAD_FAILED } from "./use-load";
 
 /** German month names, index 0 = January. */
@@ -76,7 +76,7 @@ export async function importFromBundesbank(baseYear: number): Promise<number> {
       await saveVpiEntry({ baseYear, year: entry.year, month: entry.month, value: entry.value });
       saved++;
     } catch (error) {
-      if (error instanceof RequestError && error.message === SESSION_EXPIRED) throw error;
+      if (error instanceof SessionExpiredError) throw error;
     }
   }
   return saved;

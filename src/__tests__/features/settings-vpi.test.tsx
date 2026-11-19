@@ -32,6 +32,15 @@ describe("VPI helpers", () => {
     ]);
   });
 
+  it("tells an expired session apart by type, not by its text", async () => {
+    const { calls } = mockFetch({
+      "POST /api/vpi/fetch": json(FETCHED),
+      "POST /api/vpi": json({ error: SESSION_EXPIRED }, 400),
+    });
+    await expect(importFromBundesbank(2020)).resolves.toBe(0);
+    expect(calls.filter((c) => c.url === "/api/vpi")).toHaveLength(2);
+  });
+
   it("stops the import when the session expired", async () => {
     const { calls } = mockFetch({ "POST /api/vpi/fetch": json(FETCHED), "POST /api/vpi": loginPage() });
     await expect(importFromBundesbank(2020)).rejects.toThrow(SESSION_EXPIRED);

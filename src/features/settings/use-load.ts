@@ -19,7 +19,6 @@ export function useLoad<T>(load: (signal: AbortSignal) => Promise<T>) {
   const [error, setError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const request = useRef(0);
   const controller = useRef<AbortController | null>(null);
 
   /** Starts a request; `refresh` keeps the current data visible while it runs. */
@@ -28,19 +27,20 @@ export function useLoad<T>(load: (signal: AbortSignal) => Promise<T>) {
       controller.current?.abort();
       const current = new AbortController();
       controller.current = current;
-      const id = ++request.current;
+      // Every new request aborts the previous one, so an aborted signal marks both an outdated answer
+      // and an answer after unmount; such answers are dropped even when the loader ignores the signal.
       try {
         const result = await load(current.signal);
-        if (id !== request.current || current.signal.aborted) return;
+        if (current.signal.aborted) return;
         setData(result);
         setError(null);
         setRefreshError(null);
       } catch (err) {
-        if (id !== request.current || current.signal.aborted) return;
+        if (current.signal.aborted) return;
         if (refresh) setRefreshError(errorText(err, REFRESH_FAILED));
         else setError(errorText(err, LOAD_FAILED));
       } finally {
-        if (id === request.current && !current.signal.aborted) setLoading(false);
+        if (!current.signal.aborted) setLoading(false);
       }
     },
     [load],
