@@ -49,6 +49,14 @@ describe("LoginForm", () => {
     expect(refresh).toHaveBeenCalled();
   });
 
+  it("ignores a foreign callback url after sign-in", async () => {
+    search = "callbackUrl=https%3A%2F%2Fx.de";
+    await renderForm();
+    fill("a@b.de", "geheim");
+    submit();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+  });
+
   it("shows the field errors on submit and does not sign in", async () => {
     await renderForm();
     submit();

@@ -3,6 +3,7 @@
 import { getProviders, signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { safeCallbackUrl } from "./safe-callback-url";
 import { validateLogin, type LoginErrors } from "./login-validation";
 
 /** State and handlers of the login form: credentials sign-in, redirect and the optional Apple provider. */
@@ -10,7 +11,7 @@ export function useLogin() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { status } = useSession();
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
   const [fieldErrors, setFieldErrors] = useState<LoginErrors>({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
