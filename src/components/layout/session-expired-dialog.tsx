@@ -11,15 +11,18 @@ function currentPath(): string {
   return `${pathname}${search}${hash}`;
 }
 
+/** Opens the login page in a new tab, so this page and its unsaved inputs stay as they are. */
+function openInNewTab(url: string) {
+  window.open(url, "_blank", "noopener");
+}
+
 /**
- * Hint shown when a request found the session expired, with the way back to the login page. Signing in
- * returns to the current page. It does not redirect on its own, so the user can still read or copy unsaved
- * inputs; closing keeps the page, the next failed request shows the hint again.
+ * Hint shown when a request found the session expired, with the way back to the login page. The login page
+ * opens in a new tab (return target: the current page), so unsaved inputs here are kept: after signing in
+ * the user comes back and saves again. The dialog then closes; the next failed request shows it again.
  * @param navigate Opens the login page (replaceable in tests).
  */
-export function SessionExpiredDialog({ navigate = (url: string) => window.location.assign(url) }: {
-  navigate?: (url: string) => void;
-}) {
+export function SessionExpiredDialog({ navigate = openInNewTab }: { navigate?: (url: string) => void }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => onSessionExpired(() => setOpen(true)), []);
@@ -30,13 +33,16 @@ export function SessionExpiredDialog({ navigate = (url: string) => window.locati
       onOpenChange={setOpen}
       size="sm"
       title="Sitzung abgelaufen"
-      description="Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an, um weiterzuarbeiten."
+      description="Ihre Sitzung ist abgelaufen. Die Anmeldung öffnet sich in einem neuen Tab; Ihre Eingaben hier bleiben erhalten. Kehren Sie nach der Anmeldung hierher zurück und speichern Sie erneut."
       footer={
         <>
           <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
             Später
           </Button>
-          <Button type="button" variant="primary" onClick={() => navigate(loginUrl(currentPath()))}>
+          <Button type="button" variant="primary" onClick={() => {
+              navigate(loginUrl(currentPath()));
+              setOpen(false);
+            }}>
             Erneut anmelden
           </Button>
         </>

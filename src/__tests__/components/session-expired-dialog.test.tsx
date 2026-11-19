@@ -33,6 +33,21 @@ describe("SessionExpiredDialog", () => {
     expect(navigate).toHaveBeenCalledWith("/login?callbackUrl=%2Ftenants%3Ftab%3D1%23a");
   });
 
+  it("opens the login page in a new tab by default and closes, so the inputs here stay", () => {
+    window.history.replaceState(null, "", "/properties");
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    render(
+      <UiProvider locale="de-DE">
+        <SessionExpiredDialog />
+      </UiProvider>,
+    );
+    act(() => notifySessionExpired());
+    fireEvent.click(screen.getByRole("button", { name: "Erneut anmelden" }));
+    expect(open).toHaveBeenCalledWith("/login?callbackUrl=%2Fproperties", "_blank", "noopener");
+    expect(screen.queryByText("Sitzung abgelaufen")).toBeNull();
+    open.mockRestore();
+  });
+
   it("closes on „Später“ and shows again on the next expired request", () => {
     renderDialog();
     act(() => notifySessionExpired());
