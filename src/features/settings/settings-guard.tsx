@@ -18,9 +18,11 @@ const Context = createContext<GuardContext | null>(null);
 /**
  * Collects the unsaved-changes state of the settings sub pages. While any part is dirty:
  * - closing or reloading the tab warns (`beforeunload`),
- * - `confirmLeave` asks before switching the sub page,
- * - a plain click on any in-app link outside the settings (sidebar, brand, user menu, imprint) is caught in
- *   the capture phase and only followed via `router.push` after the user chose to discard.
+ * - a plain click on any in-app link (sidebar, brand, user menu, imprint and the settings tabs) is caught in
+ *   the capture phase: its default action is prevented and it is followed via `router.push` only after the
+ *   user chose to discard. The click still propagates, so the links' own `onClick` handlers (closing the
+ *   mobile menu or the user menu) run; `next/link` does not navigate when the event is default-prevented.
+ * - `confirmLeave` is the same check for code that navigates by itself.
  *
  * Known gap: the browser's back/forward buttons (`popstate`) are not caught, also between the settings sub
  * pages. Intercepting them would need history tricks (sentinel entries) that fight the Next.js router, so
@@ -39,7 +41,6 @@ export function SettingsGuardProvider({ children }: { children: ReactNode }) {
       const href = inAppLinkTarget(e, window.location);
       if (href === null) return;
       e.preventDefault();
-      e.stopPropagation();
       void confirmLeave().then((leave) => {
         if (leave) router.push(href);
       });

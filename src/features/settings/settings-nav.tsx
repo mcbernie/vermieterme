@@ -40,7 +40,8 @@ const LINK_CLASS =
 /**
  * Secondary navigation of the settings area as links (`aria-current="page"` marks the open sub page).
  * Lives in the settings layout, so it stays mounted and keeps the focus when the sub page changes.
- * Arrow keys do not navigate; a click or Enter does, after asking when there are unsaved changes.
+ * Arrow keys do not navigate; a click or Enter does. With unsaved changes the guard's capture listener has already held the click back
+ * and asks, so `go` leaves it alone; without them `confirmLeave` resolves `true` at once.
  */
 export function SettingsNav() {
   const active = settingsTabFor(usePathname());
@@ -48,7 +49,7 @@ export function SettingsNav() {
   const confirmLeave = useConfirmLeave();
 
   async function go(e: MouseEvent<HTMLAnchorElement>, href: string, current: boolean) {
-    if (opensElsewhere(e)) return;
+    if (e.defaultPrevented || opensElsewhere(e)) return;
     e.preventDefault();
     if (current) return;
     if (await confirmLeave()) router.push(href);

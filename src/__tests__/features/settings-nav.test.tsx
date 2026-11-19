@@ -12,12 +12,14 @@ import { json, mockFetch } from "./settings-helpers";
 import { LandlordForm } from "@/features/settings/landlord-form";
 
 const push = vi.fn();
+const onLinkClick = vi.fn();
 let pathname = "/settings";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname, useRouter: () => ({ push }) }));
 
 afterEach(() => {
   vi.unstubAllGlobals();
   push.mockClear();
+  onLinkClick.mockClear();
   pathname = "/settings";
 });
 
@@ -33,7 +35,9 @@ function tree(page = <DirtyPage dirty={false} />) {
     <UiProvider locale="de-DE">
       <ConfirmProvider>
         <nav aria-label="App">
-          <Link href="/billing">Abrechnungen</Link>
+          <Link href="/billing" onClick={onLinkClick}>
+            Abrechnungen
+          </Link>
           <Link href="/billing" target="_blank">
             Abrechnungen im neuen Tab
           </Link>
@@ -159,6 +163,26 @@ describe("leaving the settings over app links (#37)", () => {
     click("Abrechnungen");
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /Verwerfen/ }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/billing"));
+  });
+
+  it("still runs the own onClick of the link while holding back the navigation", async () => {
+    render(tree(<DirtyPage dirty />));
+    click("Abrechnungen");
+    expect(onLinkClick).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    expect(push).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: /Verwerfen/ }));
+    await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+  });
+
+  it("asks exactly once when a settings tab is clicked with unsaved changes", async () => {
+    render(tree(<DirtyPage dirty />));
+    fireEvent.click(link("VPI-Werte"));
+    expect(await screen.findAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Verwerfen/ }));
+    await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("lets modifier clicks, new-tab and external links through", () => {
