@@ -14,6 +14,14 @@ function sorted(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
   const source = value as Record<string, unknown>;
   const result: Record<string, unknown> = {};
-  for (const key of Object.keys(source).sort()) result[key] = sorted(source[key]);
+  for (const key of Object.keys(source).sort()) {
+    // defineProperty creates an own property even for the key "__proto__" (plain assignment would set the prototype).
+    Object.defineProperty(result, key, {
+      value: sorted(source[key]),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
   return result;
 }
