@@ -97,4 +97,38 @@ describe("useBillingSave", () => {
     unmount();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  describe("leaving the page while a save runs", () => {
+    const one = (amount: number): SaveValues => ({
+      costs: { c1: { totalAmount: amount, unitAmount: null, enabled: true, distributionKeyOverride: null } },
+      prepayments: {},
+    });
+
+    /** Holds every request open; returns the resolvers in call order. */
+    function hold() {
+      const pending: ((r: Response) => void)[] = [];
+      fetchMock.mockImplementation(() => new Promise<Response>((r) => pending.push(r)));
+      return pending;
+    }
+
+    const amounts = () => bodies(fetchMock).map(([, b]) => (b as { totalAmount: number }).totalAmount);
+
+    for (const trigger of ["save", "schedule"] as const) {
+      it(`sends the latest values once after the running save (${trigger}, then unmount)`, async () => {
+        const pending = hold();
+        const { result, rerender, unmount } = renderHook(({ v }) => useBillingSave("bp", v), {
+          initialProps: { v: one(1) },
+        });
+        act(() => void result.current.save());
+        rerender({ v: one(2) });
+        act(() => void result.current[trigger]());
+        unmount();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        await act(async () => pending[0]?.(json()));
+        expect(amounts()).toEqual([1, 2]);
+        await act(async () => pending[1]?.(json()));
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+    }
+  });
 });

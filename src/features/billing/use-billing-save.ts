@@ -38,8 +38,9 @@ export async function saveAll(id: string, values: SaveValues): Promise<boolean> 
 
 /**
  * Manual and debounced automatic saving of a billing period. Never runs two saves at once: a save
- * requested meanwhile runs once more with the latest values afterwards. While an amount field holds
- * unreadable text nothing is saved. A pending automatic save is still sent when the page unmounts.
+ * requested meanwhile runs once more with the latest values afterwards, also after the page
+ * unmounted. While an amount field holds unreadable text nothing is saved. A pending automatic save
+ * is still sent when the page unmounts.
  */
 export function useBillingSave(id: string, values: SaveValues) {
   const [saving, setSaving] = useState(false);
@@ -58,6 +59,18 @@ export function useBillingSave(id: string, values: SaveValues) {
     valuesRef.current = values;
   }, [values]);
 
+  /** Sends the latest values until no further save was requested; sets no state. */
+  const drain = useCallback(async (): Promise<boolean> => {
+    running.current = true;
+    let ok = true;
+    do {
+      again.current = false;
+      ok = await saveAll(id, valuesRef.current);
+    } while (again.current);
+    running.current = false;
+    return ok;
+  }, [id]);
+
   /** Saves now (cancelling a pending automatic save). */
   const save = useCallback(async () => {
     if (debounce.current) clearTimeout(debounce.current);
@@ -70,21 +83,15 @@ export function useBillingSave(id: string, values: SaveValues) {
       again.current = true;
       return;
     }
-    running.current = true;
     setSaving(true);
     setState(null);
-    let ok = true;
-    do {
-      again.current = false;
-      ok = await saveAll(id, valuesRef.current);
-    } while (again.current && mounted.current);
-    running.current = false;
+    const ok = await drain();
     if (!mounted.current) return;
     setSaving(false);
     setState(ok ? "saved" : "error");
     if (savedTimer.current) clearTimeout(savedTimer.current);
     if (ok) savedTimer.current = setTimeout(() => setState(null), SAVED_VISIBLE);
-  }, [id]);
+  }, [drain]);
 
   /** Schedules an automatic save after the last change. */
   const schedule = useCallback(() => {
@@ -115,13 +122,15 @@ export function useBillingSave(id: string, values: SaveValues) {
     return () => {
       mounted.current = false;
       if (savedTimer.current) clearTimeout(savedTimer.current);
-      if (debounce.current) {
-        clearTimeout(debounce.current);
-        debounce.current = null;
-        if (problemsRef.current.size === 0) void saveAll(id, valuesRef.current);
-      }
+      if (!debounce.current) return;
+      clearTimeout(debounce.current);
+      debounce.current = null;
+      if (problemsRef.current.size > 0) return;
+      // A running save sends the latest values once more; otherwise start one.
+      if (running.current) again.current = true;
+      else void drain();
     };
-  }, [id]);
+  }, [drain]);
 
   return { saving, state, problems, save, schedule, reportProblem };
 }
