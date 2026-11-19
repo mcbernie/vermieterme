@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { apiLoad, apiSend } from "@/lib/api-client";
 import type { PropertyWithUnits, RentChangeWithUnit } from "@/types";
 
 /** Payload of a rent change as the API expects it. */
@@ -12,21 +13,6 @@ export interface RentChangePayload {
   reason: string | null;
 }
 
-/** Sends a JSON request and reports whether it succeeded; errors are logged. */
-async function send(url: string, method: string, body?: RentChangePayload): Promise<boolean> {
-  try {
-    const res = await fetch(url, {
-      method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    return res.ok;
-  } catch (error) {
-    console.error(`Request ${method} ${url} failed:`, error);
-    return false;
-  }
-}
-
 /** Loads rent changes and properties (with units) and offers create, update and delete. */
 export function useRentChanges() {
   const [rentChanges, setRentChanges] = useState<RentChangeWithUnit[]>([]);
@@ -34,26 +20,18 @@ export function useRentChanges() {
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    try {
-      const res = await fetch("/api/rent-changes");
-      if (res.ok) setRentChanges(await res.json());
-    } catch (error) {
-      console.error("Failed to fetch rent changes:", error);
-    }
+    const data = await apiLoad<RentChangeWithUnit[]>("/api/rent-changes");
+    if (data) setRentChanges(data);
   }, []);
 
   useEffect(() => {
     async function load() {
       try {
-        const [, propsRes] = await Promise.all([reload(), fetch("/api/properties")]);
-        if (propsRes.ok) {
-          const props: PropertyWithUnits[] = await propsRes.json();
-          const details = await Promise.all(props.map((p) => fetch(`/api/properties/${p.id}`)));
-          const ok = details.filter((r) => r.ok);
-          setProperties(await Promise.all(ok.map((r) => r.json())));
+        const [, props] = await Promise.all([reload(), apiLoad<PropertyWithUnits[]>("/api/properties")]);
+        if (props) {
+          const details = await Promise.all(props.map((p) => apiLoad<PropertyWithUnits>(`/api/properties/${p.id}`)));
+          setProperties(details.filter((d): d is PropertyWithUnits => d !== null));
         }
-      } catch (error) {
-        console.error("Failed to fetch data:", error);
       } finally {
         setLoading(false);
       }
@@ -63,7 +41,7 @@ export function useRentChanges() {
 
   /** Runs a mutation and reloads the list when it succeeded. */
   async function mutate(url: string, method: string, body?: RentChangePayload): Promise<boolean> {
-    const ok = await send(url, method, body);
+    const ok = await apiSend(url, { method, json: body });
     if (ok) await reload();
     return ok;
   }

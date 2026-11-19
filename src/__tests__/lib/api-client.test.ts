@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   apiFetch,
   apiJson,
+  apiLoad,
   apiResult,
+  apiSend,
   errorText,
   RequestError,
   SESSION_EXPIRED,
@@ -184,6 +186,32 @@ describe("apiResult", () => {
     await expect(apiResult("/api/x")).resolves.toEqual({ ok: false, error: SESSION_EXPIRED });
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
     await expect(apiResult("/api/x")).resolves.toEqual({ ok: false, error: UNREACHABLE });
+  });
+});
+
+describe("apiSend and apiLoad", () => {
+  it("report success as boolean and data, failures as false and null with a log entry", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    answer(json({ id: "1" }, 201));
+    await expect(apiSend("/api/x", { method: "POST", json: {} })).resolves.toBe(true);
+    answer(json({ id: "1" }));
+    await expect(apiLoad("/api/x")).resolves.toEqual({ id: "1" });
+    answer(json({ error: "x" }, 400));
+    await expect(apiSend("/api/x", { method: "DELETE" })).resolves.toBe(false);
+    answer(loginPage());
+    await expect(apiLoad("/api/x")).resolves.toBeNull();
+    expect(log).toHaveBeenCalledTimes(2);
+    log.mockRestore();
+  });
+
+  it("does not log an aborted load", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const controller = new AbortController();
+    controller.abort();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError")));
+    await expect(apiLoad("/api/x", { signal: controller.signal })).resolves.toBeNull();
+    expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
   });
 });
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Button, FileDropzone, InlineNotice, formatBytes, useConfirm, useFormat } from "@zweiund40gmbh/ui";
+import { apiLoad, apiSend, isArray } from "@/lib/api-client";
 import type { Document } from "@/types";
 
 interface DocumentUploadProps {
@@ -31,17 +32,8 @@ export function DocumentUpload({
     if (billingPeriodId) params.set("billingPeriodId", billingPeriodId);
     if (tenantId) params.set("tenantId", tenantId);
 
-    try {
-      const res = await fetch(`/api/documents?${params}`);
-      if (res.ok) {
-        const docs = await res.json();
-        setDocuments(
-          category ? docs.filter((d: Document) => d.category === category) : docs
-        );
-      }
-    } catch (error) {
-      console.error("Failed to fetch documents:", error);
-    }
+    const docs = await apiLoad<Document[]>(`/api/documents?${params}`, { accept: isArray });
+    if (docs) setDocuments(category ? docs.filter((d) => d.category === category) : docs);
   }, [billingPeriodId, tenantId, category]);
 
   useEffect(() => {
@@ -54,26 +46,17 @@ export function DocumentUpload({
 
     setUploading(true);
     setUploadError(null);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("category", category);
+    if (billingPeriodId) formData.append("billingPeriodId", billingPeriodId);
+    if (tenantId) formData.append("tenantId", tenantId);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("category", category);
-      if (billingPeriodId) formData.append("billingPeriodId", billingPeriodId);
-      if (tenantId) formData.append("tenantId", tenantId);
-
-      const res = await fetch("/api/documents", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (res.ok) {
+      if (await apiSend("/api/documents", { method: "POST", form: formData })) {
         await fetchDocuments();
       } else {
         setUploadError("Das Dokument konnte nicht hochgeladen werden.");
       }
-    } catch (error) {
-      console.error("Upload failed:", error);
-      setUploadError("Das Dokument konnte nicht hochgeladen werden.");
     } finally {
       setUploading(false);
     }
@@ -87,14 +70,7 @@ export function DocumentUpload({
       danger: true,
     });
     if (!ok) return;
-    try {
-      const res = await fetch(`/api/documents/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        await fetchDocuments();
-      }
-    } catch (error) {
-      console.error("Delete failed:", error);
-    }
+    if (await apiSend(`/api/documents/${id}`, { method: "DELETE" })) await fetchDocuments();
   }
 
   return (

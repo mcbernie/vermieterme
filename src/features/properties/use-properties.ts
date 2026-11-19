@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiLoad, apiSend } from "@/lib/api-client";
 import type { PropertyWithCount, PropertyWithUnits, RentChange } from "@/types";
 
 /** Form values of a property. */
@@ -25,32 +26,11 @@ export interface SaveUnitArgs {
   unitId?: string;
 }
 
-/** Sends a JSON request and reports whether it succeeded; errors are logged. */
-async function send(url: string, method: string, body?: unknown): Promise<boolean> {
-  try {
-    const res = await fetch(url, {
-      method,
-      ...(body === undefined
-        ? {}
-        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
-    });
-    return res.ok;
-  } catch (error) {
-    console.error(`Request ${method} ${url} failed:`, error);
-    return false;
-  }
-}
+/** Sends a JSON request and reports whether it succeeded; failures are logged. */
+const send = (url: string, method: string, json?: unknown) => apiSend(url, { method, json });
 
 /** Fetches JSON, returning null on any failure or abort. */
-async function load<T>(url: string, signal?: AbortSignal): Promise<T | null> {
-  try {
-    const res = await fetch(url, { signal });
-    return res.ok ? ((await res.json()) as T) : null;
-  } catch (error) {
-    if (!signal?.aborted) console.error(`Failed to fetch ${url}:`, error);
-    return null;
-  }
-}
+const load = <T,>(url: string, signal?: AbortSignal) => apiLoad<T>(url, { signal });
 
 /** Fetches the property list. */
 const loadList = (signal?: AbortSignal) => load<PropertyWithCount[]>("/api/properties", signal);

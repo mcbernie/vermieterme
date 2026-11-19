@@ -99,7 +99,10 @@ describe("useBillingList", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_url: string, init?: RequestInit) =>
-        init?.method === "DELETE" ? json({ error: "Abrechnung nicht gefunden" }, false) : json([]),
+        // Server texts are shown for client errors only; 5xx answers carry an English generic text.
+        init?.method === "DELETE"
+          ? ({ ok: false, status: 404, json: async () => ({ error: "Abrechnung nicht gefunden" }) } as Response)
+          : json([]),
       ),
     );
     const { result } = renderHook(() => useBillingList());

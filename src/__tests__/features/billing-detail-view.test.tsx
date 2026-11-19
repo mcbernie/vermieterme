@@ -118,9 +118,10 @@ describe("BillingDetailView", () => {
   });
 
   it("shows a notice when hiding a cost category fails and reloads the stored state", async () => {
-    const fetchMock = stub(() => json({ error: "Kaputt" }, 500));
+    // Server texts are shown for client errors only; 5xx answers carry an English generic text.
+    const fetchMock = stub(() => json({ error: "Kaputt" }, 409));
     await mount();
-    const gets = () => fetchMock.mock.calls.filter((c) => c[0] === "/api/billing-periods/bp" && !c[1]?.method).length;
+    const gets = () => fetchMock.mock.calls.filter((c) => c[0] === "/api/billing-periods/bp" && (c[1]?.method ?? "GET") === "GET").length;
     const before = gets();
     await act(async () => fireEvent.click(screen.getAllByRole("button", { name: "In dieser Abrechnung ausblenden" })[0]!));
     expect(screen.getByText("Kaputt")).toBeInTheDocument();

@@ -174,6 +174,38 @@ export async function apiResult<T = unknown>(url: string, options: JsonOptions<T
   }
 }
 
+/** Logs a failed request by method and path only (paths carry IDs, never personal data). */
+function logFailure(what: string, error: unknown) {
+  console.error(`${what} failed:`, error instanceof RequestError ? error.message : error);
+}
+
+/**
+ * Sends a request for pages that only need to know whether it worked; the failure is logged.
+ * @returns `true` when the API accepted the request.
+ */
+export async function apiSend(url: string, options: RequestOptions = {}): Promise<boolean> {
+  try {
+    await apiFetch(url, options);
+    return true;
+  } catch (error) {
+    logFailure(`Request ${options.method ?? "GET"} ${url}`, error);
+    return false;
+  }
+}
+
+/**
+ * Loads JSON for pages that show nothing on failure; the failure is logged unless the request was aborted.
+ * @returns The answer, or `null` on any failure.
+ */
+export async function apiLoad<T>(url: string, options: JsonOptions<T> = {}): Promise<T | null> {
+  try {
+    return await apiJson<T>(url, options);
+  } catch (error) {
+    if (!options.signal?.aborted) logFailure(`Fetch ${url}`, error);
+    return null;
+  }
+}
+
 /** Text of an error for the UI: the message of a `RequestError`, otherwise `fallback`. */
 export function errorText(error: unknown, fallback: string): string {
   return error instanceof RequestError ? error.message : fallback;

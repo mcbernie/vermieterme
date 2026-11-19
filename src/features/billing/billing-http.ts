@@ -1,3 +1,5 @@
+import { apiFetch, apiJson, errorText, RequestError } from "@/lib/api-client";
+
 /** Outcome of a write request: success, or a German message for the user. */
 export interface WriteResult {
   ok: boolean;
@@ -7,8 +9,13 @@ export interface WriteResult {
 /** Outcome of a read request; `status` is 0 when the request did not reach the server. */
 export type LoadResult<T> = { ok: true; data: T } | { ok: false; status: number };
 
+/** Logs failures that are no answer of the API (network errors); answers carry their own text. */
+function logUnexpected(error: unknown, what: string) {
+  if (!(error instanceof RequestError) || error.kind === "network") console.error(`${what} failed:`, error);
+}
+
 /**
- * Sends a JSON request and reports whether it succeeded.
+ * Sends a JSON request and reports whether it succeeded, in the result form of the billing hooks.
  * @param url Endpoint.
  * @param method HTTP method.
  * @param body JSON body, omitted for `undefined`.
@@ -21,27 +28,12 @@ export async function sendJson(
   fallback: string,
 ): Promise<WriteResult> {
   try {
-    const res = await fetch(url, {
-      method,
-      ...(body === undefined
-        ? {}
-        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
-    });
-    if (res.ok) return { ok: true, error: null };
-    const data: unknown = await res.json().catch(() => null);
-    return { ok: false, error: serverError(data) ?? fallback };
+    await apiFetch(url, { method, json: body, fallback });
+    return { ok: true, error: null };
   } catch (error) {
-    console.error(`Request ${method} ${url} failed:`, error);
-    return { ok: false, error: fallback };
+    logUnexpected(error, `Request ${method} ${url}`);
+    return { ok: false, error: errorText(error, fallback) };
   }
-}
-
-/** The `error` text of an API error body, if there is one. */
-function serverError(data: unknown): string | null {
-  if (data && typeof data === "object" && "error" in data && typeof data.error === "string") {
-    return data.error;
-  }
-  return null;
 }
 
 /**
@@ -50,11 +42,9 @@ function serverError(data: unknown): string | null {
  */
 export async function loadJson<T>(url: string, signal?: AbortSignal): Promise<LoadResult<T>> {
   try {
-    const res = await fetch(url, { signal });
-    if (!res.ok) return { ok: false, status: res.status };
-    return { ok: true, data: (await res.json()) as T };
+    return { ok: true, data: await apiJson<T>(url, { signal }) };
   } catch (error) {
-    if (!signal?.aborted) console.error(`Failed to fetch ${url}:`, error);
-    return { ok: false, status: 0 };
+    if (!signal?.aborted) logUnexpected(error, `Fetch ${url}`);
+    return { ok: false, status: error instanceof RequestError ? error.status : 0 };
   }
 }

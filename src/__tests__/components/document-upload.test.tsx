@@ -36,7 +36,7 @@ describe("DocumentUpload", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { upload } = mount();
     await upload();
-    const gets = fetchMock.mock.calls.filter((c) => !c[1]);
+    const gets = fetchMock.mock.calls.filter((c) => (c[1]?.method ?? "GET") === "GET");
     expect(gets.length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("Das Dokument konnte nicht hochgeladen werden.")).toBeNull();
   });

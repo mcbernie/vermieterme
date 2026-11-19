@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { RentChangeDialogValue } from "@/components/rent-change-dialog";
+import { apiFetch, apiSend, RequestError } from "@/lib/api-client";
 import type { VpiSuggestion } from "@/types";
 import { vpiReason } from "./vpi-text";
 
@@ -32,36 +33,30 @@ export function useVpiAdjustment(refetch: () => Promise<void>) {
     };
     try {
       if (!createdRef.current.has(suggestion.tenantId)) {
-        const res = await fetch("/api/rent-changes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            unitId: suggestion.unitId,
-            type: "rent",
-            amount: value.amount,
-            effectiveDate: value.effectiveDate,
-            reason: value.reason ?? vpiReason(suggestion),
-          }),
-        });
-        if (!res.ok) {
-          return fail("Die Mietanpassung konnte nicht angelegt werden.");
+        try {
+          await apiFetch("/api/rent-changes", {
+            method: "POST",
+            json: {
+              unitId: suggestion.unitId,
+              type: "rent",
+              amount: value.amount,
+              effectiveDate: value.effectiveDate,
+              reason: value.reason ?? vpiReason(suggestion),
+            },
+          });
+        } catch (err) {
+          // A network error falls through to the general message below, as before.
+          if (err instanceof RequestError && err.kind !== "network") {
+            return fail("Die Mietanpassung konnte nicht angelegt werden.");
+          }
+          throw err;
         }
         createdRef.current.add(suggestion.tenantId);
       }
-      let putOk = false;
-      try {
-        const put = await fetch(`/api/tenants/${suggestion.tenantId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            indexReferenceValue: suggestion.currentVpi,
-            indexReferenceDate: value.effectiveDate,
-          }),
-        });
-        putOk = put.ok;
-      } catch (err) {
-        console.error("Failed to save the VPI reference value:", err);
-      }
+      const putOk = await apiSend(`/api/tenants/${suggestion.tenantId}`, {
+        method: "PUT",
+        json: { indexReferenceValue: suggestion.currentVpi, indexReferenceDate: value.effectiveDate },
+      });
       if (!putOk) {
         await refetch();
         return fail(PUT_FAILED);
