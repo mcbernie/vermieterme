@@ -175,5 +175,7 @@ export function useTenants() {
     [refresh],
   );
 
-  return { tenants, properties, rentChanges, loading, error, reload, saveTenant, deleteTenant, saveAdjustment };
+  // The tenant list itself failed (an empty table then means "unknown", not "no tenants").
+  const tenantsError = errors.tenants;
+  return { tenants, properties, rentChanges, loading, error, tenantsError, reload, saveTenant, deleteTenant, saveAdjustment };
 }

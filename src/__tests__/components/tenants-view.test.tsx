@@ -50,6 +50,16 @@ describe("TenantsView", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/tenants/t1", { method: "DELETE" });
   });
 
+  it("shows the empty state, not a load error, when only another list failed", async () => {
+    const answers = defaultAnswers();
+    answers["GET /api/tenants"] = { status: 200, body: [] };
+    answers["GET /api/properties"] = { status: 500, body: {} };
+    stubApi(answers);
+    setup();
+    expect(await screen.findByText("Noch keine Mieter vorhanden")).toBeInTheDocument();
+    expect(screen.queryByText("Mieter konnten nicht geladen werden")).not.toBeInTheDocument();
+  });
+
   it("shows a failed delete and keeps the tenant", async () => {
     const answers = defaultAnswers();
     answers["DELETE /api/tenants/t1"] = { status: 500, body: {} };

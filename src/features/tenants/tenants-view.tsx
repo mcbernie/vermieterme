@@ -113,8 +113,8 @@ export function TenantsView() {
         defaultState={{ sort: { id: "property", desc: false } }}
         searchPlaceholder="Mieter, Objekt oder Wohnung suchen …"
         empty={
-          data.error ? (
-            // After a load error the list is unknown, not empty; the notice above explains it.
+          data.tenantsError ? (
+            // After a load error of the tenant list it is unknown, not empty; the notice above explains it.
             <EmptyState title="Mieter konnten nicht geladen werden" icon={null} />
           ) : (
             <EmptyState
