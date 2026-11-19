@@ -1,4 +1,3 @@
-import { validateIBAN } from "@/lib/iban";
 import type { LandlordInfo } from "@/types";
 import { requestJson } from "./request";
 import { LOAD_FAILED } from "./use-load";
@@ -45,7 +44,8 @@ const REQUIRED: { key: keyof LandlordInfo; message: string }[] = [
 ];
 
 /**
- * Checks the landlord form: name and address are required, a given IBAN must be valid.
+ * Checks the landlord form: name and address are required. An invalid IBAN is only a hint at the field
+ * (`ibanHint`) and does not block saving, as in the tenant form.
  * @returns Errors by field; empty when the form can be saved.
  */
 export function landlordErrors(form: LandlordInfo): LandlordErrors {
@@ -53,6 +53,5 @@ export function landlordErrors(form: LandlordInfo): LandlordErrors {
   for (const { key, message } of REQUIRED) {
     if (!form[key]?.trim()) errors[key] = message;
   }
-  if (form.iban && !validateIBAN(form.iban)) errors.iban = "Ungültige IBAN";
   return errors;
 }

@@ -17,11 +17,10 @@ describe("landlord helpers", () => {
     expect(toLandlordForm({ id: "l1", name: "Max", phone: null })).toEqual({ ...EMPTY_LANDLORD, id: "l1", name: "Max" });
   });
 
-  it("requires the address and a valid IBAN when one is given", () => {
+  it("requires the address; an invalid IBAN is no blocking error", () => {
     expect(Object.keys(landlordErrors(EMPTY_LANDLORD)).sort()).toEqual(["city", "name", "street", "zip"]);
     expect(landlordErrors(VALID)).toEqual({});
-    expect(landlordErrors({ ...VALID, iban: "DE00 1234" }).iban).toBe("Ungültige IBAN");
-    expect(landlordErrors({ ...VALID, iban: "DE89 3704 0044 0532 0130 00" })).toEqual({});
+    expect(landlordErrors({ ...VALID, iban: "DE00 1234" })).toEqual({});
   });
 });
 
@@ -36,13 +35,14 @@ describe("LandlordForm", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("blocks saving with an invalid IBAN", async () => {
-    const { calls } = mockFetch({});
+  it("shows an invalid IBAN only as a hint and still saves", async () => {
+    const { calls } = mockFetch({ "POST /api/settings": json({ ...VALID, id: "l1" }) });
     renderWithUi(<LandlordForm initial={{ ...VALID, iban: "DE00" }} />);
     expect(screen.getByText("Ungültige IBAN")).toBeInTheDocument();
     submit();
-    await waitFor(() => expect(screen.getByLabelText("IBAN")).toHaveAttribute("aria-invalid", "true"));
-    expect(calls).toHaveLength(0);
+    expect(await screen.findByText("Gespeichert")).toBeInTheDocument();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body).toMatchObject({ iban: "DE00" });
   });
 
   it("saves the form once on a double submit and confirms it", async () => {

@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Button, Field, InlineNotice, TextInput } from "@zweiund40gmbh/ui";
 import { formatIBAN } from "@/lib/iban";
 import type { LandlordInfo } from "@/types";
+import { ibanHint } from "@/features/tenants/tenant-form-values";
 import { landlordErrors } from "./landlord";
 import { requestJson } from "./request";
 import { useAction } from "./use-action";
@@ -26,16 +27,15 @@ interface Props {
 }
 
 /**
- * Landlord and bank details form. Checked on submit (required address, valid IBAN), errors appear at the
- * fields; an invalid IBAN is flagged while typing as before. The button is only disabled while saving.
+ * Landlord and bank details form. Checked on submit (required address), errors appear at the fields; an
+ * invalid IBAN is only flagged while typing and does not block saving. The button is only disabled while saving.
  */
 export function LandlordForm({ initial }: Props) {
   const [form, setForm] = useState<LandlordInfo>(initial);
   const [attempted, setAttempted] = useState(false);
   const [saved, setSaved] = useState(false);
   const { busy, error, run } = useAction("Fehler beim Speichern");
-  const live = landlordErrors(form);
-  const errors = attempted ? live : {};
+  const errors = attempted ? landlordErrors(form) : {};
 
   /** Changes one field and hides an old success message. */
   function set(key: TextKey, value: string) {
@@ -74,7 +74,7 @@ export function LandlordForm({ initial }: Props) {
           <Field label="Bankname">
             <TextInput value={form.bankName} onChange={(e) => set("bankName", e.target.value)} />
           </Field>
-          <Field label="IBAN" error={live.iban}>
+          <Field label="IBAN" error={ibanHint(form.iban)}>
             <TextInput
               value={form.iban}
               autoComplete="off"
