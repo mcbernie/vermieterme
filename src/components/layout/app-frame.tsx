@@ -7,6 +7,7 @@ import { signOut, useSession } from "next-auth/react";
 import type { ReactNode } from "react";
 import { PRODUCT_NAME, THEME_STORAGE_KEY } from "@/lib/brand";
 import { navKeyFor, NAV_GROUPS } from "./nav-items";
+import { SessionExpiredDialog } from "./session-expired-dialog";
 
 /** Brand of the header: accent square and product name. */
 const BRAND = (
@@ -34,7 +35,7 @@ function SidebarFooter() {
 
 /**
  * Application frame of the signed-in area: header with brand and user menu (profile, colour scheme, sign-out),
- * sidebar navigation and the main area.
+ * sidebar navigation and the main area. Also offers to sign in again when a request found the session expired.
  */
 export function AppFrame({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
@@ -63,6 +64,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
       sidebar={<Sidebar groups={groups} isActive={(item) => item.id === active} footer={<SidebarFooter />} />}
     >
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</div>
+      <SessionExpiredDialog />
     </AppShell>
   );
 }
