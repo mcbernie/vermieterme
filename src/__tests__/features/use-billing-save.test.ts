@@ -202,26 +202,21 @@ describe("useBillingSave", () => {
     expect(result.current.pending).toBe(true);
   });
 
-  it("warns before the tab is closed while a change is unsaved, and not afterwards", async () => {
-    const { result } = renderHook(() => useBillingSave("bp", values));
-    const leave = () => {
-      const event = new Event("beforeunload", { cancelable: true });
-      window.dispatchEvent(event);
-      return event.defaultPrevented;
-    };
-    expect(leave()).toBe(false);
-    act(() => result.current.schedule());
-    expect(leave()).toBe(true);
-    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
-    expect(leave()).toBe(false);
-  });
-
   /** Dispatches `beforeunload` like the browser does and reports whether the page asked to stay. */
   function leave() {
     const event = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(event);
     return event.defaultPrevented;
   }
+
+  it("warns before the tab is closed while a change is unsaved, and not afterwards", async () => {
+    const { result } = renderHook(() => useBillingSave("bp", values));
+    expect(leave()).toBe(false);
+    act(() => result.current.schedule());
+    expect(leave()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
+    expect(leave()).toBe(false);
+  });
 
   it("keeps warning after a failed save until a save succeeds (#62)", async () => {
     fetchMock.mockImplementation(async () => json(false));

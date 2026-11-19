@@ -180,6 +180,8 @@ export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys
   /**
    * Schedules an automatic save after the last change.
    * @param key Changed amount (`costKey`/`prepaymentKey`); it counts as unsaved until a save succeeds.
+   *   Without a key nothing is marked as unsaved, so a reload may overwrite the amount: only call it
+   *   so when the change itself was already scheduled with its key (like `reportProblem` does).
    */
   const schedule = useCallback(
     (key?: string) => {
