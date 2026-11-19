@@ -243,8 +243,24 @@
     --zui-focus: var(--hdr-focus);
     border-bottom: 3px solid var(--hdr-line);
   }
-  /* Modal footer buttons fill the width like the library's own dialogs. */
-  .footer-btn { flex: 1 1 0; height: 3rem; justify-content: flex-start; }
+  /* Centred modal windows: footer buttons sit bottom left at natural width with a gap, padded like the modal body
+     (1.5rem). Side panels (`.zui-sheet__footer`) keep the library's full-width buttons. */
+  .zui-modal__footer { justify-content: flex-start; gap: 0.75rem; padding: 0 1.5rem 1.5rem; }
+  .zui-modal__footer .zui-button,
+  .zui-modal .zui-confirm-modal__cancel,
+  .zui-modal .zui-confirm-modal__confirm,
+  .footer-btn { flex: 0 0 auto; height: var(--zui-control-h); justify-content: center; padding: 0 1rem; }
+  /* Scroll shadows: a faint fade under the sheet header and above the footer, visible only while content is
+     scrolled out of view. The `local` covers (surface colour) hide the `scroll` shadows at the scroll ends. */
+  .zui-sheet__body {
+    --scroll-shadow: color-mix(in srgb, var(--zui-text) 14%, transparent);
+    background:
+      linear-gradient(var(--zui-surface) 30%, transparent) top / 100% 3rem no-repeat local,
+      linear-gradient(transparent, var(--zui-surface) 70%) bottom / 100% 3rem no-repeat local,
+      linear-gradient(var(--scroll-shadow), transparent) top / 100% 0.75rem no-repeat scroll,
+      linear-gradient(transparent, var(--scroll-shadow)) bottom / 100% 0.75rem no-repeat scroll,
+      var(--zui-surface);
+  }
   .toast { border-radius: var(--r); }
 }
 

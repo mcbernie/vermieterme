@@ -58,6 +58,14 @@ Immer zuerst die Bibliothek (Referenz: `docs/components/*.md` im Repo `react-com
 Fehlt etwas Allgemeines, wird es in `@zweiund40gmbh/ui` ergänzt, nicht lokal nachgebaut. Fachliche Bausteine
 liegen in `src/features/<bereich>/`.
 
+## Dialoge und Seitenpanels
+
+- **Modal** (zentral): Knöpfe stehen links unten in natürlicher Breite mit Abstand, der Fußbereich ist wie der
+  Inhalt mit 1,5 rem eingerückt (`.zui-modal__footer`, `.zui-confirm-modal__*`, `.footer-btn` in `globals.css`).
+- **Sheet** (seitlich): Knöpfe füllen die Fußzeile wie in der Bibliothek. Scrollt der Inhalt, deutet ein
+  halbtransparenter Schattenverlauf unter dem Kopf und über dem Fuß an, dass dort weiterer Inhalt liegt
+  (reines CSS, „scroll shadows“, nur Tokens). Das zentrale Modal scrollt als Ganzes, dort gibt es keinen Verlauf.
+
 ## Aufbau einer Seite
 
 `src/app/(app)/<pfad>/page.tsx` bleibt dünn (Daten laden, Bereich rendern). Teile und Dialoge liegen in
