@@ -1,20 +1,18 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { UiProvider } from "@zweiund40gmbh/ui";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { SessionExpiredDialog } from "@/components/layout/session-expired-dialog";
 import { notifySessionExpired } from "@/lib/session-expiry";
 
 afterEach(() => window.history.replaceState(null, "", "/"));
 
-/** Renders the dialog with a navigation spy. */
+/** Renders the dialog. */
 function renderDialog() {
-  const navigate = vi.fn();
-  const view = render(
+  return render(
     <UiProvider locale="de-DE">
-      <SessionExpiredDialog navigate={navigate} />
+      <SessionExpiredDialog />
     </UiProvider>,
   );
-  return { navigate, ...view };
 }
 
 describe("SessionExpiredDialog", () => {
@@ -25,27 +23,16 @@ describe("SessionExpiredDialog", () => {
     expect(screen.getByText("Sitzung abgelaufen")).toBeTruthy();
   });
 
-  it("opens the login page with the current page as return target", () => {
+  it("links to the login page in a new tab with the current page as return target, and closes", () => {
     window.history.replaceState(null, "", "/tenants?tab=1#a");
-    const { navigate } = renderDialog();
+    renderDialog();
     act(() => notifySessionExpired());
-    fireEvent.click(screen.getByRole("button", { name: "Erneut anmelden" }));
-    expect(navigate).toHaveBeenCalledWith("/login?callbackUrl=%2Ftenants%3Ftab%3D1%23a");
-  });
-
-  it("opens the login page in a new tab by default and closes, so the inputs here stay", () => {
-    window.history.replaceState(null, "", "/properties");
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
-    render(
-      <UiProvider locale="de-DE">
-        <SessionExpiredDialog />
-      </UiProvider>,
-    );
-    act(() => notifySessionExpired());
-    fireEvent.click(screen.getByRole("button", { name: "Erneut anmelden" }));
-    expect(open).toHaveBeenCalledWith("/login?callbackUrl=%2Fproperties", "_blank", "noopener");
+    const link = screen.getByRole("link", { name: "Erneut anmelden" });
+    expect(link.getAttribute("href")).toBe("/login?callbackUrl=%2Ftenants%3Ftab%3D1%23a");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    fireEvent.click(link);
     expect(screen.queryByText("Sitzung abgelaufen")).toBeNull();
-    open.mockRestore();
   });
 
   it("closes on „Später“ and shows again on the next expired request", () => {

@@ -11,18 +11,12 @@ function currentPath(): string {
   return `${pathname}${search}${hash}`;
 }
 
-/** Opens the login page in a new tab, so this page and its unsaved inputs stay as they are. */
-function openInNewTab(url: string) {
-  window.open(url, "_blank", "noopener");
-}
-
 /**
  * Hint shown when a request found the session expired, with the way back to the login page. The login page
  * opens in a new tab (return target: the current page), so unsaved inputs here are kept: after signing in
  * the user comes back and saves again. The dialog then closes; the next failed request shows it again.
- * @param navigate Opens the login page (replaceable in tests).
  */
-export function SessionExpiredDialog({ navigate = openInNewTab }: { navigate?: (url: string) => void }) {
+export function SessionExpiredDialog() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => onSessionExpired(() => setOpen(true)), []);
@@ -39,12 +33,18 @@ export function SessionExpiredDialog({ navigate = openInNewTab }: { navigate?: (
           <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
             Später
           </Button>
-          <Button type="button" variant="primary" onClick={() => {
-              navigate(loginUrl(currentPath()));
-              setOpen(false);
-            }}>
+          {/* A real link: a new tab always opens (a popup could be blocked or become a window). */}
+          <a
+            href={open ? loginUrl(currentPath()) : "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="zui-button"
+            data-variant="primary"
+            data-size="md"
+            onClick={() => setOpen(false)}
+          >
             Erneut anmelden
-          </Button>
+          </a>
         </>
       }
     />
