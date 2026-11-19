@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Button, Field, Modal, TextInput } from "@zweiund40gmbh/ui";
+import { Button, Field, InlineNotice, Modal, TextInput } from "@zweiund40gmbh/ui";
 import type { Property } from "@/types";
+import { useSave } from "./use-save";
 import type { PropertyFormValues } from "./use-properties";
 
 const EMPTY: PropertyFormValues = { street: "", zip: "", city: "", totalShares: 100 };
@@ -21,22 +22,24 @@ export function PropertyFormModal({ property, onSave, onClose }: Props) {
       ? { street: property.street, zip: property.zip, city: property.city, totalShares: property.totalShares }
       : EMPTY,
   );
+  const { saving, error, run } = useSave();
 
-  async function submit(e: FormEvent) {
+  function submit(e: FormEvent) {
     e.preventDefault();
-    if (await onSave(form)) onClose();
+    void run(() => onSave(form), onClose);
   }
 
   return (
     <Modal
       title={property ? "Objekt bearbeiten" : "Neues Objekt anlegen"}
       onClose={onClose}
+      preventClose={saving}
       footer={
         <>
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             Abbrechen
           </Button>
-          <Button type="submit" form="property-form" variant="primary">
+          <Button type="submit" form="property-form" variant="primary" disabled={saving}>
             Speichern
           </Button>
         </>
@@ -60,6 +63,11 @@ export function PropertyFormModal({ property, onSave, onClose }: Props) {
             onChange={(e) => setForm({ ...form, totalShares: parseInt(e.target.value) || 0 })}
           />
         </Field>
+        {error && (
+          <InlineNotice tone="bad" className="sm:col-span-2">
+            {error}
+          </InlineNotice>
+        )}
       </form>
     </Modal>
   );

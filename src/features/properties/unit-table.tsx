@@ -36,7 +36,7 @@ export function UnitTable({ units, rentChanges, onEdit, onDelete }: Props) {
                 <td className="num text-right text-ink2">{unit.shares}</td>
                 <td className="text-ink2">{tenant ? `${tenant.firstName} ${tenant.lastName}` : "Kein Mieter"}</td>
                 <td className="num text-right text-ink2">
-                  {rent == null && prepayment == null ? (
+                  {!rent && !prepayment ? (
                     <span className="text-ink3">—</span>
                   ) : (
                     <>

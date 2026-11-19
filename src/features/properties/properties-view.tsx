@@ -85,7 +85,7 @@ export function PropertiesView() {
       {dialog?.kind === "unit" && (
         <UnitFormModal
           unit={dialog.unit}
-          onSave={(values) => data.saveUnit(dialog.propertyId, values, dialog.unit?.id)}
+          onSave={(values) => data.saveUnit({ propertyId: dialog.propertyId, values, unitId: dialog.unit?.id })}
           onClose={() => setDialog(null)}
         />
       )}

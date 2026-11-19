@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Button, Field, Modal, TextInput } from "@zweiund40gmbh/ui";
+import { Button, Field, InlineNotice, Modal, TextInput } from "@zweiund40gmbh/ui";
 import type { Unit } from "@/types";
+import { useSave } from "./use-save";
 import type { UnitFormValues } from "./use-properties";
 
 const EMPTY: UnitFormValues = { name: "", floor: "", shares: 0 };
@@ -19,22 +20,24 @@ export function UnitFormModal({ unit, onSave, onClose }: Props) {
   const [form, setForm] = useState<UnitFormValues>(
     unit ? { name: unit.name, floor: unit.floor, shares: unit.shares } : EMPTY,
   );
+  const { saving, error, run } = useSave();
 
-  async function submit(e: FormEvent) {
+  function submit(e: FormEvent) {
     e.preventDefault();
-    if (await onSave(form)) onClose();
+    void run(() => onSave(form), onClose);
   }
 
   return (
     <Modal
       title={unit ? "Wohnung bearbeiten" : "Wohnung hinzufügen"}
       onClose={onClose}
+      preventClose={saving}
       footer={
         <>
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             Abbrechen
           </Button>
-          <Button type="submit" form="unit-form" variant="primary">
+          <Button type="submit" form="unit-form" variant="primary" disabled={saving}>
             Speichern
           </Button>
         </>
@@ -65,6 +68,7 @@ export function UnitFormModal({ unit, onSave, onClose }: Props) {
             onChange={(e) => setForm({ ...form, shares: parseInt(e.target.value) || 0 })}
           />
         </Field>
+        {error && <InlineNotice tone="bad">{error}</InlineNotice>}
       </form>
     </Modal>
   );
