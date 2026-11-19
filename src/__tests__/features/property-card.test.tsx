@@ -72,4 +72,10 @@ describe("PropertyCard", () => {
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByText(/konnten nicht/)).toBeNull();
   });
+
+  it("warns that the list may be stale when a refresh failed", () => {
+    setup({ expanded: true, detail, detailFailed: true });
+    expect(screen.getByText(/konnten nicht aktualisiert werden/)).toBeInTheDocument();
+    expect(screen.getByText("Wohnungen")).toBeInTheDocument();
+  });
 });

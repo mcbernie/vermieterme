@@ -57,6 +57,11 @@ export function PropertyCard(p: Props) {
 
       {expanded && detail && (
         <div className="border-t border-line p-4">
+          {p.detailFailed && (
+            <InlineNotice tone="bad" className="mb-3">
+              Die Wohnungen konnten nicht aktualisiert werden. Die Anzeige kann veraltet sein.
+            </InlineNotice>
+          )}
           <div className="mb-3 flex items-center justify-between">
             <h2 className="label-caps">Wohnungen</h2>
             <Button size="sm" variant="secondary" onClick={p.onAddUnit}>
