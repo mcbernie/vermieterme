@@ -20,13 +20,11 @@ export function PropertyCard(p: Props) {
   const { property, expanded, detail } = p;
   return (
     <div className="panel !p-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4">
-        <button
-          type="button"
-          aria-expanded={expanded}
-          onClick={p.onToggle}
-          className="flex-1 cursor-pointer text-left"
-        >
+      <div
+        className="flex cursor-pointer flex-wrap items-center justify-between gap-3 p-4"
+        onClick={p.onToggle}
+      >
+        <button type="button" aria-expanded={expanded} className="flex-1 text-left">
           <div className="section-title">{property.street}</div>
           <div className="text-sm text-ink2">
             {property.zip} {property.city}
@@ -36,7 +34,7 @@ export function PropertyCard(p: Props) {
           <div className="text-sm text-ink2">{property._count?.units || 0} Wohnungen</div>
           <div className="num text-xs text-ink3">{property.totalShares} Anteile</div>
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
           <Button size="sm" variant="secondary" onClick={p.onEdit}>
             Bearbeiten
           </Button>
