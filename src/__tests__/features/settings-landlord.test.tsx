@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_LANDLORD, landlordErrors, sameLandlord, toLandlordForm } from "@/features/settings/landlord";
 import { LandlordForm } from "@/features/settings/landlord-form";
-import { SESSION_EXPIRED } from "@/features/settings/request";
+import { SESSION_EXPIRED } from "@/lib/api-client";
 import { json, loginPage, mockFetch, renderWithUi } from "./settings-helpers";
 
 afterEach(() => vi.unstubAllGlobals());

@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SESSION_EXPIRED } from "@/features/settings/request";
+import { SESSION_EXPIRED } from "@/lib/api-client";
 import { groupByBaseYear, importFromBundesbank } from "@/features/settings/vpi";
 import { VpiEntryForm, vpiFormErrors } from "@/features/settings/vpi-entry-form";
 import { VpiFetchPanel } from "@/features/settings/vpi-fetch-panel";

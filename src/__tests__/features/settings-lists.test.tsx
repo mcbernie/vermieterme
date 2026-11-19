@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CostCategoriesSection, nextSortOrder } from "@/features/settings/cost-categories-section";
 import { CostCategoryModal } from "@/features/settings/cost-category-modal";
-import { requestJson, SESSION_EXPIRED } from "@/features/settings/request";
+import { apiJson, SESSION_EXPIRED } from "@/lib/api-client";
 import { newUserErrors, UserFormModal } from "@/features/settings/user-form-modal";
 import { UsersSection } from "@/features/settings/users-section";
 import { json, loginPage, mockFetch, renderWithUi } from "./settings-helpers";
@@ -101,7 +101,7 @@ function UsersCreate({ onClose }: { onClose: () => void }) {
   return (
     <UserFormModal
       onCreate={async (values) => {
-        await requestJson("/api/users", "Fehler beim Erstellen", { method: "POST", json: values });
+        await apiJson("/api/users", { fallback: "Fehler beim Erstellen", method: "POST", json: values });
       }}
       onClose={onClose}
     />

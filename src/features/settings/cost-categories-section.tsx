@@ -4,14 +4,14 @@ import { useState } from "react";
 import { Button, EmptyState, InlineNotice, Tag, useConfirm } from "@zweiund40gmbh/ui";
 import type { CostCategory } from "@/types";
 import { CostCategoryModal, type CostCategoryValues } from "./cost-category-modal";
-import { requestJson } from "./request";
+import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "./section";
 import { useAction } from "./use-action";
 import { LOAD_FAILED, useLoad } from "./use-load";
 
 /** Loads the cost categories. */
 const loadCategories = (signal: AbortSignal) =>
-  requestJson<CostCategory[]>("/api/cost-categories", LOAD_FAILED, { signal });
+  apiJson<CostCategory[]>("/api/cost-categories", { fallback: LOAD_FAILED, signal });
 
 /** Sort position after the last category (1 for an empty list). */
 export function nextSortOrder(categories: CostCategory[]): number {
@@ -31,7 +31,8 @@ export function CostCategoriesSection() {
 
   /** Creates or updates a category, then reloads the list. */
   async function save(values: CostCategoryValues, id?: string) {
-    await requestJson(id ? `/api/cost-categories/${id}` : "/api/cost-categories", "Fehler beim Speichern", {
+    await apiJson(id ? `/api/cost-categories/${id}` : "/api/cost-categories", {
+      fallback: "Fehler beim Speichern",
       method: id ? "PUT" : "POST",
       json: values,
     });
@@ -47,7 +48,7 @@ export function CostCategoriesSection() {
     });
     if (!ok) return;
     await remove.run(async () => {
-      await requestJson(`/api/cost-categories/${category.id}`, "Fehler beim Löschen", { method: "DELETE" });
+      await apiJson(`/api/cost-categories/${category.id}`, { fallback: "Fehler beim Löschen", method: "DELETE" });
       await refresh();
     });
   }

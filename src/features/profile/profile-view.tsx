@@ -2,7 +2,7 @@
 
 import { PageHeader } from "@zweiund40gmbh/ui";
 import { useSession } from "next-auth/react";
-import { requestJson } from "@/features/settings/request";
+import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "@/features/settings/section";
 import { LOAD_FAILED, useLoad } from "@/features/settings/use-load";
 import type { AppUser } from "@/types";
@@ -10,7 +10,7 @@ import { NameForm } from "./name-form";
 import { PasswordForm } from "./password-form";
 
 /** Loads the signed-in user's profile. */
-const loadProfile = (signal: AbortSignal) => requestJson<AppUser>("/api/profile", LOAD_FAILED, { signal });
+const loadProfile = (signal: AbortSignal) => apiJson<AppUser>("/api/profile", { fallback: LOAD_FAILED, signal });
 
 /** Own profile: display name and password change. */
 export function ProfileView() {

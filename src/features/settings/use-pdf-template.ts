@@ -3,14 +3,14 @@
 import { useCallback, useMemo, useState } from "react";
 import { getDefaultConfig } from "@/lib/pdf-template";
 import type { PageConfig, PdfTemplateConfig, SectionConfig, SectionId, SectionStyle } from "@/types/pdf-template";
-import { requestJson } from "./request";
+import { apiJson } from "@/lib/api-client";
 import { stableKey } from "./stable-key";
 import { useAction } from "./use-action";
 import { LOAD_FAILED, useLoad } from "./use-load";
 
 /** Loads the stored template configuration (the API answers with the default when none is stored). */
 const loadConfig = async (signal: AbortSignal) =>
-  (await requestJson<{ config: PdfTemplateConfig }>("/api/pdf-template", LOAD_FAILED, { signal })).config;
+  (await apiJson<{ config: PdfTemplateConfig }>("/api/pdf-template", { fallback: LOAD_FAILED, signal })).config;
 
 /** Returns a copy of `config` with section `id` changed by `change`. */
 function withSection(
@@ -57,7 +57,7 @@ export function usePdfTemplate() {
     if (!config) return;
     const sent = config;
     const ok = await save.run(async () => {
-      await requestJson("/api/pdf-template", "Fehler beim Speichern", { method: "PUT", json: { config: sent } });
+      await apiJson("/api/pdf-template", { fallback: "Fehler beim Speichern", method: "PUT", json: { config: sent } });
     });
     if (ok) setLastSaved(sent);
   }

@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { Button, Field, InlineNotice, TextInput } from "@zweiund40gmbh/ui";
-import { requestJson } from "@/features/settings/request";
+import { apiJson } from "@/lib/api-client";
 import { useAction } from "@/features/settings/use-action";
 import type { AppUser } from "@/types";
 
@@ -22,7 +22,7 @@ export function NameForm({ profile, onSaved }: Props) {
     e.preventDefault();
     setSaved(false);
     const ok = await run(async () => {
-      await requestJson("/api/profile", "Fehler beim Speichern", { method: "PUT", json: { name } });
+      await apiJson("/api/profile", { fallback: "Fehler beim Speichern", method: "PUT", json: { name } });
       await onSaved(name);
     });
     setSaved(ok);

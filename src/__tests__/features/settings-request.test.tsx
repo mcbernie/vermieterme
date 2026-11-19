@@ -1,23 +1,23 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  ensureOk,
+  apiFetch,
+  apiJson,
   errorText,
   RequestError,
-  requestJson,
   SESSION_EXPIRED,
   SessionExpiredError,
-} from "@/features/settings/request";
+} from "@/lib/api-client";
 import { useAction } from "@/features/settings/use-action";
 import { LOAD_FAILED, REFRESH_FAILED, useLoad } from "@/features/settings/use-load";
 import { fakeResponse, json, loginPage, mockFetch } from "./settings-helpers";
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("requestJson", () => {
+describe("apiJson", () => {
   it("returns the parsed body and sends JSON with the right header", async () => {
     const { fetchMock } = mockFetch({ "POST /api/x": json({ id: "1" }) });
-    await expect(requestJson("/api/x", "fehlt", { method: "POST", json: { a: 1 } })).resolves.toEqual({ id: "1" });
+    await expect(apiJson("/api/x", { fallback: "fehlt", method: "POST", json: { a: 1 } })).resolves.toEqual({ id: "1" });
     const init = fetchMock.mock.calls[0]?.[1];
     expect(init?.headers).toEqual({ "Content-Type": "application/json" });
     expect(init?.body).toBe('{"a":1}');
@@ -25,40 +25,43 @@ describe("requestJson", () => {
 
   it("treats a redirect to the login page as an expired session, marked by type", async () => {
     mockFetch({ "GET /api/x": loginPage() });
-    await expect(requestJson("/api/x", "fehlt")).rejects.toThrow(SESSION_EXPIRED);
-    await expect(requestJson("/api/x", "fehlt")).rejects.toBeInstanceOf(SessionExpiredError);
+    await expect(apiJson("/api/x", { fallback: "fehlt" })).rejects.toThrow(SESSION_EXPIRED);
+    await expect(apiJson("/api/x", { fallback: "fehlt" })).rejects.toBeInstanceOf(SessionExpiredError);
     mockFetch({ "GET /api/x": json({ error: SESSION_EXPIRED }, 400) });
-    await expect(requestJson("/api/x", "fehlt")).rejects.not.toBeInstanceOf(SessionExpiredError);
+    await expect(apiJson("/api/x", { fallback: "fehlt" })).rejects.not.toBeInstanceOf(SessionExpiredError);
   });
 
   it("treats a 2xx answer without JSON as an expired session", async () => {
     mockFetch({ "GET /api/x": fakeResponse("<html></html>", { contentType: "text/html" }) });
-    await expect(requestJson("/api/x", "fehlt")).rejects.toThrow(SESSION_EXPIRED);
+    await expect(apiJson("/api/x", { fallback: "fehlt" })).rejects.toThrow(SESSION_EXPIRED);
     mockFetch({ "GET /api/x": fakeResponse("kaputt", { contentType: "application/json" }) });
-    await expect(requestJson("/api/x", "fehlt")).rejects.toThrow(SESSION_EXPIRED);
+    await expect(apiJson("/api/x", { fallback: "fehlt" })).rejects.toThrow(SESSION_EXPIRED);
   });
 
   it("uses the API error text, otherwise the fallback", async () => {
     mockFetch({ "GET /api/a": json({ error: "Gibt es schon" }, 409), "GET /api/b": fakeResponse("x", { status: 500, contentType: "text/plain" }) });
-    await expect(requestJson("/api/a", "fehlt")).rejects.toThrow("Gibt es schon");
-    await expect(requestJson("/api/b", "Fehler beim Speichern")).rejects.toThrow("Fehler beim Speichern");
+    await expect(apiJson("/api/a", { fallback: "fehlt" })).rejects.toThrow("Gibt es schon");
+    await expect(apiJson("/api/b", { fallback: "Fehler beim Speichern" })).rejects.toThrow("Fehler beim Speichern");
   });
 
   it("turns a network error into the fallback", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("offline"))));
-    await expect(requestJson("/api/x", "Fehler beim Laden")).rejects.toThrow("Fehler beim Laden");
+    await expect(apiJson("/api/x", { fallback: "Fehler beim Laden" })).rejects.toThrow("Fehler beim Laden");
   });
 
-  it("lets ensureOk accept a JSON download and reject the login page", async () => {
-    await expect(ensureOk(json({}), "x")).resolves.toBeUndefined();
-    await expect(ensureOk(loginPage(), "x")).rejects.toBeInstanceOf(RequestError);
+  it("lets apiFetch accept a JSON download and reject the login page", async () => {
+    mockFetch({ "GET /api/a": json({}), "GET /api/b": loginPage() });
+    await expect(apiFetch("/api/a", { fallback: "x" })).resolves.toBeDefined();
+    await expect(apiFetch("/api/b", { fallback: "x" })).rejects.toBeInstanceOf(RequestError);
   });
 
   it("detects the login page by the redirect and by the HTML type separately", async () => {
-    await expect(ensureOk(fakeResponse({}, { redirected: true }), "x")).rejects.toThrow(SESSION_EXPIRED);
-    await expect(ensureOk(fakeResponse("<html></html>", { contentType: "text/html" }), "x")).rejects.toThrow(
-      SESSION_EXPIRED,
-    );
+    mockFetch({
+      "GET /api/a": fakeResponse({}, { redirected: true }),
+      "GET /api/b": fakeResponse("<html></html>", { contentType: "text/html" }),
+    });
+    await expect(apiFetch("/api/a", { fallback: "x" })).rejects.toThrow(SESSION_EXPIRED);
+    await expect(apiFetch("/api/b", { fallback: "x" })).rejects.toThrow(SESSION_EXPIRED);
   });
 
   it("shows only messages of request errors", () => {

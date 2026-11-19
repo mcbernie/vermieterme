@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Button, Field, InlineNotice, PasswordInput } from "@zweiund40gmbh/ui";
 import { PASSWORD_MIN_LENGTH } from "@/lib/constants";
-import { requestJson } from "@/features/settings/request";
+import { apiJson } from "@/lib/api-client";
 import { useAction } from "@/features/settings/use-action";
 import { passwordErrors, type PasswordValues } from "./password";
 
@@ -33,7 +33,8 @@ export function PasswordForm() {
     setChanged(false);
     if (Object.keys(passwordErrors(form)).length > 0) return;
     const ok = await run(async () => {
-      await requestJson("/api/profile", FAILED, {
+      await apiJson("/api/profile", {
+        fallback: FAILED,
         method: "PUT",
         json: { currentPassword: form.currentPassword, newPassword: form.newPassword },
       });

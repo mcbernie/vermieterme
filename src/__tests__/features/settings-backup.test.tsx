@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { backupFileName, downloadBackup, importBackup } from "@/features/settings/backup";
 import { BackupSection } from "@/features/settings/backup-section";
-import { SESSION_EXPIRED } from "@/features/settings/request";
+import { SESSION_EXPIRED } from "@/lib/api-client";
 import { fakeResponse, json, loginPage, mockFetch, renderWithUi } from "./settings-helpers";
 
 let clicked: string[] = [];

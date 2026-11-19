@@ -1,6 +1,6 @@
 import { formatIBAN } from "@/lib/iban";
 import type { LandlordInfo } from "@/types";
-import { requestJson } from "./request";
+import { apiJson } from "@/lib/api-client";
 import { LOAD_FAILED } from "./use-load";
 
 /** Landlord record as the API returns it (optional fields may be null). */
@@ -31,7 +31,7 @@ export function toLandlordForm(data: LandlordRecord | null): LandlordInfo {
 
 /** Loads the landlord data as form values. */
 export async function loadLandlord(signal: AbortSignal): Promise<LandlordInfo> {
-  return toLandlordForm(await requestJson<LandlordRecord | null>("/api/settings", LOAD_FAILED, { signal }));
+  return toLandlordForm(await apiJson<LandlordRecord | null>("/api/settings", { fallback: LOAD_FAILED, signal }));
 }
 
 /** Field errors of the landlord form. */

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { passwordErrors } from "@/features/profile/password";
 import { PasswordForm } from "@/features/profile/password-form";
 import { ProfileView } from "@/features/profile/profile-view";
-import { SESSION_EXPIRED } from "@/features/settings/request";
+import { SESSION_EXPIRED } from "@/lib/api-client";
 import { fakeResponse, json, loginPage, mockFetch, renderWithUi } from "./settings-helpers";
 
 const updateSession = vi.fn(async () => null);

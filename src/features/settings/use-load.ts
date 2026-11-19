@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorText } from "./request";
+import { errorText } from "@/lib/api-client";
 
 /** Fallback text when loading fails without an own message. */
 export const LOAD_FAILED = "Daten konnten nicht geladen werden.";

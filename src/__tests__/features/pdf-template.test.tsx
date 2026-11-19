@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDefaultConfig } from "@/lib/pdf-template";
 import { PdfTemplateView } from "@/features/settings/pdf-template-view";
 import { SettingsFrame } from "@/features/settings/settings-layout";
-import { SESSION_EXPIRED } from "@/features/settings/request";
+import { SESSION_EXPIRED } from "@/lib/api-client";
 import type { PdfTemplateConfig } from "@/types/pdf-template";
 import { json, loginPage, mockFetch, renderWithUi } from "./settings-helpers";
 

@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { Button, EmptyState, InlineNotice, useConfirm } from "@zweiund40gmbh/ui";
 import type { AppUser } from "@/types";
-import { requestJson } from "./request";
+import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "./section";
 import { useAction } from "./use-action";
 import { LOAD_FAILED, useLoad } from "./use-load";
 import { UserFormModal, type NewUserValues } from "./user-form-modal";
 
 /** Loads the users that may sign in. */
-const loadUsers = (signal: AbortSignal) => requestJson<AppUser[]>("/api/users", LOAD_FAILED, { signal });
+const loadUsers = (signal: AbortSignal) => apiJson<AppUser[]>("/api/users", { fallback: LOAD_FAILED, signal });
 
 /** Users with sign-in access: list, create and delete. */
 export function UsersSection() {
@@ -22,7 +22,7 @@ export function UsersSection() {
 
   /** Creates a user, then reloads the list. */
   async function create(values: NewUserValues) {
-    await requestJson("/api/users", "Fehler beim Erstellen", { method: "POST", json: values });
+    await apiJson("/api/users", { fallback: "Fehler beim Erstellen", method: "POST", json: values });
     await refresh();
   }
 
@@ -35,7 +35,7 @@ export function UsersSection() {
     });
     if (!ok) return;
     await remove.run(async () => {
-      await requestJson(`/api/users/${user.id}`, "Fehler beim Löschen", { method: "DELETE" });
+      await apiJson(`/api/users/${user.id}`, { fallback: "Fehler beim Löschen", method: "DELETE" });
       await refresh();
     });
   }

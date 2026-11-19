@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { errorText } from "./request";
+import { errorText } from "@/lib/api-client";
 
 /**
  * Busy and error state for one write action (save, delete, import). A second call while one is running is

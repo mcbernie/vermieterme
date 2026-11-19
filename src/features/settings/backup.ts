@@ -1,4 +1,4 @@
-import { ensureOk, RequestError, requestJson } from "./request";
+import { apiFetch, apiJson, RequestError, SessionExpiredError } from "@/lib/api-client";
 
 /** Error text of a failed export. */
 export const EXPORT_FAILED = "Export fehlgeschlagen";
@@ -33,13 +33,12 @@ function saveBlob(blob: Blob, fileName: string) {
 export async function downloadBackup(): Promise<void> {
   let res: Response;
   try {
-    res = await fetch("/api/backup");
-  } catch {
+    res = await apiFetch("/api/backup");
+  } catch (error) {
+    // A failed export always reads „Export fehlgeschlagen“, as before; only an expired session differs.
+    if (error instanceof SessionExpiredError) throw error;
     throw new RequestError(EXPORT_FAILED);
   }
-  // A failed export always reads „Export fehlgeschlagen“, as before; only an expired session differs.
-  if (!res.ok && !res.redirected) throw new RequestError(EXPORT_FAILED);
-  await ensureOk(res, EXPORT_FAILED);
   try {
     saveBlob(await res.blob(), backupFileName(res.headers.get("Content-Disposition"), new Date()));
   } catch {
@@ -58,5 +57,5 @@ export async function importBackup(file: File): Promise<void> {
   } catch {
     throw new RequestError(IMPORT_FAILED);
   }
-  await requestJson("/api/backup", IMPORT_FAILED, { method: "POST", json: data });
+  await apiJson("/api/backup", { fallback: IMPORT_FAILED, method: "POST", json: data });
 }

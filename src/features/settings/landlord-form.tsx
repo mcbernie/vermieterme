@@ -6,7 +6,7 @@ import { formatIBAN } from "@/lib/iban";
 import type { LandlordInfo } from "@/types";
 import { ibanHint } from "@/features/tenants/tenant-form-values";
 import { landlordErrors, sameLandlord } from "./landlord";
-import { requestJson } from "./request";
+import { apiJson } from "@/lib/api-client";
 import { useSettingsDirty } from "./settings-guard";
 import { useAction } from "./use-action";
 
@@ -54,7 +54,8 @@ export function LandlordForm({ initial }: Props) {
     if (Object.keys(landlordErrors(form)).length > 0) return;
     const sent = form;
     const ok = await run(async () => {
-      const result = await requestJson<{ id: string }>("/api/settings", "Fehler beim Speichern", {
+      const result = await apiJson<{ id: string }>("/api/settings", {
+        fallback: "Fehler beim Speichern",
         method: "POST",
         json: sent,
       });

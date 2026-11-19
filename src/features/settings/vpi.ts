@@ -1,5 +1,5 @@
 import type { VpiEntry } from "@/types";
-import { requestJson, SessionExpiredError } from "./request";
+import { apiJson, SessionExpiredError } from "@/lib/api-client";
 import { LOAD_FAILED } from "./use-load";
 
 /** German month names, index 0 = January. */
@@ -44,7 +44,7 @@ export function groupByBaseYear(entries: VpiEntry[]): VpiGroup[] {
 }
 
 /** Loads all VPI entries. */
-export const loadVpiEntries = (signal: AbortSignal) => requestJson<VpiEntry[]>("/api/vpi", LOAD_FAILED, { signal });
+export const loadVpiEntries = (signal: AbortSignal) => apiJson<VpiEntry[]>("/api/vpi", { fallback: LOAD_FAILED, signal });
 
 /** One VPI value as the API expects it. */
 export interface VpiPayload {
@@ -56,7 +56,7 @@ export interface VpiPayload {
 
 /** Saves (creates or replaces) one VPI value; the API upserts by year, month and base year. */
 export function saveVpiEntry(payload: VpiPayload): Promise<unknown> {
-  return requestJson("/api/vpi", "Fehler beim Speichern", { method: "POST", json: payload });
+  return apiJson("/api/vpi", { fallback: "Fehler beim Speichern", method: "POST", json: payload });
 }
 
 /**
@@ -65,10 +65,9 @@ export function saveVpiEntry(payload: VpiPayload): Promise<unknown> {
  * @returns Number of stored values.
  */
 export async function importFromBundesbank(baseYear: number): Promise<number> {
-  const data = await requestJson<{ entries: { year: number; month: number; value: number }[] }>(
+  const data = await apiJson<{ entries: { year: number; month: number; value: number }[] }>(
     "/api/vpi/fetch",
-    "Fehler beim Abrufen der VPI-Daten",
-    { method: "POST", json: { baseYear } },
+    { fallback: "Fehler beim Abrufen der VPI-Daten", method: "POST", json: { baseYear } },
   );
   let saved = 0;
   for (const entry of data.entries) {

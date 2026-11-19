@@ -2,7 +2,7 @@
 
 import { Button, EmptyState, InlineNotice, Tag, useConfirm } from "@zweiund40gmbh/ui";
 import type { VpiEntry } from "@/types";
-import { requestJson } from "./request";
+import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "./section";
 import { SettingsIntro } from "./settings-layout";
 import { useAction } from "./use-action";
@@ -84,7 +84,7 @@ export function VpiView() {
     });
     if (!ok) return;
     await remove.run(async () => {
-      await requestJson(`/api/vpi/${entry.id}`, "Fehler beim Löschen", { method: "DELETE" });
+      await apiJson(`/api/vpi/${entry.id}`, { fallback: "Fehler beim Löschen", method: "DELETE" });
       await refresh();
     });
   }
