@@ -5,7 +5,7 @@ import type { VpiEntry } from "@/types";
 import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "./section";
 import { SettingsIntro } from "./settings-layout";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 import { useLoad } from "./use-load";
 import { groupByBaseYear, loadVpiEntries, MONTH_NAMES } from "./vpi";
 import { VpiEntryForm } from "./vpi-entry-form";

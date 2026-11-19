@@ -58,4 +58,12 @@ describe("useSave", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(result.current.error).toBeNull();
   });
+
+  it("stays saving after success, since the dialog closes", async () => {
+    const { result } = renderHook(() => useSave());
+    await act(async () => {
+      await result.current.run(async () => true, vi.fn());
+    });
+    expect(result.current.saving).toBe(true);
+  });
 });

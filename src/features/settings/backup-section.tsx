@@ -4,7 +4,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import { Button, InlineNotice, useConfirm } from "@zweiund40gmbh/ui";
 import { downloadBackup, IMPORT_FAILED, importBackup } from "./backup";
 import { SettingsSection } from "./section";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 
 interface Props {
   /** Called after a successful import so the page can reload its data. */

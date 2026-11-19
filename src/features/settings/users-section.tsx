@@ -5,7 +5,7 @@ import { Button, EmptyState, InlineNotice, useConfirm } from "@zweiund40gmbh/ui"
 import type { AppUser } from "@/types";
 import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "./section";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 import { LOAD_FAILED, useLoad } from "./use-load";
 import { UserFormModal, type NewUserValues } from "./user-form-modal";
 

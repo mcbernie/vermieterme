@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Button, Field, InlineNotice, Modal, PasswordInput, TextInput } from "@zweiund40gmbh/ui";
 import { PASSWORD_MIN_LENGTH } from "@/lib/constants";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 
 /** Values of a new user. */
 export interface NewUserValues {

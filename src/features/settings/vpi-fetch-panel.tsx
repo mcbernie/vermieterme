@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Button, Field, InlineNotice, TextInput } from "@zweiund40gmbh/ui";
 import { importFromBundesbank } from "./vpi";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 
 interface Props {
   /** Called after values were imported. */

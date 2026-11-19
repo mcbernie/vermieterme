@@ -8,7 +8,7 @@ import { ibanHint } from "@/features/tenants/tenant-form-values";
 import { landlordErrors, sameLandlord } from "./landlord";
 import { apiJson } from "@/lib/api-client";
 import { useSettingsDirty } from "./settings-guard";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 
 type TextKey = Exclude<keyof LandlordInfo, "id">;
 

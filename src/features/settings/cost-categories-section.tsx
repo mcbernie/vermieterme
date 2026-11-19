@@ -6,7 +6,7 @@ import type { CostCategory } from "@/types";
 import { CostCategoryModal, type CostCategoryValues } from "./cost-category-modal";
 import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "./section";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 import { LOAD_FAILED, useLoad } from "./use-load";
 
 /** Loads the cost categories. */

@@ -5,7 +5,7 @@ import { getDefaultConfig } from "@/lib/pdf-template";
 import type { PageConfig, PdfTemplateConfig, SectionConfig, SectionId, SectionStyle } from "@/types/pdf-template";
 import { apiJson } from "@/lib/api-client";
 import { stableKey } from "./stable-key";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 import { LOAD_FAILED, useLoad } from "./use-load";
 
 /** Loads the stored template configuration (the API answers with the default when none is stored). */

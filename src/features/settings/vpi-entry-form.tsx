@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Button, Field, InlineNotice, Select, TextInput } from "@zweiund40gmbh/ui";
 import { MONTH_OPTIONS, saveVpiEntry, type VpiPayload } from "./vpi";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 
 /** Text values of the entry form. */
 export interface VpiFormValues {

@@ -1,37 +1,28 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { useAction } from "@/components/form/use-action";
+
+/** Shown when a save fails. */
+const SAVE_FAILED = "Speichern fehlgeschlagen. Bitte versuchen Sie es erneut.";
 
 /**
- * Pending and error state for a save action in a dialog: ignores a second call
- * while one is running and reports a failed save.
+ * Pending and error state for a save action in a dialog, built on `useAction`: ignores a second call
+ * while one is running and reports a failed save. After success it stays pending, since the dialog closes.
  */
 export function useSave() {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const running = useRef(false);
+  const { busy, error, run: runAction } = useAction(SAVE_FAILED);
+  const [done, setDone] = useState(false);
 
   /** Runs `action`; calls `onDone` when it returns true, otherwise shows an error. */
   async function run(action: () => Promise<boolean>, onDone: () => void) {
-    if (running.current) return;
-    running.current = true;
-    setSaving(true);
-    setError(null);
-    let ok = false;
-    try {
-      ok = await action();
-    } catch (error) {
-      console.error("Save failed:", error);
-    } finally {
-      running.current = false;
-    }
-    if (ok) {
-      onDone();
-      return;
-    }
-    setSaving(false);
-    setError("Speichern fehlgeschlagen. Bitte versuchen Sie es erneut.");
+    const ok = await runAction(async () => {
+      if (!(await action())) throw new Error("save failed");
+      // Set together with the end of `busy`, so the dialog never shows a ready state in between.
+      setDone(true);
+    });
+    if (ok) onDone();
   }
 
-  return { saving, error, run };
+  return { saving: busy || done, error, run };
 }

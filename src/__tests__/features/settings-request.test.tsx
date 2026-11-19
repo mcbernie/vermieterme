@@ -8,7 +8,7 @@ import {
   SESSION_EXPIRED,
   SessionExpiredError,
 } from "@/lib/api-client";
-import { useAction } from "@/features/settings/use-action";
+import { useAction } from "@/components/form/use-action";
 import { LOAD_FAILED, REFRESH_FAILED, useLoad } from "@/features/settings/use-load";
 import { fakeResponse, json, loginPage, mockFetch } from "./settings-helpers";
 

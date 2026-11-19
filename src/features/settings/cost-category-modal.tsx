@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Button, Field, InlineNotice, Modal, Select, TextInput } from "@zweiund40gmbh/ui";
 import { DISTRIBUTION_KEYS } from "@/lib/constants";
 import type { CostCategory } from "@/types";
-import { useAction } from "./use-action";
+import { useAction } from "@/components/form/use-action";
 
 /** Form values of a cost category. */
 export interface CostCategoryValues {

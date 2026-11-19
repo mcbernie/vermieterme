@@ -5,8 +5,8 @@ import { errorText } from "@/lib/api-client";
 
 /**
  * Busy and error state for one write action (save, delete, import). A second call while one is running is
- * ignored, so a double submit sends nothing twice. Unlike `useSave` of the properties feature, the error
- * text comes from the failed request, which lets an expired session show its own message.
+ * ignored, so a double submit sends nothing twice. The error text comes from the failed request (a
+ * `RequestError` of the API client), which lets an expired session show its own message.
  * @param fallback Error text when the failure carries no own message.
  */
 export function useAction(fallback: string) {

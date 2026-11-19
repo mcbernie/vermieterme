@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Button, Field, InlineNotice, PasswordInput } from "@zweiund40gmbh/ui";
 import { PASSWORD_MIN_LENGTH } from "@/lib/constants";
 import { apiJson } from "@/lib/api-client";
-import { useAction } from "@/features/settings/use-action";
+import { useAction } from "@/components/form/use-action";
 import { passwordErrors, type PasswordValues } from "./password";
 
 const EMPTY: PasswordValues = { currentPassword: "", newPassword: "", confirmPassword: "" };
