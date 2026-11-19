@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EMPTY_LANDLORD, landlordErrors, toLandlordForm } from "@/features/settings/landlord";
+import { EMPTY_LANDLORD, landlordErrors, sameLandlord, toLandlordForm } from "@/features/settings/landlord";
 import { LandlordForm } from "@/features/settings/landlord-form";
 import { SESSION_EXPIRED } from "@/features/settings/request";
 import { json, loginPage, mockFetch, renderWithUi } from "./settings-helpers";
@@ -21,6 +21,19 @@ describe("landlord helpers", () => {
     expect(Object.keys(landlordErrors(EMPTY_LANDLORD)).sort()).toEqual(["city", "name", "street", "zip"]);
     expect(landlordErrors(VALID)).toEqual({});
     expect(landlordErrors({ ...VALID, iban: "DE00 1234" })).toEqual({});
+  });
+});
+
+describe("sameLandlord", () => {
+  it("treats a differently formatted IBAN as the same value", () => {
+    expect(sameLandlord({ ...VALID, iban: "de89370400440532013000" }, { ...VALID, iban: "DE89 3704 0044 0532 0130 00" })).toBe(
+      true,
+    );
+  });
+
+  it("still reports a different IBAN or field (counter-check)", () => {
+    expect(sameLandlord({ ...VALID, iban: "DE89370400440532013000" }, { ...VALID, iban: "DE89370400440532013001" })).toBe(false);
+    expect(sameLandlord(VALID, { ...VALID, city: "Hamburg" })).toBe(false);
   });
 });
 

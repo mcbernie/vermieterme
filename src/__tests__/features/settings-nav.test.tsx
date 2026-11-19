@@ -8,6 +8,7 @@ import { useSettingsDirty } from "@/features/settings/settings-guard";
 import { SettingsFrame } from "@/features/settings/settings-layout";
 import { settingsTabFor } from "@/features/settings/settings-nav";
 import { EMPTY_LANDLORD } from "@/features/settings/landlord";
+import { json, mockFetch } from "./settings-helpers";
 import { LandlordForm } from "@/features/settings/landlord-form";
 
 const push = vi.fn();
@@ -15,6 +16,7 @@ let pathname = "/settings";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname, useRouter: () => ({ push }) }));
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   push.mockClear();
   pathname = "/settings";
 });
@@ -70,6 +72,12 @@ describe("settingsTabFor", () => {
     expect(settingsTabFor("/settings/vpi")).toBe("vpi");
     expect(settingsTabFor("/settings/pdf-template")).toBe("pdf-template");
     expect(settingsTabFor(null)).toBe("general");
+  });
+
+  it("maps paths below a sub page by segment, not by prefix", () => {
+    expect(settingsTabFor("/settings/vpi/2025")).toBe("vpi");
+    expect(settingsTabFor("/settings/vpi-xyz")).toBe("general");
+    expect(settingsTabFor("/settings/pdf-template-alt")).toBe("general");
   });
 });
 
@@ -176,4 +184,46 @@ describe("leaving the settings over app links (#37)", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
+
+describe("after saving and on closing the tab (#39)", () => {
+  const LANDLORD = { ...EMPTY_LANDLORD, name: "Max", street: "Weg 1", zip: "10115", city: "Berlin" };
+
+  /** Dispatches `beforeunload` like the browser does and reports whether the page asked to stay. */
+  function beforeUnloadBlocked() {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it("warns on closing the tab only while there are unsaved changes", () => {
+    const { rerender } = render(tree(<DirtyPage dirty />));
+    expect(beforeUnloadBlocked()).toBe(true);
+    rerender(tree(<DirtyPage dirty={false} />));
+    expect(beforeUnloadBlocked()).toBe(false);
+  });
+
+  it("leaves without asking after the landlord form was saved", async () => {
+    mockFetch({ "POST /api/settings": json({ id: "l1" }) });
+    render(tree(<LandlordForm initial={LANDLORD} />));
+    fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "Moritz" } });
+    expect(beforeUnloadBlocked()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Speichern" }));
+    expect(await screen.findByText("Gespeichert")).toBeInTheDocument();
+    await waitFor(() => expect(beforeUnloadBlocked()).toBe(false));
+    fireEvent.click(link("VPI-Werte"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/settings/vpi"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("does not count formatting the IBAN on blur as a change", async () => {
+    render(tree(<LandlordForm initial={{ ...LANDLORD, iban: "de89370400440532013000" }} />));
+    const iban = screen.getByLabelText(/IBAN/);
+    fireEvent.blur(iban);
+    expect(iban).toHaveValue("DE89 3704 0044 0532 0130 00");
+    fireEvent.click(link("VPI-Werte"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/settings/vpi"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
 

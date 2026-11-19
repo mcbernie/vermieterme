@@ -1,3 +1,4 @@
+import { formatIBAN } from "@/lib/iban";
 import type { LandlordInfo } from "@/types";
 import { requestJson } from "./request";
 import { LOAD_FAILED } from "./use-load";
@@ -56,7 +57,12 @@ export function landlordErrors(form: LandlordInfo): LandlordErrors {
   return errors;
 }
 
-/** Whether two landlord forms hold the same values (the record id is ignored). */
+/**
+ * Whether two landlord forms hold the same values (the record id is ignored). IBANs are compared in the
+ * form `formatIBAN` gives them, so formatting the field on blur does not count as a change.
+ */
 export function sameLandlord(a: LandlordInfo, b: LandlordInfo): boolean {
-  return (Object.keys(EMPTY_LANDLORD) as (keyof LandlordInfo)[]).every((key) => a[key] === b[key]);
+  return (Object.keys(EMPTY_LANDLORD) as (keyof LandlordInfo)[]).every((key) =>
+    key === "iban" ? formatIBAN(a.iban) === formatIBAN(b.iban) : a[key] === b[key],
+  );
 }

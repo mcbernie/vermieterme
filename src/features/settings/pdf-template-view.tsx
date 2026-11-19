@@ -66,7 +66,7 @@ export function PdfTemplateView() {
                     Seiten-Einstellungen öffnen
                   </Button>
                 )}
-                <PdfHiddenSections config={config} onSelect={setSelected} />
+                <PdfHiddenSections config={config} selected={selected} onSelect={setSelected} />
                 {selected === "page" && <PdfPageEditor page={config.page} onChange={t.setPage} />}
                 {selected && selected !== "page" && (
                   <PdfSectionEditor

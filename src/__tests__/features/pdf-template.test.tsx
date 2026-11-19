@@ -184,5 +184,13 @@ describe("PdfTemplateView", () => {
       fireEvent.click(screen.getByRole("switch", { name: "Fett" }));
       expect(screen.queryByText("Gespeichert")).not.toBeInTheDocument();
     });
+    it("leaves without asking after the change was saved (#39)", async () => {
+      await renderFrame();
+      fireEvent.click(preview().getByRole("button", { name: "Titel" }));
+      fireEvent.click(screen.getByRole("switch", { name: "Kursiv" }));
+      fireEvent.click(screen.getByRole("button", { name: "Speichern" }));
+      expect(await screen.findByText("Gespeichert")).toBeInTheDocument();
+      await expectLeaveWithoutDialog();
+    });
   });
 });

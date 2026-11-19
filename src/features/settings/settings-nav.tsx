@@ -15,9 +15,15 @@ export const SETTINGS_PAGES: readonly { key: SettingsTab; href: string; label: s
   { key: "pdf-template", href: "/settings/pdf-template", label: "PDF-Vorlage" },
 ];
 
-/** Sub page that belongs to a path (falls back to the general settings). */
+/**
+ * Sub page that belongs to a path: the path is the page's route or lies below it segment by segment
+ * (`/settings/vpi/x`, but not `/settings/vpi-x`). Falls back to the general settings.
+ */
 export function settingsTabFor(pathname: string | null): SettingsTab {
-  const match = SETTINGS_PAGES.find((page) => page.key !== "general" && pathname?.startsWith(page.href));
+  const match = SETTINGS_PAGES.find(
+    (page) =>
+      page.key !== "general" && pathname !== null && (pathname === page.href || pathname.startsWith(`${page.href}/`)),
+  );
   return match?.key ?? "general";
 }
 
