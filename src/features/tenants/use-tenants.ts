@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PropertyWithUnits, RentChangeWithUnit, TenantWithUnit } from "@/types";
-import { requestJson, type RequestResult } from "./request";
+import { isArray, requestJson, UNEXPECTED_ANSWER, type RequestResult } from "./request";
 import { formToPayload, type TenantFormValues } from "./tenant-form-values";
 import type { RentChangeType } from "./tenant-helpers";
 
@@ -18,19 +18,32 @@ export interface RentAdjustment {
 /** Result of a mutation: null on success, otherwise the German error text. */
 export type MutationError = string | null;
 
+/** Lists of the page; each is loaded and replaced on its own. */
+type ListKey = "tenants" | "properties" | "rentChanges";
+
 /** Error text of a failed result, or null. */
 function errorOf(result: RequestResult<unknown>): MutationError {
   return result.ok ? null : result.error;
 }
 
+/** Accepts a property detail with its units. */
+function isPropertyWithUnits(data: unknown): data is PropertyWithUnits {
+  return typeof data === "object" && data !== null && Array.isArray((data as { units?: unknown }).units);
+}
+
 /** Loads all properties with their units (one detail request per property). */
 async function loadProperties(): Promise<RequestResult<PropertyWithUnits[]>> {
-  const list = await requestJson<PropertyWithUnits[]>("/api/properties");
+  const list = await requestJson<{ id: string }[]>("/api/properties", { accept: isArray });
   if (!list.ok) return list;
-  const details = await Promise.all(list.data.map((p) => requestJson<PropertyWithUnits>(`/api/properties/${p.id}`)));
-  const failed = details.find((d) => !d.ok);
-  if (failed && !failed.ok) return failed;
-  return { ok: true, data: details.flatMap((d) => (d.ok ? [d.data] : [])) };
+  const details = await Promise.all(
+    list.data.map((p) => requestJson(`/api/properties/${p.id}`, { accept: isPropertyWithUnits })),
+  );
+  const data: PropertyWithUnits[] = [];
+  for (const d of details) {
+    if (!d.ok) return d;
+    data.push(d.data);
+  }
+  return { ok: true, data };
 }
 
 /** Results of all requests of the page. */
@@ -40,14 +53,19 @@ interface Snapshot {
   rentChanges: RequestResult<RentChangeWithUnit[]>;
 }
 
-/** Loads tenants, properties with units and rent changes in parallel. */
+/** Loads tenants, properties with units and rent changes in parallel; never rejects. */
 async function loadSnapshot(): Promise<Snapshot> {
-  const [tenants, properties, rentChanges] = await Promise.all([
-    requestJson<TenantWithUnit[]>("/api/tenants"),
-    loadProperties(),
-    requestJson<RentChangeWithUnit[]>("/api/rent-changes"),
-  ]);
-  return { tenants, properties, rentChanges };
+  try {
+    const [tenants, properties, rentChanges] = await Promise.all([
+      requestJson<TenantWithUnit[]>("/api/tenants", { accept: isArray }),
+      loadProperties(),
+      requestJson<RentChangeWithUnit[]>("/api/rent-changes", { accept: isArray }),
+    ]);
+    return { tenants, properties, rentChanges };
+  } catch {
+    const failed = { ok: false as const, error: UNEXPECTED_ANSWER };
+    return { tenants: failed, properties: failed, rentChanges: failed };
+  }
 }
 
 /** First error of a snapshot, or null when everything loaded. */
@@ -58,6 +76,8 @@ function firstError(snapshot: Snapshot): string | null {
 /**
  * Data and mutations of the tenants page: tenants, properties with units (for the unit select) and
  * rent changes. Load errors are collected in `error`; mutations return their own error text.
+ * Every list only takes the answer of its latest request, so a slow early answer never overwrites
+ * a newer one.
  */
 export function useTenants() {
   const [tenants, setTenants] = useState<TenantWithUnit[]>([]);
@@ -65,60 +85,93 @@ export function useTenants() {
   const [rentChanges, setRentChanges] = useState<RentChangeWithUnit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Number of the latest request per list (and of the latest full load).
+  const latest = useRef({ tenants: 0, properties: 0, rentChanges: 0, all: 0 });
 
-  /** Reloads one list after a successful change; a failure shows up as page error. */
-  async function refresh<T>(url: string, setData: (data: T) => void) {
-    const res = await requestJson<T>(url);
-    if (res.ok) setData(res.data);
-    else setError(res.error);
-  }
+  /** Starts a request for the given lists and returns a check whether a list is still current. */
+  const begin = useCallback((keys: ListKey[]) => {
+    const tickets = Object.fromEntries(keys.map((k) => [k, ++latest.current[k]])) as Record<ListKey, number>;
+    return (key: ListKey) => tickets[key] === latest.current[key];
+  }, []);
 
-  /** Applies a complete load: data that arrived and the first error. */
-  const apply = useCallback((snapshot: Snapshot) => {
-    if (snapshot.tenants.ok) setTenants(snapshot.tenants.data);
-    if (snapshot.properties.ok) setProperties(snapshot.properties.data);
-    if (snapshot.rentChanges.ok) setRentChanges(snapshot.rentChanges.data);
-    setError(firstError(snapshot));
-    setLoading(false);
+  /** Starts a full load: takes tickets for all lists and returns a check for each list. */
+  const beginAll = useCallback(() => {
+    const current = begin(["tenants", "properties", "rentChanges"]);
+    const run = ++latest.current.all;
+    return { current, isLatestRun: () => run === latest.current.all };
+  }, [begin]);
+
+  /** Applies the answers of a full load that are still current. */
+  const apply = useCallback((snapshot: Snapshot, ticket: ReturnType<typeof beginAll>) => {
+    if (snapshot.tenants.ok && ticket.current("tenants")) setTenants(snapshot.tenants.data);
+    if (snapshot.properties.ok && ticket.current("properties")) setProperties(snapshot.properties.data);
+    if (snapshot.rentChanges.ok && ticket.current("rentChanges")) setRentChanges(snapshot.rentChanges.data);
+    if (ticket.isLatestRun()) {
+      setError(firstError(snapshot));
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     // Initial load (the state starts as "loading").
-    void loadSnapshot().then(apply);
-  }, [apply]);
+    const ticket = beginAll();
+    void loadSnapshot().then((snapshot) => apply(snapshot, ticket));
+  }, [beginAll, apply]);
 
   /** Loads everything again, e.g. after a load error. */
   async function reload() {
     setLoading(true);
-    apply(await loadSnapshot());
+    const ticket = beginAll();
+    apply(await loadSnapshot(), ticket);
   }
+
+  /** Reloads one list after a successful change; a failure shows up as page error. */
+  const refresh = useCallback(
+    async <T,>(key: ListKey, url: string, setData: (data: T[]) => void) => {
+      const current = begin([key]);
+      const res = await requestJson<T[]>(url, { accept: isArray });
+      if (!current(key)) return;
+      if (res.ok) setData(res.data);
+      else setError(res.error);
+    },
+    [begin],
+  );
 
   /** Creates (no id) or updates a tenant and reloads the list. Resolves to the save error or null. */
-  async function saveTenant(form: TenantFormValues, id?: string): Promise<MutationError> {
-    const payload = formToPayload(form);
-    const res = id
-      ? await requestJson(`/api/tenants/${id}`, "PUT", payload)
-      : await requestJson("/api/tenants", "POST", payload);
-    if (!res.ok) return res.error;
-    await refresh("/api/tenants", setTenants);
-    return null;
-  }
+  const saveTenant = useCallback(
+    async (form: TenantFormValues, id?: string): Promise<MutationError> => {
+      const body = formToPayload(form);
+      const res = id
+        ? await requestJson(`/api/tenants/${id}`, { method: "PUT", body })
+        : await requestJson("/api/tenants", { method: "POST", body });
+      if (!res.ok) return res.error;
+      await refresh("tenants", "/api/tenants", setTenants);
+      return null;
+    },
+    [refresh],
+  );
 
   /** Deletes a tenant and reloads the list. */
-  async function deleteTenant(id: string): Promise<MutationError> {
-    const res = await requestJson(`/api/tenants/${id}`, "DELETE");
-    if (!res.ok) return res.error;
-    await refresh("/api/tenants", setTenants);
-    return null;
-  }
+  const deleteTenant = useCallback(
+    async (id: string): Promise<MutationError> => {
+      const res = await requestJson(`/api/tenants/${id}`, { method: "DELETE" });
+      if (!res.ok) return res.error;
+      await refresh("tenants", "/api/tenants", setTenants);
+      return null;
+    },
+    [refresh],
+  );
 
   /** Records a rent or prepayment change and reloads the rent changes. */
-  async function saveAdjustment(adjustment: RentAdjustment): Promise<MutationError> {
-    const res = await requestJson("/api/rent-changes", "POST", adjustment);
-    if (!res.ok) return res.error;
-    await refresh("/api/rent-changes", setRentChanges);
-    return null;
-  }
+  const saveAdjustment = useCallback(
+    async (adjustment: RentAdjustment): Promise<MutationError> => {
+      const res = await requestJson("/api/rent-changes", { method: "POST", body: adjustment });
+      if (!res.ok) return res.error;
+      await refresh("rentChanges", "/api/rent-changes", setRentChanges);
+      return null;
+    },
+    [refresh],
+  );
 
   return { tenants, properties, rentChanges, loading, error, reload, saveTenant, deleteTenant, saveAdjustment };
 }

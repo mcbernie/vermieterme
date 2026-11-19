@@ -1,15 +1,35 @@
-/** Result of a request: the parsed body on success, otherwise a German error text for the UI. */
+/** Result of a request: the checked body on success, otherwise a German error text for the UI. */
 export type RequestResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+/** Options of [`requestJson`]. */
+export interface RequestOptions<T> {
+  /** HTTP method (default `GET`). */
+  method?: string;
+  /** JSON body; omitted when undefined. */
+  body?: unknown;
+  /** Checks the shape of the answer; a mismatch counts as error, so callers never use unchecked data. */
+  accept?: (data: unknown) => data is T;
+}
+
+/** Shown when the answer is not the API's JSON, typically the login page after an expired session. */
+export const SESSION_EXPIRED = "Sitzung abgelaufen. Bitte melden Sie sich erneut an.";
+
+/** Shown when the JSON answer does not have the expected shape. */
+export const UNEXPECTED_ANSWER = "Der Server hat eine unerwartete Antwort geliefert.";
+
+/** Accepts any JSON array (lists of the API). */
+export function isArray<T>(data: unknown): data is T[] {
+  return Array.isArray(data);
+}
 
 /**
  * Sends a request and parses the JSON answer. A failed status or network error becomes a German
  * message; the server's `{ error }` text of a client error is used when present (it never carries
- * personal data).
- * @param url Endpoint below `/api`.
- * @param method HTTP method (default `GET`).
- * @param body JSON body; omitted when undefined.
+ * personal data). A redirected answer or one without JSON (the proxy sends an expired session to the
+ * login page, which `fetch` follows with status 200) counts as expired session.
  */
-export async function requestJson<T>(url: string, method = "GET", body?: unknown): Promise<RequestResult<T>> {
+export async function requestJson<T = unknown>(url: string, options: RequestOptions<T> = {}): Promise<RequestResult<T>> {
+  const { method = "GET", body, accept } = options;
   let res: Response;
   try {
     res = await fetch(url, {
@@ -21,8 +41,12 @@ export async function requestJson<T>(url: string, method = "GET", body?: unknown
   } catch {
     return { ok: false, error: "Der Server ist nicht erreichbar. Bitte versuchen Sie es erneut." };
   }
-  const data: unknown = await res.json().catch(() => null);
+  if (res.redirected) return { ok: false, error: SESSION_EXPIRED };
+  const isJson = (res.headers.get("content-type") ?? "").includes("application/json");
+  const data: unknown = isJson ? await res.json().catch(() => undefined) : undefined;
   if (!res.ok) return { ok: false, error: errorText(data, res.status) };
+  if (data === undefined || data === null) return { ok: false, error: SESSION_EXPIRED };
+  if (accept && !accept(data)) return { ok: false, error: UNEXPECTED_ANSWER };
   return { ok: true, data: data as T };
 }
 

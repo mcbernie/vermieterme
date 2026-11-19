@@ -1,31 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfirmProvider, UiProvider } from "@zweiund40gmbh/ui";
 import { TenantsView } from "@/features/tenants/tenants-view";
-import { PROPERTY, RENT_CHANGES, TENANT } from "../features/tenant-fixtures";
+import { SESSION_EXPIRED } from "@/features/tenants/request";
+import { defaultAnswers, stubApi } from "../features/tenant-api-stub";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-
-/** Stubs the API of the page; `override` replaces single answers by `METHOD url`. */
-function stubApi(override: Record<string, { status: number; body: unknown }> = {}) {
-  const answers: Record<string, { status: number; body: unknown }> = {
-    "GET /api/tenants": { status: 200, body: [TENANT] },
-    "GET /api/properties": { status: 200, body: [{ ...PROPERTY, units: undefined }] },
-    "GET /api/properties/p1": { status: 200, body: PROPERTY },
-    "GET /api/rent-changes": { status: 200, body: RENT_CHANGES },
-    "DELETE /api/tenants/t1": { status: 200, body: { success: true } },
-    ...override,
-  };
-  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-    const a = answers[`${init?.method ?? "GET"} ${url}`] ?? { status: 404, body: { error: "Unbekannt" } };
-    return Promise.resolve(new Response(JSON.stringify(a.body), { status: a.status }));
-  });
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
 
 function setup() {
   render(
@@ -35,6 +18,15 @@ function setup() {
       </ConfirmProvider>
     </UiProvider>,
   );
+}
+
+/** Clicks „Löschen“ in the row and confirms in the dialog. */
+async function deleteAndConfirm() {
+  fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
+  const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText(/Frau Erika Muster wirklich löschen/)).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Löschen" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 }
 
 describe("TenantsView", () => {
@@ -47,34 +39,62 @@ describe("TenantsView", () => {
     expect(screen.getByText("Indexmiete")).toBeInTheDocument();
   });
 
-  it("deletes a tenant only after confirmation", async () => {
-    const fetchMock = stubApi();
+  it("deletes a tenant after confirmation and shows the reloaded list", async () => {
+    const { fetchMock, answers } = stubApi();
     setup();
     await screen.findByText("Frau Erika Muster");
-    fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/Frau Erika Muster wirklich löschen/)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Löschen" }));
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tenants/t1", { method: "DELETE" }));
-    // The list is reloaded after the delete.
-    await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === "/api/tenants")).toHaveLength(2));
-    await screen.findByText("Frau Erika Muster");
+    answers["GET /api/tenants"] = { status: 200, body: [] };
+    await deleteAndConfirm();
+    expect(await screen.findByText("Noch keine Mieter vorhanden")).toBeInTheDocument();
+    expect(screen.queryByText("Frau Erika Muster")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/tenants/t1", { method: "DELETE" });
   });
 
-  it("shows a failed delete", async () => {
-    stubApi({ "DELETE /api/tenants/t1": { status: 500, body: {} } });
+  it("shows a failed delete and keeps the tenant", async () => {
+    const answers = defaultAnswers();
+    answers["DELETE /api/tenants/t1"] = { status: 500, body: {} };
+    stubApi(answers);
     setup();
     await screen.findByText("Frau Erika Muster");
-    fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
-    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Löschen" }));
+    await deleteAndConfirm();
     expect(await screen.findByText("Die Anfrage ist fehlgeschlagen (Status 500).")).toBeInTheDocument();
+    expect(screen.getByText("Frau Erika Muster")).toBeInTheDocument();
   });
 
-  it("shows a load error with retry", async () => {
-    stubApi({ "GET /api/tenants": { status: 401, body: { error: "Nicht angemeldet" } } });
+  it("shows a load error with retry and no empty state", async () => {
+    const answers = defaultAnswers();
+    answers["GET /api/tenants"] = { status: 401, body: { error: "Nicht angemeldet" } };
+    stubApi(answers);
     setup();
     expect(await screen.findByText("Nicht angemeldet")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Erneut laden" })).toBeInTheDocument();
+    expect(screen.queryByText("Noch keine Mieter vorhanden")).not.toBeInTheDocument();
+  });
+
+  it("ends loading with a session hint when the API answers with the login page", async () => {
+    const answers = defaultAnswers();
+    answers["GET /api/properties"] = new Response("<html>Anmelden</html>", {
+      status: 200,
+      headers: { "Content-Type": "text/html" },
+    });
+    stubApi(answers);
+    setup();
+    expect(await screen.findByText(SESSION_EXPIRED)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Erneut laden" })).toBeInTheDocument();
+    // The tenants themselves loaded; the table is not stuck in its loading state.
+    expect(screen.getByText("Frau Erika Muster")).toBeInTheDocument();
+  });
+
+  it("loads again on retry", async () => {
+    const answers = defaultAnswers();
+    answers["GET /api/tenants"] = { status: 500, body: {} };
+    stubApi(answers);
+    setup();
+    const retry = await screen.findByRole("button", { name: "Erneut laden" });
+    answers["GET /api/tenants"] = defaultAnswers()["GET /api/tenants"];
+    fireEvent.click(retry);
+    expect(await screen.findByText("Frau Erika Muster")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Erneut laden" })).not.toBeInTheDocument());
   });
 
   it("opens the detail panel on row click", async () => {

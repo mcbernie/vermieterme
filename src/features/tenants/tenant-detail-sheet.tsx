@@ -55,7 +55,9 @@ export function TenantDetailSheet({ tenant, rentChanges, onEdit, onDelete, onAdj
   const [showAccess, setShowAccess] = useState(false);
   const rent = latestRentChange(rentChanges, tenant.unitId, "rent");
   const prepayment = latestRentChange(rentChanges, tenant.unitId, "prepayment");
-  const name = `${tenant.firstName} ${tenant.lastName}`;
+  const second = secondTenantName(tenant);
+  // The access panel names the tenant without salutation, as it did before the redesign.
+  const accessName = `${tenant.firstName} ${tenant.lastName}`;
 
   return (
     <Sheet
@@ -82,7 +84,7 @@ export function TenantDetailSheet({ tenant, rentChanges, onEdit, onDelete, onAdj
         <TenantTags tenant={tenant} />
         <KeyValue
           items={[
-            secondTenantName(tenant) ? ["Zweiter Mieter", secondTenantName(tenant)] : null,
+            second ? ["Zweiter Mieter", second] : null,
             ["Einzug", formatDate(tenant.moveInDate)],
             tenant.moveOutDate ? ["Auszug", formatDate(tenant.moveOutDate)] : null,
             ["Vertragsart", leaseText(tenant)],
@@ -125,7 +127,7 @@ export function TenantDetailSheet({ tenant, rentChanges, onEdit, onDelete, onAdj
           }
         >
           {showAccess ? (
-            <TenantAccessToken tenantId={tenant.id} tenantName={name} onClose={() => setShowAccess(false)} />
+            <TenantAccessToken tenantId={tenant.id} tenantName={accessName} onClose={() => setShowAccess(false)} />
           ) : (
             <p className="text-sm text-ink3">Zugangscode, mit dem sich der Mieter in der VermieterMe-App anmeldet.</p>
           )}

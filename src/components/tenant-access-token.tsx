@@ -15,6 +15,18 @@ interface TokenResponse {
   token: string | null;
 }
 
+/** Accepts an answer with a code or `null`. */
+function isTokenResponse(data: unknown): data is TokenResponse {
+  if (typeof data !== "object" || data === null || !("token" in data)) return false;
+  return data.token === null || typeof data.token === "string";
+}
+
+/** Error text together with the tenant it belongs to (so a switch never shows a foreign error). */
+interface TenantError {
+  tenantId: string;
+  text: string;
+}
+
 /**
  * Invitation code of a tenant for the tenant app: shows the current code with copy button, creates one
  * when there is none, and revokes it after confirmation. Errors of every request are shown inline.
@@ -25,15 +37,21 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   // Tenant whose code has been loaded; while it differs from `tenantId`, the code is loading.
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<TenantError | null>(null);
   const loading = loadedFor !== tenantId;
+  const error = failure?.tenantId === tenantId ? failure.text : null;
+
+  /** Stores the error of a request for this tenant, or clears it. */
+  function report(id: string, text: string | null) {
+    setFailure(text ? { tenantId: id, text } : null);
+  }
 
   useEffect(() => {
     let active = true;
-    void requestJson<TokenResponse>(`/api/tenants/${tenantId}/access-token`).then((res) => {
+    void requestJson(`/api/tenants/${tenantId}/access-token`, { accept: isTokenResponse }).then((res) => {
       if (!active) return;
       setToken(res.ok ? res.data.token : null);
-      setError(res.ok ? null : res.error);
+      setFailure(res.ok ? null : { tenantId, text: res.error });
       setLoadedFor(tenantId);
     });
     return () => {
@@ -44,9 +62,12 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   /** Creates a new invitation code. */
   async function generate() {
     setBusy(true);
-    const res = await requestJson<TokenResponse>(`/api/tenants/${tenantId}/access-token`, "POST");
+    const res = await requestJson(`/api/tenants/${tenantId}/access-token`, {
+      method: "POST",
+      accept: isTokenResponse,
+    });
     if (res.ok) setToken(res.data.token);
-    setError(res.ok ? null : res.error);
+    report(tenantId, res.ok ? null : res.error);
     setBusy(false);
   }
 
@@ -60,9 +81,9 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
     });
     if (!ok) return;
     setBusy(true);
-    const res = await requestJson(`/api/tenants/${tenantId}/access-token`, "DELETE");
+    const res = await requestJson(`/api/tenants/${tenantId}/access-token`, { method: "DELETE" });
     if (res.ok) setToken(null);
-    setError(res.ok ? null : res.error);
+    report(tenantId, res.ok ? null : res.error);
     setBusy(false);
   }
 

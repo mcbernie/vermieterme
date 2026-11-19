@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button, DataTable, EmptyState, InlineNotice, PageHeader, useConfirm } from "@zweiund40gmbh/ui";
 import type { TenantWithUnit } from "@/types";
 import { RentAdjustModal } from "./rent-adjust-modal";
@@ -8,7 +8,8 @@ import { tenantColumns } from "./tenant-columns";
 import { TenantDetailSheet } from "./tenant-detail-sheet";
 import { TenantFormSheet } from "./tenant-form-sheet";
 import { latestRentChange, tenantName } from "./tenant-helpers";
-import { useTenants } from "./use-tenants";
+import type { TenantFormValues } from "./tenant-form-values";
+import { useTenants, type RentAdjustment } from "./use-tenants";
 
 /** Which form is open: a new tenant, an existing one, or none. */
 type FormTarget = { tenant?: TenantWithUnit } | null;
@@ -28,19 +29,24 @@ export function TenantsView() {
   const detail = data.tenants.find((t) => t.id === detailId) ?? null;
   const adjust = data.tenants.find((t) => t.id === adjustId) ?? null;
 
+  const { deleteTenant, saveTenant, saveAdjustment } = data;
+
   /** Asks for confirmation and deletes the tenant; closes its detail panel on success. */
-  async function remove(tenant: TenantWithUnit) {
-    const ok = await confirm({
-      title: "Mieter löschen",
-      message: `Möchten Sie ${tenantName(tenant)} wirklich löschen?`,
-      confirmLabel: "Löschen",
-      danger: true,
-    });
-    if (!ok) return;
-    const error = await data.deleteTenant(tenant.id);
-    setActionError(error);
-    if (!error) setDetailId((current) => (current === tenant.id ? null : current));
-  }
+  const remove = useCallback(
+    async (tenant: TenantWithUnit) => {
+      const ok = await confirm({
+        title: "Mieter löschen",
+        message: `Möchten Sie ${tenantName(tenant)} wirklich löschen?`,
+        confirmLabel: "Löschen",
+        danger: true,
+      });
+      if (!ok) return;
+      const error = await deleteTenant(tenant.id);
+      setActionError(error);
+      if (!error) setDetailId((current) => (current === tenant.id ? null : current));
+    },
+    [confirm, deleteTenant],
+  );
 
   const columns = useMemo(
     () =>
@@ -49,10 +55,28 @@ export function TenantsView() {
         onEdit: (tenant) => setFormTarget({ tenant }),
         onDelete: (tenant) => void remove(tenant),
       }),
-    // `remove` only uses stable callbacks and functional state updates, so a stale copy is fine.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.rentChanges],
+    [data.rentChanges, remove],
   );
+
+  /** Saves the open form; a success also clears an older action error. */
+  async function save(values: TenantFormValues, id?: string) {
+    const error = await saveTenant(values, id);
+    if (!error) setActionError(null);
+    return error;
+  }
+
+  /** Saves a rent change; a success also clears an older action error. */
+  async function adjustRent(adjustment: RentAdjustment) {
+    const error = await saveAdjustment(adjustment);
+    if (!error) setActionError(null);
+    return error;
+  }
+
+  /** Reloads the page data and clears an older action error. */
+  function reload() {
+    setActionError(null);
+    void data.reload();
+  }
 
   return (
     <div className="grid gap-4">
@@ -69,7 +93,7 @@ export function TenantsView() {
         <InlineNotice
           tone="bad"
           actions={
-            <Button size="sm" onClick={() => void data.reload()}>
+            <Button size="sm" onClick={reload}>
               Erneut laden
             </Button>
           }
@@ -89,15 +113,20 @@ export function TenantsView() {
         defaultState={{ sort: { id: "property", desc: false } }}
         searchPlaceholder="Mieter, Objekt oder Wohnung suchen …"
         empty={
-          <EmptyState
-            title="Noch keine Mieter vorhanden"
-            description="Legen Sie Ihren ersten Mieter an."
-            action={
-              <Button variant="primary" size="sm" onClick={() => setFormTarget({})}>
-                Neuer Mieter
-              </Button>
-            }
-          />
+          data.error ? (
+            // After a load error the list is unknown, not empty; the notice above explains it.
+            <EmptyState title="Mieter konnten nicht geladen werden" icon={null} />
+          ) : (
+            <EmptyState
+              title="Noch keine Mieter vorhanden"
+              description="Legen Sie Ihren ersten Mieter an."
+              action={
+                <Button variant="primary" size="sm" onClick={() => setFormTarget({})}>
+                  Neuer Mieter
+                </Button>
+              }
+            />
+          )
         }
       />
 
@@ -105,7 +134,7 @@ export function TenantsView() {
         <TenantFormSheet
           tenant={formTarget.tenant}
           properties={data.properties}
-          onSave={(values) => data.saveTenant(values, formTarget.tenant?.id)}
+          onSave={(values) => save(values, formTarget.tenant?.id)}
           onClose={() => setFormTarget(null)}
         />
       )}
@@ -124,7 +153,7 @@ export function TenantsView() {
           unitId={adjust.unitId}
           tenantName={tenantName(adjust)}
           defaultType={latestRentChange(data.rentChanges, adjust.unitId, "rent") ? "prepayment" : "rent"}
-          onSave={data.saveAdjustment}
+          onSave={adjustRent}
           onClose={() => setAdjustId(null)}
         />
       )}
