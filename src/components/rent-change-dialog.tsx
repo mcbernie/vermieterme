@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { dateError, useDateProblem } from "@/features/rent-changes/date-problem";
 import { Button, DateInput, Field, Modal, MoneyInput, TextInput } from "@zweiund40gmbh/ui";
 
 export interface RentChangeDialogValue {
@@ -40,6 +41,8 @@ export function RentChangeDialog({
   const [effectiveDate, setEffectiveDate] = useState<string>(defaultEffectiveDate);
   const [reason, setReason] = useState<string>(defaultReason);
   const [submitting, setSubmitting] = useState(false);
+  const [attempted, setAttempted] = useState(false);
+  const date = useDateProblem();
 
   // Re-seed inputs whenever the dialog (re)opens with fresh defaults.
   useEffect(() => {
@@ -48,12 +51,16 @@ export function RentChangeDialog({
       setEffectiveDate(defaultEffectiveDate);
       setReason(defaultReason);
       setSubmitting(false);
+      setAttempted(false);
+      date.reset();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultAmount, defaultEffectiveDate, defaultReason]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (cents === null || cents < 0 || !effectiveDate) return;
+    setAttempted(true);
+    if (cents === null || cents < 0 || !effectiveDate || date.problem) return;
     setSubmitting(true);
     try {
       await onSubmit({
@@ -77,18 +84,23 @@ export function RentChangeDialog({
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>Abbrechen</Button>
-          <Button type="submit" form={formId} variant="primary" disabled={submitting}>
+          <Button type="submit" form={formId} variant="primary" disabled={submitting || date.problem !== null}>
             {submitting ? "Speichern..." : submitLabel}
           </Button>
         </>
       }
     >
       <form id={formId} onSubmit={handleSubmit} className="grid gap-4">
-        <Field label={amountLabel} required>
+        <Field label={amountLabel} required error={attempted && cents === null ? "Bitte einen Betrag angeben." : undefined}>
           <MoneyInput value={cents} onChange={setCents} min={0} />
         </Field>
-        <Field label="Gültig ab" required>
-          <DateInput value={effectiveDate} onChange={setEffectiveDate} showError={false} />
+        <Field label="Gültig ab" required error={dateError(date.problem, effectiveDate, attempted)}>
+          <DateInput
+            value={effectiveDate}
+            onChange={setEffectiveDate}
+            onProblemChange={date.onProblemChange}
+            showError={false}
+          />
         </Field>
         <Field label="Grund (optional)">
           <TextInput value={reason} onChange={(e) => setReason(e.target.value)} />
