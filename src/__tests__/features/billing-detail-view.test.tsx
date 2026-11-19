@@ -7,11 +7,11 @@ import { categories, detail, json } from "./billing-fixtures";
 type Handler = (url: string, init?: RequestInit) => Response | undefined;
 
 /** Routes fetch: GETs answer with the fixture, `writes` may answer writes (default: ok). */
-function stub(writes: Handler = () => undefined, periodStatus = 200) {
+function stub(writes: Handler = () => undefined, periodStatus = 200, period = detail) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     if (method !== "GET") return writes(url, init) ?? json({});
-    if (url === "/api/billing-periods/bp") return json(periodStatus === 200 ? detail() : { error: "x" }, periodStatus);
+    if (url === "/api/billing-periods/bp") return json(periodStatus === 200 ? period() : { error: "x" }, periodStatus);
     if (url === "/api/cost-categories") return json(categories);
     return json([]);
   });
@@ -33,6 +33,14 @@ async function mount() {
 
 const writesTo = (fetchMock: ReturnType<typeof stub>, part: string) =>
   fetchMock.mock.calls.filter((c) => c[1]?.method && c[1].method !== "GET" && c[0].includes(part));
+
+/** Bodies of the amount saves (not the single-field updates) sent to `/costs`. */
+const amountSaves = (fetchMock: ReturnType<typeof stub>) =>
+  writesTo(fetchMock, "/costs")
+    .map((c) => JSON.parse(c[1]?.body as string))
+    .filter((b) => "totalAmount" in b && !("reviewed" in b));
+
+const clickSave = () => act(async () => fireEvent.click(screen.getByRole("button", { name: "Speichern" })));
 
 /** Types into a money field and leaves it. */
 async function typeMoney(label: string, text: string) {
@@ -128,5 +136,43 @@ describe("BillingDetailView", () => {
     });
     const puts = writesTo(fetchMock, "/api/billing-periods/bp").map((c) => JSON.parse(c[1]?.body as string));
     expect(puts).toEqual([{ sentDate: "2026-02-15" }]);
+  });
+
+  it("withdraws an unreadable amount when its field disappears", async () => {
+    const fetchMock = stub();
+    await mount();
+    await typeMoney("Anteil Wohnung Wasser", "1.2.3");
+    expect(screen.getByText("Bitte einen gültigen Betrag eingeben.")).toBeInTheDocument();
+    await act(async () =>
+      fireEvent.click(screen.getByRole("combobox", { name: "Verteilerschlüssel Wasser" })),
+    );
+    await act(async () => fireEvent.click(screen.getByRole("option", { name: "MEA" })));
+    await clickSave();
+    expect(amountSaves(fetchMock).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Nicht gespeichert/)).not.toBeInTheDocument();
+  });
+
+  it("does not block saving with an unreadable amount of a hidden category", async () => {
+    let hidden = false;
+    const fetchMock = stub(
+      (_url, init) => {
+        if (JSON.parse(init?.body as string).enabled === false) hidden = true;
+        return undefined;
+      },
+      200,
+      () => {
+        const bp = detail();
+        if (hidden) bp.costs[0]!.enabled = false;
+        return bp;
+      },
+    );
+    await mount();
+    await typeMoney("Gesamtbetrag Grundsteuer", "1.2.3");
+    await act(async () =>
+      fireEvent.click(screen.getAllByRole("button", { name: "In dieser Abrechnung ausblenden" })[0]!),
+    );
+    await clickSave();
+    expect(amountSaves(fetchMock).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Nicht gespeichert/)).not.toBeInTheDocument();
   });
 });

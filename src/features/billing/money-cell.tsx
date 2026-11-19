@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Field, MoneyInput, parseMoney, useFormat } from "@zweiund40gmbh/ui";
 
 /**
@@ -24,7 +24,7 @@ interface Props {
   value: number | null;
   /** New amount in euros (`null` when cleared); not called for unreadable text. */
   onChange: (euros: number | null) => void;
-  /** Reports whether the field currently holds unreadable text. */
+  /** Reports whether the field blocks saving with unreadable text; withdrawn when hidden or disabled. */
   onProblemChange: (bad: boolean) => void;
   disabled?: boolean;
 }
@@ -36,19 +36,31 @@ interface Props {
 export function MoneyCell({ label, value, onChange, onProblemChange, disabled }: Props) {
   const { locale } = useFormat();
   const [bad, setBad] = useState(false);
+  // A disabled field cannot be corrected, so it does not block saving.
+  const blocking = bad && !disabled;
+  const report = useRef(onProblemChange);
+  useLayoutEffect(() => {
+    report.current = onProblemChange;
+  }, [onProblemChange]);
+
+  // Report the blocking state and withdraw it when the field disappears or is disabled.
+  useEffect(() => {
+    if (!blocking) return;
+    const notify = report.current;
+    notify(true);
+    return () => notify(false);
+  }, [blocking]);
 
   /** Checks the text the input just committed (on blur or Enter). */
   function check(text: string) {
-    const next = isUnreadableMoney(text, locale);
-    setBad(next);
-    onProblemChange(next);
+    setBad(isUnreadableMoney(text, locale));
   }
 
   return (
     <Field
       label={label}
       classNames={{ label: "sr-only" }}
-      error={bad ? "Bitte einen gültigen Betrag eingeben." : undefined}
+      error={blocking ? "Bitte einen gültigen Betrag eingeben." : undefined}
       className="ml-auto w-36"
     >
       <MoneyInput
