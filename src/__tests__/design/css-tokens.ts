@@ -50,6 +50,27 @@ export function loadTokenBlocks(): { light: Decls; darkMedia: Decls; darkAttr: D
   };
 }
 
+/** The `--zui-*` mapping block (the `:root` block that declares `--zui-bg`): library token to app token. */
+export function loadZuiMapping(): Decls {
+  const css = readGlobalsCss();
+  const at = css.indexOf("--zui-bg:");
+  if (at < 0) throw new Error("--zui-* mapping not found");
+  return parseDecls(blockBody(css, css.slice(css.lastIndexOf(":root {", at))));
+}
+
+/** Declarations of the `.app-header` rule (the tokens the library header really receives). */
+export function loadHeaderDecls(): Decls {
+  return parseDecls(blockBody(readGlobalsCss(), ".app-header {"));
+}
+
+/** The hover fill of the library's danger button (`color-mix(...)` with `var(--zui-bad)`), read from its CSS. */
+export function libraryDangerHover(): string {
+  const lib = readFileSync(path.resolve(__dirname, "../../../node_modules/@zweiund40gmbh/ui/dist/styles.css"), "utf8");
+  const m = /\.zui-button\[data-variant='danger'\]:hover:not\(:disabled\)\s*\{\s*background:\s*([^;]+);/.exec(lib);
+  if (!m) throw new Error("Danger hover rule not found in the library CSS");
+  return m[1].trim();
+}
+
 function hex(value: string): Rgba {
   const h = value.slice(1);
   const f = h.length === 3 ? h.replace(/./g, "$&$&") : h;

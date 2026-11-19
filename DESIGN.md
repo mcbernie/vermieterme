@@ -11,13 +11,14 @@ keine Landingpage.
 - **Flach:** keine `shadow-*`, keine Verläufe, keine Glas-/Blur-Effekte, keine dekorativen Icons in Kreisen.
 - **Farben nur über Tokens**, nie Tailwind-Palettenfarben (`zinc-*`, `red-*`, `gray-*`, `green-*` …) oder Hex-Werte.
   Hell und Dunkel funktionieren damit automatisch.
-- **Palette** „Become Vacation“: Vanille als Grund, Schiefer für Text und Kopfzeile, Petrolgrün als Akzent, Koralle
+- **Palette** „Become Vacation“: Vanille als Grund, Schiefer für Text und Kopfzeile (die Kopfzeile setzt die `--zui-header-*`-Tokens der Bibliothek direkt), Petrolgrün als Akzent, Koralle
   nur dekorativ (Linie unter der Kopfzeile), Mint als Akzent in der Kopfzeile. Die Palette gilt nur für dieses
   Projekt (Konfiguration in `globals.css`), nicht in `@zweiund40gmbh/ui`. Alle Kontraste (Text 4,5:1, Rahmen/Fokus
   3:1) prüft `src/__tests__/design/globals-contrast.test.ts`; wer ein Token ändert, lässt ihn laufen.
 - **Akzent sparsam:** Petrolgrün (`--accent`) für primäre Aktion, aktive Navigation, Links. Als Textfarbe für Links
   `text-accentstrong` (dunklere Stufe). `--accent` selbst hält ≥ 4,5:1 auf Grund und Ebene (hell 4,75:1), auf der
-  Hover-Fläche nur 4,29:1 (vorübergehend, bewusst). Status über
+  Hover-Fläche nur 4,29:1 (vorübergehend, bewusst). `--accent-strong` ist die Hover-Füllung des Primärknopfs und
+  weicht in beiden Themes von `--accent` ab (dunkel Mint). Status über
   `ok`/`warn`/`bad`/`info` (+ `*-soft` als Fläche).
 - **Zahlen** rechtsbündig mit `num` (tabellarische Ziffern), Beträge über `src/lib/format.ts`.
 - **Texte** deutsch mit Umlauten, Nutzer wird gesiezt; Überschriften kurz und ohne Emoji.
@@ -61,10 +62,11 @@ liegen in `src/features/<bereich>/`.
 ## Dialoge und Seitenpanels
 
 - **Modal** (zentral): Knöpfe stehen links unten in natürlicher Breite mit Abstand, der Fußbereich ist wie der
-  Inhalt mit 1,5 rem eingerückt (`.zui-modal__footer`, `.zui-confirm-modal__*`, `.footer-btn` in `globals.css`).
+  Inhalt mit 1,5 rem eingerückt (`.zui-modal__footer` in `globals.css`); bei schmalem Bildschirm brechen die Knöpfe um.
 - **Sheet** (seitlich): Knöpfe füllen die Fußzeile wie in der Bibliothek. Scrollt der Inhalt, deutet ein
   halbtransparenter Schattenverlauf unter dem Kopf und über dem Fuß an, dass dort weiterer Inhalt liegt
-  (reines CSS, „scroll shadows“, nur Tokens). Das zentrale Modal scrollt als Ganzes, dort gibt es keinen Verlauf.
+  (reines CSS, „scroll shadows“, nur Tokens). Grenze: Der Verlauf liegt im Hintergrund des Panelinhalts; Kinder mit
+  eigener Hintergrundfarbe (z. B. `.panel` ganz oben) verdecken ihn am Rand. Das zentrale Modal scrollt als Ganzes, dort gibt es keinen Verlauf.
 
 ## Aufbau einer Seite
 

@@ -42,7 +42,6 @@
   --accent: var(--pal-teal-dark); /* also text colour in the library: 4.75:1 on vanilla; on hover only 4.29:1 (transient) */
   --accent-fill: var(--pal-teal-dark); /* background of filled controls with --on-accent text */
   --on-accent: var(--pal-white);
-  --accent-hover: var(--pal-teal-deep);
   --accent-strong: var(--pal-teal-deep); /* accent as text/link color */
   --accent-soft: color-mix(in srgb, var(--pal-teal) 10%, transparent);
   --ok: #276b44;
@@ -63,13 +62,6 @@
   --hdr-focus: var(--pal-mint);
   --hdr-accent: var(--pal-mint); /* accent inside the header, both themes (teal on slate has only 1.4:1) */
   --hdr-accent-ink: var(--pal-night);
-  --band: var(--pal-slate);
-  --band-ink: var(--pal-vanilla);
-  --btn2: var(--pal-slate);
-  --btn2-hover: var(--pal-ink);
-  --btn2-ink: var(--pal-vanilla);
-  --toast: var(--pal-slate);
-  --toast-ink: var(--pal-vanilla);
   --r: 0px;
   --row: 40px;
   --shadow: 0 2px 6px rgba(38, 49, 51, 0.18);
@@ -93,8 +85,7 @@
     --accent: var(--pal-aqua);
     --accent-fill: var(--pal-aqua);
     --on-accent: var(--pal-night);
-    --accent-hover: var(--pal-mint);
-    --accent-strong: var(--pal-aqua);
+    --accent-strong: var(--pal-mint); /* hover fill of primary buttons and text/link colour: differs from --accent */
     --accent-soft: color-mix(in srgb, var(--pal-aqua) 12%, transparent);
     --ok: #5fd3a0;
     --warn: #f1c21b;
@@ -109,10 +100,6 @@
     --th: #2c393b;
     --hdr: #141b1c;
     --hdr-hover: var(--pal-night-layer);
-    --band: #141b1c;
-    --btn2: #3e4d4f;
-    --btn2-hover: #4c5d60;
-    --toast: #3e4d4f;
     --shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
   }
 }
@@ -131,8 +118,7 @@
   --accent: var(--pal-aqua);
   --accent-fill: var(--pal-aqua);
   --on-accent: var(--pal-night);
-  --accent-hover: var(--pal-mint);
-  --accent-strong: var(--pal-aqua);
+  --accent-strong: var(--pal-mint); /* hover fill of primary buttons and text/link colour: differs from --accent */
   --accent-soft: color-mix(in srgb, var(--pal-aqua) 12%, transparent);
   --ok: #5fd3a0;
   --warn: #f1c21b;
@@ -147,10 +133,6 @@
   --th: #2c393b;
   --hdr: #141b1c;
   --hdr-hover: var(--pal-night-layer);
-  --band: #141b1c;
-  --btn2: #3e4d4f;
-  --btn2-hover: #4c5d60;
-  --toast: #3e4d4f;
   --shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
 }
 
@@ -232,24 +214,22 @@
 /* Small app-level helpers (everything else comes from @zweiund40gmbh/ui and Tailwind). */
 @layer components {
   .panel { background: var(--layer); border: 1px solid var(--border); padding: 1rem; }
-  /* Dark app header with accent underline: the library header re-themed through its tokens (the popover of the
+  /* Dark app header with accent underline: the library header re-themed through its `--zui-header-*` tokens (set directly: the library resolves them in `:root`, so overriding `--zui-surface` etc. would not arrive) (the popover of the
      user menu is portaled, so it keeps the normal theme). Contrasts: see src/__tests__/design/globals-contrast.test.ts. */
   .app-header {
-    --zui-surface: var(--hdr);
-    --zui-text: var(--hdr-ink);
-    --zui-hover: var(--hdr-hover);
+    --zui-header-bg: var(--hdr);
+    --zui-header-text: var(--hdr-ink);
+    --zui-header-hover: var(--hdr-hover);
     --zui-accent: var(--hdr-accent);
+    --zui-accent-strong: var(--hdr-accent); /* text of ghost/tertiary buttons in the header */
     --zui-accent-contrast: var(--hdr-accent-ink);
     --zui-focus: var(--hdr-focus);
     border-bottom: 3px solid var(--hdr-line);
   }
   /* Centred modal windows: footer buttons sit bottom left at natural width with a gap, padded like the modal body
-     (1.5rem). Side panels (`.zui-sheet__footer`) keep the library's full-width buttons. */
-  .zui-modal__footer { justify-content: flex-start; gap: 0.75rem; padding: 0 1.5rem 1.5rem; }
-  .zui-modal__footer .zui-button,
-  .zui-modal .zui-confirm-modal__cancel,
-  .zui-modal .zui-confirm-modal__confirm,
-  .footer-btn { flex: 0 0 auto; height: var(--zui-control-h); justify-content: center; padding: 0 1rem; }
+     (1.5rem), and wrap on narrow screens. Side panels (`.zui-sheet__footer`) keep the library's full-width buttons. */
+  .zui-modal__footer { justify-content: flex-start; flex-wrap: wrap; gap: 0.75rem; padding: 0 1.5rem 1.5rem; }
+  .zui-modal__footer .zui-button { flex: 0 0 auto; }
   /* Scroll shadows: a faint fade under the sheet header and above the footer, visible only while content is
      scrolled out of view. The `local` covers (surface colour) hide the `scroll` shadows at the scroll ends. */
   .zui-sheet__body {
