@@ -95,6 +95,18 @@ describe("apiJson: failures", () => {
     await expect(apiJson("/api/x", { signal: controller.signal })).rejects.toBe(abort);
   });
 
+  it("rethrows an abort while reading the error text instead of a status error", async () => {
+    const controller = new AbortController();
+    const abort = new DOMException("aborted", "AbortError");
+    const res = fakeResponse({ error: "x" }, { status: 400 });
+    res.json = async () => {
+      controller.abort();
+      throw abort;
+    };
+    answer(res);
+    await expect(apiJson("/api/x", { signal: controller.signal })).rejects.toBe(abort);
+  });
+
   it("rethrows an abort while reading the body, without reporting an expired session", async () => {
     const { spy, off } = sessionSpy();
     const controller = new AbortController();

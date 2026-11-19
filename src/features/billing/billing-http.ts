@@ -1,4 +1,4 @@
-import { apiFetch, apiJson, errorText, logRequestFailure, RequestError } from "@/lib/api-client";
+import { apiAttempt, apiFetch, errorText, logRequestFailure, RequestError } from "@/lib/api-client";
 
 /** Outcome of a write request: success, or a German message for the user. */
 export interface WriteResult {
@@ -36,10 +36,7 @@ export async function sendJson(
  * callers check their signal before using the result.
  */
 export async function loadJson<T>(url: string, signal?: AbortSignal): Promise<LoadResult<T>> {
-  try {
-    return { ok: true, data: await apiJson<T>(url, { signal }) };
-  } catch (error) {
-    if (!signal?.aborted) logRequestFailure(`Fetch ${url}`, error);
-    return { ok: false, status: error instanceof RequestError ? error.status : 0 };
-  }
+  const attempt = await apiAttempt<T>(url, { signal });
+  if (attempt.ok) return attempt;
+  return { ok: false, status: attempt.error instanceof RequestError ? attempt.error.status : 0 };
 }

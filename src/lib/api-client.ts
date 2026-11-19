@@ -93,14 +93,15 @@ function expired(status: number): SessionExpiredError {
   return new SessionExpiredError(status);
 }
 
-/** The `error` text of an API error body, if there is one. */
-async function serverText(res: Response): Promise<string | null> {
+/** The `error` text of an API error body, if there is one; an abort while reading is rethrown. */
+async function serverText(res: Response, signal: AbortSignal | undefined): Promise<string | null> {
   try {
     const data: unknown = await res.json();
     if (data && typeof data === "object" && "error" in data && typeof data.error === "string" && data.error) {
       return data.error;
     }
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     // Body is not JSON; the caller falls back to a generic text.
   }
   return null;
@@ -110,8 +111,9 @@ async function serverText(res: Response): Promise<string | null> {
  * Error of a failed status: the server text for client errors (< 500, German from `ApiError`), otherwise
  * the fallback or a generic text with the status. Server errors only carry an English generic text.
  */
-async function statusError(res: Response, fallback: string | undefined): Promise<RequestError> {
-  const text = res.status < 500 ? await serverText(res) : null;
+async function statusError(res: Response, options: RequestOptions): Promise<RequestError> {
+  const { fallback, signal } = options;
+  const text = res.status < 500 ? await serverText(res, signal) : null;
   const message = text ?? fallback ?? `Die Anfrage ist fehlgeschlagen (Status ${res.status}).`;
   return new RequestError(message, "status", res.status);
 }
@@ -131,7 +133,7 @@ export async function apiFetch(url: string, options: RequestOptions = {}): Promi
   }
   if (res.redirected || res.status === 401) throw expired(res.status);
   if (res.ok && contentType(res).includes("text/html")) throw expired(res.status);
-  if (!res.ok) throw await statusError(res, options.fallback);
+  if (!res.ok) throw await statusError(res, options);
   return res;
 }
 
@@ -199,17 +201,29 @@ export async function apiSend(url: string, options: RequestOptions = {}): Promis
   }
 }
 
+/** Outcome of {@link apiAttempt}: the answer, or the error that was thrown. */
+export type Attempt<T> = { ok: true; data: T } | { ok: false; error: unknown };
+
+/**
+ * Loads JSON and returns the failure as value; the one place that logs failed loads (unless the request
+ * was aborted). Basis of {@link apiLoad}, {@link apiLoadAll} and the loaders of the billing pages.
+ */
+export async function apiAttempt<T = unknown>(url: string, options: JsonOptions<T> = {}): Promise<Attempt<T>> {
+  try {
+    return { ok: true, data: await apiJson<T>(url, options) };
+  } catch (error) {
+    if (!options.signal?.aborted) logRequestFailure(`Fetch ${url}`, error);
+    return { ok: false, error };
+  }
+}
+
 /**
  * Loads JSON for pages that show nothing on failure; the failure is logged unless the request was aborted.
  * @returns The answer, or `null` on any failure.
  */
 export async function apiLoad<T>(url: string, options: JsonOptions<T> = {}): Promise<T | null> {
-  try {
-    return await apiJson<T>(url, options);
-  } catch (error) {
-    if (!options.signal?.aborted) logRequestFailure(`Fetch ${url}`, error);
-    return null;
-  }
+  const attempt = await apiAttempt<T>(url, options);
+  return attempt.ok ? attempt.data : null;
 }
 
 /** Result of {@link apiLoadAll}: the loaded answers per key and whether any endpoint failed. */
@@ -230,20 +244,13 @@ export async function apiLoadAll<T extends object>(
 ): Promise<LoadAllResult<T>> {
   const entries = Object.entries(urls) as [keyof T, string][];
   const results = await Promise.all(
-    entries.map(async ([key, url]) => {
-      try {
-        return { key, ok: true, value: await apiJson(url, { signal }) };
-      } catch (error) {
-        if (!signal?.aborted) logRequestFailure(`Fetch ${url}`, error);
-        return { key, ok: false, value: null };
-      }
-    }),
+    entries.map(async ([key, url]) => ({ key, attempt: await apiAttempt(url, { signal }) })),
   );
   const data: Partial<T> = {};
-  for (const { key, ok, value } of results) {
-    if (ok && value !== null) (data as Record<keyof T, unknown>)[key] = value;
+  for (const { key, attempt } of results) {
+    if (attempt.ok && attempt.data !== null) (data as Record<keyof T, unknown>)[key] = attempt.data;
   }
-  return { data, failed: results.some((result) => !result.ok) };
+  return { data, failed: results.some(({ attempt }) => !attempt.ok) };
 }
 
 /** Text of an error for the UI: the message of a `RequestError`, otherwise `fallback`. */
