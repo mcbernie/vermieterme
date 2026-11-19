@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { useVpiAdjustment } from "@/features/dashboard/use-vpi-adjustment";
+import { onSessionExpired } from "@/lib/session-expiry";
 import type { VpiSuggestion } from "@/types";
+import { loginPage } from "./settings-helpers";
 
 const suggestion = {
   tenantId: "t1",
@@ -64,6 +66,34 @@ describe("useVpiAdjustment.apply", () => {
       await expect(result.current.apply(suggestion, value)).rejects.toThrow("nicht durchgeführt");
     });
     expect(result.current.error).toContain("nicht durchgeführt");
+  });
+
+  it("does not count the login page as answer to the POST as created rent change", async () => {
+    const expired = vi.fn();
+    const off = onSessionExpired(expired);
+    const fetchMock = vi.fn().mockResolvedValue(loginPage());
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useVpiAdjustment(vi.fn().mockResolvedValue(undefined)));
+    await act(async () => {
+      await expect(result.current.apply(suggestion, value)).rejects.toThrow("nicht angelegt");
+    });
+    off();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(expired).toHaveBeenCalledTimes(1);
+    expect(result.current.appliedIds.size).toBe(0);
+  });
+
+  it("does not count the login page as answer to the PUT as saved reference value", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn().mockResolvedValueOnce(reply(true)).mockResolvedValueOnce(loginPage());
+    vi.stubGlobal("fetch", fetchMock);
+    const refetch = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useVpiAdjustment(refetch));
+    await act(async () => {
+      await expect(result.current.apply(suggestion, value)).rejects.toThrow("Bezugswert");
+    });
+    expect(fetchMock.mock.calls.map((c) => c[1].method)).toEqual(["POST", "PUT"]);
+    expect(result.current.appliedIds.has("t1")).toBe(false);
   });
 
   it("repeats only the PUT after a failed PUT, without a second POST", async () => {
