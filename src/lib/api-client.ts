@@ -212,6 +212,40 @@ export async function apiLoad<T>(url: string, options: JsonOptions<T> = {}): Pro
   }
 }
 
+/** Result of {@link apiLoadAll}: the loaded answers per key and whether any endpoint failed. */
+export interface LoadAllResult<T> {
+  data: Partial<T>;
+  failed: boolean;
+}
+
+/**
+ * Loads several JSON endpoints at once for pages that show what they got: a failed endpoint leaves its
+ * key empty, is logged (unless aborted) and sets `failed`; JSON `null` is a valid answer and also leaves
+ * the key empty. An expired session is reported like for every other request.
+ * @param urls Endpoint per key of the result.
+ */
+export async function apiLoadAll<T extends object>(
+  urls: { [K in keyof T]: string },
+  signal?: AbortSignal,
+): Promise<LoadAllResult<T>> {
+  const entries = Object.entries(urls) as [keyof T, string][];
+  const results = await Promise.all(
+    entries.map(async ([key, url]) => {
+      try {
+        return { key, ok: true, value: await apiJson(url, { signal }) };
+      } catch (error) {
+        if (!signal?.aborted) logRequestFailure(`Fetch ${url}`, error);
+        return { key, ok: false, value: null };
+      }
+    }),
+  );
+  const data: Partial<T> = {};
+  for (const { key, ok, value } of results) {
+    if (ok && value !== null) (data as Record<keyof T, unknown>)[key] = value;
+  }
+  return { data, failed: results.some((result) => !result.ok) };
+}
+
 /** Text of an error for the UI: the message of a `RequestError`, otherwise `fallback`. */
 export function errorText(error: unknown, fallback: string): string {
   return error instanceof RequestError ? error.message : fallback;
