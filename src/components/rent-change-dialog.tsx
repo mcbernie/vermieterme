@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { dateError, useDateProblem } from "@/features/rent-changes/date-problem";
-import { Button, DateInput, Field, Modal, MoneyInput, TextInput } from "@zweiund40gmbh/ui";
+import { Button, DateInput, InlineNotice, Field, Modal, MoneyInput, TextInput } from "@zweiund40gmbh/ui";
 
 export interface RentChangeDialogValue {
   amount: number;
@@ -42,6 +42,7 @@ export function RentChangeDialog({
   const [reason, setReason] = useState<string>(defaultReason);
   const [submitting, setSubmitting] = useState(false);
   const [attempted, setAttempted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const date = useDateProblem();
 
   // Re-seed inputs whenever the dialog (re)opens with fresh defaults.
@@ -52,6 +53,7 @@ export function RentChangeDialog({
       setReason(defaultReason);
       setSubmitting(false);
       setAttempted(false);
+      setSubmitError(null);
       date.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,6 +64,7 @@ export function RentChangeDialog({
     setAttempted(true);
     if (cents === null || cents < 0 || !effectiveDate || date.problem) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
       await onSubmit({
         amount: cents / 100,
@@ -69,6 +72,9 @@ export function RentChangeDialog({
         reason: reason.trim() ? reason.trim() : null,
       });
       onOpenChange(false);
+    } catch (err) {
+      // Keep the dialog open with the entered values so the user can retry.
+      setSubmitError(err instanceof Error ? err.message : "Das Speichern ist fehlgeschlagen.");
     } finally {
       setSubmitting(false);
     }
@@ -105,6 +111,7 @@ export function RentChangeDialog({
         <Field label="Grund (optional)">
           <TextInput value={reason} onChange={(e) => setReason(e.target.value)} />
         </Field>
+        {submitError && <InlineNotice tone="bad">{submitError}</InlineNotice>}
       </form>
     </Modal>
   );

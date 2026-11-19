@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { Button, DateInput, Field, Modal, MoneyInput, Select, TextInput } from "@zweiund40gmbh/ui";
+import { Button, DateInput, InlineNotice, Field, Modal, MoneyInput, Select, TextInput } from "@zweiund40gmbh/ui";
 import { dateError, useDateProblem } from "./date-problem";
 import type { RentChangeWithUnit } from "@/types";
 import type { RentChangePayload } from "./use-rent-changes";
@@ -44,6 +44,7 @@ export function RentChangeFormModal({ open, editing, unitOptions, onClose, onSub
   const [form, setForm] = useState<FormState>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [attempted, setAttempted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const date = useDateProblem();
 
   useEffect(() => {
@@ -51,6 +52,7 @@ export function RentChangeFormModal({ open, editing, unitOptions, onClose, onSub
       setForm(initialState(editing));
       setSubmitting(false);
       setAttempted(false);
+      setSubmitError(null);
       date.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -64,6 +66,7 @@ export function RentChangeFormModal({ open, editing, unitOptions, onClose, onSub
     setAttempted(true);
     if (!valid || form.cents === null) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
       const ok = await onSubmit({
         unitId: form.unitId,
@@ -73,6 +76,9 @@ export function RentChangeFormModal({ open, editing, unitOptions, onClose, onSub
         reason: form.reason || null,
       });
       if (ok) onClose();
+      else setSubmitError("Das Speichern ist fehlgeschlagen.");
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Das Speichern ist fehlgeschlagen.");
     } finally {
       setSubmitting(false);
     }
@@ -118,6 +124,7 @@ export function RentChangeFormModal({ open, editing, unitOptions, onClose, onSub
         <Field label="Grund (optional)">
           <TextInput value={form.reason} onChange={(e) => set("reason", e.target.value)} />
         </Field>
+        {submitError && <InlineNotice tone="bad">{submitError}</InlineNotice>}
       </form>
     </Modal>
   );

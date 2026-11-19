@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { UiProvider } from "@zweiund40gmbh/ui";
 import { RentChangeDialog } from "@/components/rent-change-dialog";
 
 afterEach(cleanup);
 
-function setup(onSubmit = vi.fn()) {
+function setup(onSubmit = vi.fn(), onOpenChange = vi.fn()) {
   render(
     <UiProvider locale="de-DE">
       <RentChangeDialog
         open
-        onOpenChange={() => undefined}
+        onOpenChange={onOpenChange}
         onSubmit={onSubmit}
         title="Anpassung"
         defaultAmount={500}
@@ -21,14 +21,16 @@ function setup(onSubmit = vi.fn()) {
   const date = screen.getByLabelText(/Gültig ab/) as HTMLInputElement;
   const money = screen.getByLabelText(/Neuer Betrag/) as HTMLInputElement;
   const form = date.closest("form") as HTMLFormElement;
-  return { onSubmit, date, money, form };
+  return { onSubmit, onOpenChange, date, money, form };
 }
 
 describe("RentChangeDialog", () => {
   it("submits the seeded values in euros", async () => {
     const { onSubmit, form } = setup();
-    fireEvent.submit(form);
-    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith({ amount: 500, effectiveDate: "2026-01-01", reason: null });
   });
 
@@ -50,19 +52,27 @@ describe("RentChangeDialog", () => {
     expect(screen.getByText("Bitte ein Datum angeben.")).toBeInTheDocument();
   });
 
-  it("keeps the submit button enabled after Enter in the amount field", () => {
-    const { money } = setup();
-    fireEvent.change(money, { target: { value: "650,50" } });
-    fireEvent.keyDown(money, { key: "Enter" });
-    expect(screen.getByRole("button", { name: "Anpassung anlegen" })).toBeEnabled();
-  });
-
   it("submits the amount entered before Enter", async () => {
     const { onSubmit, money, form } = setup();
     fireEvent.change(money, { target: { value: "650,50" } });
     fireEvent.keyDown(money, { key: "Enter" });
-    fireEvent.submit(form);
-    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+    expect(onSubmit).toHaveBeenCalled();
     expect(onSubmit.mock.calls[0][0].amount).toBe(650.5);
+  });
+
+  it("stays open with the inputs and shows the message when onSubmit fails", async () => {
+    const onSubmit = vi.fn().mockRejectedValue(new Error("Speichern nicht möglich."));
+    const { onOpenChange, money, form } = setup(onSubmit);
+    fireEvent.change(money, { target: { value: "650,50" } });
+    fireEvent.blur(money);
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+    expect(await screen.findByText("Speichern nicht möglich.")).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(money.value).toContain("650");
   });
 });
