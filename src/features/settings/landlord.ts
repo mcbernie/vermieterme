@@ -55,3 +55,8 @@ export function landlordErrors(form: LandlordInfo): LandlordErrors {
   }
   return errors;
 }
+
+/** Whether two landlord forms hold the same values (the record id is ignored). */
+export function sameLandlord(a: LandlordInfo, b: LandlordInfo): boolean {
+  return (Object.keys(EMPTY_LANDLORD) as (keyof LandlordInfo)[]).every((key) => a[key] === b[key]);
+}

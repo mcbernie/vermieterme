@@ -1,14 +1,16 @@
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { ConfirmProvider, UiProvider } from "@zweiund40gmbh/ui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDefaultConfig } from "@/lib/pdf-template";
 import { PdfTemplateView } from "@/features/settings/pdf-template-view";
+import { SettingsFrame } from "@/features/settings/settings-layout";
 import { SESSION_EXPIRED } from "@/features/settings/request";
 import type { PdfTemplateConfig } from "@/types/pdf-template";
 import { json, loginPage, mockFetch, renderWithUi } from "./settings-helpers";
 
 const push = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/settings/pdf-template", useRouter: () => ({ push }) }));
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -91,11 +93,25 @@ describe("PdfTemplateView", () => {
     expect(screen.queryByText("Ausgeblendete Bereiche")).not.toBeInTheDocument();
   });
 
-  it("navigates between the settings tabs", async () => {
+  it("asks before switching the sub page with unsaved changes", async () => {
     mockFetch({ "GET /api/pdf-template": json({ config: getDefaultConfig() }) });
-    renderWithUi(<PdfTemplateView />);
-    fireEvent.click(await screen.findByRole("tab", { name: "VPI-Werte" }));
-    expect(push).toHaveBeenCalledWith("/settings/vpi");
-    expect(screen.getByRole("tab", { name: "PDF-Vorlage" })).toHaveAttribute("aria-selected", "true");
+    render(
+      <UiProvider locale="de-DE">
+        <ConfirmProvider>
+          <SettingsFrame>
+            <PdfTemplateView />
+          </SettingsFrame>
+        </ConfirmProvider>
+      </UiProvider>,
+    );
+    await screen.findByTestId("pdf-preview");
+    fireEvent.click(screen.getByRole("link", { name: "VPI-Werte" }));
+    await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(preview().getByRole("button", { name: "Titel" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Kursiv" }));
+    fireEvent.click(screen.getByRole("link", { name: "VPI-Werte" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(push).toHaveBeenCalledTimes(1);
   });
 });

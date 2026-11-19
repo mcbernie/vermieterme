@@ -20,7 +20,6 @@ describe("SettingsView", () => {
     const { calls } = mockFetch(ROUTES);
     renderWithUi(<SettingsView />);
     expect(await screen.findByDisplayValue("Max")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Allgemein" })).toHaveAttribute("aria-selected", "true");
     const gets = () => calls.filter((c) => c.method === "GET").map((c) => c.url).sort();
     expect(gets()).toEqual(["/api/cost-categories", "/api/settings", "/api/users"]);
 

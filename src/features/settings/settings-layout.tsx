@@ -1,66 +1,37 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
-import { PageHeader, Tabs, tabPanelProps } from "@zweiund40gmbh/ui";
-
-/** Sub pages of the settings area. */
-export type SettingsTab = "general" | "vpi" | "pdf-template";
-
-/** Route of each settings sub page. */
-export const SETTINGS_ROUTES: Record<SettingsTab, string> = {
-  general: "/settings",
-  vpi: "/settings/vpi",
-  "pdf-template": "/settings/pdf-template",
-};
-
-const TAB_ITEMS = [
-  ["general", "Allgemein"],
-  ["vpi", "VPI-Werte"],
-  ["pdf-template", "PDF-Vorlage"],
-] as const;
-
-/** Base id of the tab bar; panels use `tabPanelProps(TABS_ID, key)`. */
-const TABS_ID = "settings";
-
-interface Props {
-  /** Active sub page. */
-  tab: SettingsTab;
-  /** Explanation below the title. */
-  description?: ReactNode;
-  /** Buttons on the right of the header. */
-  actions?: ReactNode;
-  /** Content of the sub page. */
-  children: ReactNode;
-}
+import { PageHeader } from "@zweiund40gmbh/ui";
+import { SettingsGuardProvider } from "./settings-guard";
+import { SettingsNav } from "./settings-nav";
 
 /**
- * Header of every settings sub page: title, tab bar for the sub pages (switching navigates to the route)
- * and the tab panel around the page content.
+ * Frame of the settings area, rendered by `src/app/(app)/settings/layout.tsx`: title, the secondary
+ * navigation and the unsaved-changes guard. It stays mounted while the sub page changes.
  */
-export function SettingsLayout({ tab, description, actions, children }: Props) {
-  const router = useRouter();
+export function SettingsFrame({ children }: { children: ReactNode }) {
   return (
-    <>
-      <PageHeader
-        title="Einstellungen"
-        description={description}
-        actions={actions}
-        tabs={
-          <Tabs
-            id={TABS_ID}
-            aria-label="Bereiche der Einstellungen"
-            value={tab}
-            items={TAB_ITEMS}
-            onChange={(key) => {
-              if (key !== tab) router.push(SETTINGS_ROUTES[key]);
-            }}
-          />
-        }
-      />
-      <div {...tabPanelProps(TABS_ID, tab)} className="grid gap-8">
-        {children}
-      </div>
-    </>
+    <SettingsGuardProvider>
+      <PageHeader title="Einstellungen" tabs={<SettingsNav />} />
+      <div className="grid gap-8">{children}</div>
+    </SettingsGuardProvider>
+  );
+}
+
+interface IntroProps {
+  /** Explanation of the sub page. */
+  description?: ReactNode;
+  /** Buttons of the sub page (e.g. save). */
+  actions?: ReactNode;
+}
+
+/** Explanation and actions at the top of a settings sub page. */
+export function SettingsIntro({ description, actions }: IntroProps) {
+  if (!description && !actions) return null;
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      {description && <p className="max-w-3xl text-sm text-ink2">{description}</p>}
+      {actions && <div className="ml-auto flex gap-2">{actions}</div>}
+    </div>
   );
 }

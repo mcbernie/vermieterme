@@ -5,8 +5,9 @@ import { Button, Field, InlineNotice, TextInput } from "@zweiund40gmbh/ui";
 import { formatIBAN } from "@/lib/iban";
 import type { LandlordInfo } from "@/types";
 import { ibanHint } from "@/features/tenants/tenant-form-values";
-import { landlordErrors } from "./landlord";
+import { landlordErrors, sameLandlord } from "./landlord";
 import { requestJson } from "./request";
+import { useSettingsDirty } from "./settings-guard";
 import { useAction } from "./use-action";
 
 type TextKey = Exclude<keyof LandlordInfo, "id">;
@@ -34,8 +35,11 @@ export function LandlordForm({ initial }: Props) {
   const [form, setForm] = useState<LandlordInfo>(initial);
   const [attempted, setAttempted] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [stored, setStored] = useState<LandlordInfo>(initial);
   const { busy, error, run } = useAction("Fehler beim Speichern");
   const errors = attempted ? landlordErrors(form) : {};
+  const dirty = !sameLandlord(form, stored);
+  useSettingsDirty(dirty);
 
   /** Changes one field and hides an old success message. */
   function set(key: TextKey, value: string) {
@@ -48,12 +52,14 @@ export function LandlordForm({ initial }: Props) {
     setAttempted(true);
     setSaved(false);
     if (Object.keys(landlordErrors(form)).length > 0) return;
+    const sent = form;
     const ok = await run(async () => {
       const result = await requestJson<{ id: string }>("/api/settings", "Fehler beim Speichern", {
         method: "POST",
-        json: form,
+        json: sent,
       });
       setForm((prev) => ({ ...prev, id: result.id }));
+      setStored(sent);
     });
     setSaved(ok);
   }
@@ -92,7 +98,7 @@ export function LandlordForm({ initial }: Props) {
       </div>
 
       {error && <InlineNotice tone="bad">{error}</InlineNotice>}
-      {saved && <InlineNotice tone="ok">Gespeichert</InlineNotice>}
+      {saved && !dirty && <InlineNotice tone="ok">Gespeichert</InlineNotice>}
       <div>
         <Button type="submit" variant="primary" disabled={busy}>
           {busy ? "Speichern …" : "Speichern"}

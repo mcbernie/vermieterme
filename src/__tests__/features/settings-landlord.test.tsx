@@ -59,6 +59,17 @@ describe("LandlordForm", () => {
     expect(calls[0]?.body).toEqual(VALID);
   });
 
+  it("does not confirm the save when the form was changed meanwhile", async () => {
+    let release: (r: Response) => void = () => {};
+    mockFetch({ "POST /api/settings": () => new Promise<Response>((r) => (release = r)) });
+    renderWithUi(<LandlordForm initial={VALID} />);
+    submit();
+    fireEvent.change(screen.getByLabelText(/Stadt/), { target: { value: "Bremen" } });
+    release(json({ ...VALID, id: "l1" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Speichern" })).toBeEnabled());
+    expect(screen.queryByText("Gespeichert")).not.toBeInTheDocument();
+  });
+
   it("reports an expired session visibly", async () => {
     mockFetch({ "POST /api/settings": loginPage() });
     renderWithUi(<LandlordForm initial={VALID} />);

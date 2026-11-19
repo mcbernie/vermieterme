@@ -6,7 +6,6 @@ import { CostCategoriesSection } from "./cost-categories-section";
 import { loadLandlord } from "./landlord";
 import { LandlordForm } from "./landlord-form";
 import { LoadGate, SettingsSection } from "./section";
-import { SettingsLayout } from "./settings-layout";
 import { useLoad } from "./use-load";
 import { UsersSection } from "./users-section";
 
@@ -29,11 +28,11 @@ function LandlordSection() {
 export function SettingsView() {
   const [generation, setGeneration] = useState(0);
   return (
-    <SettingsLayout tab="general">
+    <>
       <LandlordSection key={`landlord-${generation}`} />
       <CostCategoriesSection key={`categories-${generation}`} />
       <UsersSection key={`users-${generation}`} />
       <BackupSection onImported={() => setGeneration((g) => g + 1)} />
-    </SettingsLayout>
+    </>
   );
 }

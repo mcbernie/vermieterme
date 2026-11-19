@@ -4,7 +4,7 @@ import { Button, EmptyState, InlineNotice, Tag, useConfirm } from "@zweiund40gmb
 import type { VpiEntry } from "@/types";
 import { requestJson } from "./request";
 import { LoadGate, SettingsSection } from "./section";
-import { SettingsLayout } from "./settings-layout";
+import { SettingsIntro } from "./settings-layout";
 import { useAction } from "./use-action";
 import { useLoad } from "./use-load";
 import { groupByBaseYear, loadVpiEntries, MONTH_NAMES } from "./vpi";
@@ -90,10 +90,8 @@ export function VpiView() {
   }
 
   return (
-    <SettingsLayout
-      tab="vpi"
-      description="Der Verbraucherpreisindex (VPI) wird vom Statistischen Bundesamt veröffentlicht und dient als Grundlage für Indexmietanpassungen. Tragen Sie hier die VPI-Werte ein, die Sie für Ihre Mietverträge benötigen."
-    >
+    <>
+      <SettingsIntro description="Der Verbraucherpreisindex (VPI) wird vom Statistischen Bundesamt veröffentlicht und dient als Grundlage für Indexmietanpassungen. Tragen Sie hier die VPI-Werte ein, die Sie für Ihre Mietverträge benötigen." />
       <SettingsSection title="VPI automatisch abrufen">
         <VpiFetchPanel onImported={refresh} />
       </SettingsSection>
@@ -106,6 +104,6 @@ export function VpiView() {
           <VpiTables entries={data ?? []} busy={remove.busy} onDelete={askDelete} />
         </LoadGate>
       </SettingsSection>
-    </SettingsLayout>
+    </>
   );
 }

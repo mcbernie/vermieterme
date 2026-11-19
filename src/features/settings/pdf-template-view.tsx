@@ -6,7 +6,8 @@ import { PdfHiddenSections } from "./pdf-hidden-sections";
 import { PdfPageEditor } from "./pdf-page-editor";
 import { PdfPreview, type Selection } from "./pdf-preview";
 import { PdfSectionEditor } from "./pdf-section-editor";
-import { SettingsLayout } from "./settings-layout";
+import { useSettingsDirty } from "./settings-guard";
+import { SettingsIntro } from "./settings-layout";
 import { usePdfTemplate } from "./use-pdf-template";
 
 /** Editor of the billing PDF template: A4 preview on the left, properties of the selection on the right. */
@@ -14,6 +15,7 @@ export function PdfTemplateView() {
   const t = usePdfTemplate();
   const [selected, setSelected] = useState<Selection>(null);
   const config = t.config;
+  useSettingsDirty(t.dirty);
 
   const actions = config && (
     <>
@@ -34,11 +36,11 @@ export function PdfTemplateView() {
   );
 
   return (
-    <SettingsLayout
-      tab="pdf-template"
-      description="Klicken Sie auf einen Bereich in der Vorschau, um ihn zu bearbeiten."
-      actions={actions}
-    >
+    <>
+      <SettingsIntro
+        description="Klicken Sie auf einen Bereich in der Vorschau, um ihn zu bearbeiten."
+        actions={actions}
+      />
       {t.loading ? (
         <LoadingState />
       ) : t.loadError || !config ? (
@@ -81,6 +83,6 @@ export function PdfTemplateView() {
           </div>
         </div>
       )}
-    </SettingsLayout>
+    </>
   );
 }
