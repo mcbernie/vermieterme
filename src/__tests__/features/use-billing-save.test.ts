@@ -247,6 +247,23 @@ describe("useBillingSave", () => {
     await act(async () => result.current.save());
     expect([...dirty.keys()]).toEqual([]);
   });
+
+  it("postpones the save silently while a field holds unfinished text (#63)", async () => {
+    const { result } = renderHook(() => useBillingSave("bp", values));
+    act(() => result.current.schedule("cost:c1"));
+    act(() => result.current.reportProblem("cost-total-c1", "unfinished"));
+    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.current).toMatchObject({ state: null, pending: true });
+    act(() => result.current.reportProblem("cost-total-c1", true));
+    await act(async () => result.current.save());
+    expect(result.current.state).toBe("invalid");
+    act(() => result.current.reportProblem("cost-total-c1", "unfinished"));
+    expect(result.current.state).toBeNull();
+    act(() => result.current.reportProblem("cost-total-c1", false));
+    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
+    expect(fetchMock).toHaveBeenCalled();
+  });
 });
 
 describe("createDirtyKeys", () => {

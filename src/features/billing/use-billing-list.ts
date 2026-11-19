@@ -50,7 +50,10 @@ export function useBillingList() {
     setLoading(false);
   }, []);
 
-  /** Loads the list; the request is aborted on unmount (no new load starts afterwards) and an outdated response is dropped. */
+  /**
+   * Loads the list; the request is aborted on unmount (no new load starts afterwards) and an outdated
+   * response is dropped.
+   */
   const load = useCallback(
     async (controllers: Set<AbortController>) => {
       if (disposed.current) return;

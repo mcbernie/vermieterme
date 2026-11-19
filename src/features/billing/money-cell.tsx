@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Field, MoneyInput, parseMoney, useFormat } from "@zweiund40gmbh/ui";
+import type { AmountProblem } from "./use-billing-save";
 
 /**
  * Whether the text of a money field cannot be read as an amount. Empty text is fine (= no amount).
@@ -24,8 +25,11 @@ interface Props {
   value: number | null;
   /** New amount in euros (`null` when cleared), already while typing; not called for unreadable text. */
   onChange: (euros: number | null) => void;
-  /** Reports whether the field blocks saving with unreadable text; withdrawn when hidden or disabled. */
-  onProblemChange: (bad: boolean) => void;
+  /**
+   * Reports whether the field blocks saving: `true` for unreadable text (marked), `"unfinished"` for
+   * text without a digit (not marked); withdrawn with `false` when fixed, hidden or disabled.
+   */
+  onProblemChange: (problem: AmountProblem) => void;
   disabled?: boolean;
 }
 
@@ -40,17 +44,22 @@ export function MoneyCell({ label, value, onChange, onProblemChange, disabled }:
   // Text without a digit while typing ("-", "€"): not finished yet, blocks saving but shows no error.
   const [unfinished, setUnfinished] = useState(false);
   // A disabled field cannot be corrected, so it does not block saving.
-  const blocking = (bad || unfinished) && !disabled;
+  const problem: AmountProblem = disabled ? false : bad || (unfinished && "unfinished");
+  const blocking = problem !== false;
   const report = useRef(onProblemChange);
   useLayoutEffect(() => {
     report.current = onProblemChange;
   }, [onProblemChange]);
 
-  // Report the blocking state and withdraw it when the field disappears or is disabled.
+  // Report the kind of problem; switching kinds (e.g. "12x" → "-") is no withdrawal in between.
+  useEffect(() => {
+    if (problem !== false) report.current(problem);
+  }, [problem]);
+
+  // Withdraw the problem when the field is fixed, disappears or is disabled.
   useEffect(() => {
     if (!blocking) return;
     const notify = report.current;
-    notify(true);
     return () => notify(false);
   }, [blocking]);
 

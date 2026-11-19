@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import type { CostCategory } from "@/types";
 import { categories, detail, json } from "./billing-fixtures";
-import { clickSave, mount, stub, typeMoney } from "./billing-detail-harness";
+import { amountSaves, clickSave, mount, stub, typeMoney, typeOnly } from "./billing-detail-harness";
 
 /** The fixture categories plus one without an entry in the period. */
 const withHeating: CostCategory[] = [
@@ -61,4 +61,15 @@ describe("BillingDetailView reload", () => {
     expect(screen.getByLabelText("Gesamtbetrag Grundsteuer")).toHaveValue("1.500,00 €");
   });
 
+  it("shows no notice for an unfinished amount when an earlier autosave is due (#63)", async () => {
+    vi.useFakeTimers();
+    const fetchMock = stub();
+    await mount();
+    const input = await typeOnly("Gesamtbetrag Grundsteuer", "12");
+    await act(async () => fireEvent.input(input, { target: { value: "" } }));
+    await act(async () => fireEvent.input(input, { target: { value: "-" } }));
+    await act(async () => vi.advanceTimersByTime(1500));
+    expect(amountSaves(fetchMock)).toHaveLength(0);
+    expect(screen.queryByText(/Nicht gespeichert/)).not.toBeInTheDocument();
+  });
 });

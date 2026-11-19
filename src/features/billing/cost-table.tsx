@@ -8,13 +8,14 @@ import { formatCurrency } from "@/lib/format";
 import type { BillingPeriodDetail, CostCategory } from "@/types";
 import { DEFAULT_COST_VALUE, effectiveKey, isCostUnreviewed, type CostFormValue, type CostValues } from "./billing-calc";
 import { MoneyCell } from "./money-cell";
+import type { AmountProblem } from "./use-billing-save";
 
 const DEFAULT_KEY = "__default__";
 
 /** Callbacks of the cost table. */
 export interface CostTableActions {
   onAmount: (categoryId: string, field: "totalAmount" | "unitAmount", euros: number | null) => void;
-  onProblem: (key: string, bad: boolean) => void;
+  onProblem: (key: string, problem: AmountProblem) => void;
   onToggle: (categoryId: string, enabled: boolean) => void;
   onOverride: (categoryId: string, override: string | null) => void;
   onConfirm: (categoryId: string) => void;
@@ -86,7 +87,7 @@ function CostRow({ category, value, period, ...on }: RowProps) {
           value={value.totalAmount}
           disabled={!enabled}
           onChange={(v) => on.onAmount(category.id, "totalAmount", v)}
-          onProblemChange={(bad) => on.onProblem(`cost-total-${category.id}`, bad)}
+          onProblemChange={(problem) => on.onProblem(`cost-total-${category.id}`, problem)}
         />
       </td>
       <td className="num text-right">
@@ -96,7 +97,7 @@ function CostRow({ category, value, period, ...on }: RowProps) {
             value={value.unitAmount}
             disabled={!enabled}
             onChange={(v) => on.onAmount(category.id, "unitAmount", v)}
-            onProblemChange={(bad) => on.onProblem(`cost-unit-${category.id}`, bad)}
+            onProblemChange={(problem) => on.onProblem(`cost-unit-${category.id}`, problem)}
           />
         ) : key === "MEA" ? (
           <span className="text-ink2">{showMea ? meaText(value.totalAmount ?? 0, period) : "Automatisch (MEA)"}</span>

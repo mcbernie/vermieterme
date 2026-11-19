@@ -12,12 +12,13 @@ import {
   type PrepaymentValues,
 } from "./billing-calc";
 import { MoneyCell } from "./money-cell";
+import type { AmountProblem } from "./use-billing-save";
 
 interface Props {
   period: BillingPeriodDetail;
   prepayments: PrepaymentValues;
   onChange: (unitId: string, euros: number | null) => void;
-  onProblem: (key: string, bad: boolean) => void;
+  onProblem: (key: string, problem: AmountProblem) => void;
   onConfirm: (unitId: string) => void;
 }
 
@@ -67,7 +68,7 @@ export function PrepaymentTable({ period, prepayments, onChange, onProblem, onCo
                     label={`Monatliche Vorauszahlung ${unit.name}`}
                     value={prepayments[unit.id] ?? null}
                     onChange={(v) => onChange(unit.id, v)}
-                    onProblemChange={(bad) => onProblem(`prepayment-${unit.id}`, bad)}
+                    onProblemChange={(problem) => onProblem(`prepayment-${unit.id}`, problem)}
                   />
                 </td>
                 <td className="num text-right text-ink">

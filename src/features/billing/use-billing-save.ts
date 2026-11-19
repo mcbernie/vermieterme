@@ -17,6 +17,15 @@ export interface SaveValues {
 }
 
 /**
+ * Problem of an amount field that blocks saving: `true` = unreadable text (marked at the field),
+ * `"unfinished"` = text without a digit while typing (not marked), `false` = none.
+ */
+export type AmountProblem = boolean | "unfinished";
+
+/** Stored kind of a blocking field problem. */
+type FieldProblem = "unreadable" | "unfinished";
+
+/**
  * Keys of the amounts changed since the last successful save (see `costKey`/`prepaymentKey`). Every
  * change gets a revision, so a save only settles the changes it actually sent.
  */
@@ -53,6 +62,11 @@ export function createDirtyKeys(): DirtyKeys {
   };
 }
 
+/** Result shown while fields block saving: only unreadable text is reported, unfinished text waits. */
+function refusalOf(problems: ReadonlyMap<string, FieldProblem>): SaveState {
+  return [...problems.values()].includes("unreadable") ? "invalid" : null;
+}
+
 /** Set of unsaved amounts shared by the page loader and the save, stable over the page's lifetime. */
 export function useDirtyKeys(): DirtyKeys {
   const [dirty] = useState(createDirtyKeys);
@@ -65,9 +79,10 @@ export function useDirtyKeys(): DirtyKeys {
  */
 export async function saveAll(id: string, values: SaveValues): Promise<boolean> {
   const fallback = "Fehler beim Speichern";
+  const url = `/api/billing-periods/${id}/costs`;
   const costs = Object.entries(values.costs)
     .filter(([, v]) => v.totalAmount !== null)
-    .map(([categoryId, v]) => sendJson(`/api/billing-periods/${id}/costs`, "POST", costPayload(categoryId, v), fallback));
+    .map(([categoryId, v]) => sendJson(url, "POST", costPayload(categoryId, v), fallback));
   const prepayments = Object.entries(values.prepayments)
     .filter((entry): entry is [string, number] => entry[1] !== null && entry[1] !== undefined)
     .map(([unitId, monthlyAmount]) =>
@@ -85,7 +100,8 @@ export async function saveAll(id: string, values: SaveValues): Promise<boolean> 
  * scheduled after the unmount. A save that fails after the unmount is lost without notice, since no
  * page is left to show it; the send after leaving is a best effort, not a guarantee. Closing the tab
  * or reloading cannot send anything, so the browser is asked to warn while changes are unsaved, also
- * after a failed save.
+ * after a failed save. Text without a digit only postpones the save silently; just unreadable text
+ * refuses it with "invalid".
  * @param dirty Unsaved amounts, shared with the loader; marked by `schedule(key)`, settled by saves.
  */
 export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys) {
@@ -96,7 +112,7 @@ export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys
   const [state, setState] = useState<SaveState>(null);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [unsavedCount, setUnsavedCount] = useState(0);
-  const [problems, setProblems] = useState<ReadonlySet<string>>(new Set());
+  const [problems, setProblems] = useState<ReadonlyMap<string, FieldProblem>>(new Map());
   const valuesRef = useRef(values);
   const problemsRef = useRef(problems);
   const running = useRef(false);
@@ -135,7 +151,7 @@ export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = null;
     if (problemsRef.current.size > 0) {
-      setState("invalid");
+      setState(refusalOf(problemsRef.current));
       return;
     }
     // From here on the change is on its way: a running save takes it over.
@@ -150,7 +166,7 @@ export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys
     if (!mounted.current) return;
     setSaving(false);
     setUnsavedCount(changes.keys().size);
-    setState(result);
+    setState(result === "invalid" ? refusalOf(problemsRef.current) : result);
     if (result === "invalid") setPending(true);
     if (result === "saved") setLastSavedAt(new Date());
   }, [drain, changes]);
@@ -173,21 +189,20 @@ export function useBillingSave(id: string, values: SaveValues, dirty?: DirtyKeys
     [save, changes],
   );
 
-  /** Marks an amount field as unreadable (or fine again); fixing the last one schedules a save. */
+  /** Reports the problem of an amount field (or none); fixing the last one schedules a save. */
   const reportProblem = useCallback(
-    (key: string, bad: boolean) => {
-      const had = problemsRef.current.has(key);
-      if (had === bad) return;
-      const next = new Set(problemsRef.current);
-      if (bad) next.add(key);
+    (key: string, problem: AmountProblem) => {
+      const kind = problem === true ? "unreadable" : problem || undefined;
+      if (problemsRef.current.get(key) === kind) return;
+      const next = new Map(problemsRef.current);
+      if (kind) next.set(key, kind);
       else next.delete(key);
       problemsRef.current = next;
       setProblems(next);
       // Fields withdraw their problem while the page unmounts; that must not start a save.
-      if (next.size === 0 && mounted.current) {
-        setState((s) => (s === "invalid" ? null : s));
-        schedule();
-      }
+      if (!mounted.current) return;
+      if (refusalOf(problemsRef.current) === null) setState((s) => (s === "invalid" ? null : s));
+      if (next.size === 0) schedule();
     },
     [schedule],
   );
