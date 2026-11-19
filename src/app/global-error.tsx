@@ -17,7 +17,7 @@ export default function GlobalError({
 
   return (
     <html lang="de">
-      <body style={{ margin: 0, background: "var(--bg, #f4f4f4)", color: "var(--ink, #161616)" }}>
+      <body style={{ margin: 0, background: "var(--bg, #f2f2f2)", color: "var(--text, #1a1a1a)" }}>
         <main
           role="alert"
           style={{
@@ -33,7 +33,7 @@ export default function GlobalError({
           }}
         >
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Kritischer Fehler</h1>
-          <p style={{ margin: 0, maxWidth: 400, color: "var(--ink2, #525252)" }}>
+          <p style={{ margin: 0, maxWidth: 400, color: "var(--text2, #444444)" }}>
             Die Anwendung konnte nicht geladen werden. Bitte laden Sie die Seite neu.
           </p>
           <button
@@ -45,7 +45,7 @@ export default function GlobalError({
               font: "inherit",
               fontWeight: 500,
               cursor: "pointer",
-              background: "var(--accent-fill, #00939d)",
+              background: "var(--accent-fill, #007a83)",
               color: "var(--on-accent, #fff)",
             }}
           >
