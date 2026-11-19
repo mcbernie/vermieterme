@@ -40,6 +40,14 @@ const amountSaves = (fetchMock: ReturnType<typeof stub>) =>
     .map((c) => JSON.parse(c[1]?.body as string))
     .filter((b) => "totalAmount" in b && !("reviewed" in b));
 
+/** Types into a money field without leaving it (one input event). */
+async function typeOnly(label: string, text: string) {
+  const input = screen.getByLabelText(label);
+  await act(async () => fireEvent.focus(input));
+  await act(async () => fireEvent.input(input, { target: { value: text } }));
+  return input;
+}
+
 const clickSave = () => act(async () => fireEvent.click(screen.getByRole("button", { name: "Speichern" })));
 
 /** Types into a money field and leaves it. */
@@ -174,5 +182,20 @@ describe("BillingDetailView", () => {
     await clickSave();
     expect(amountSaves(fetchMock).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Nicht gespeichert/)).not.toBeInTheDocument();
+  });
+
+  it("saves automatically 1.5 s after the last keystroke, without leaving the field", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    try {
+      const fetchMock = stub();
+      await mount();
+      await typeOnly("Gesamtbetrag Grundsteuer", "1250,5");
+      await act(async () => vi.advanceTimersByTime(1499));
+      expect(amountSaves(fetchMock)).toHaveLength(0);
+      await act(async () => vi.advanceTimersByTime(1));
+      expect(amountSaves(fetchMock)).toContainEqual({ costCategoryId: "c1", totalAmount: 1250.5, unitAmount: null });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

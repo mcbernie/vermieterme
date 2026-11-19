@@ -22,7 +22,7 @@ interface Props {
   label: string;
   /** Amount in euros, `null` = empty. */
   value: number | null;
-  /** New amount in euros (`null` when cleared); not called for unreadable text. */
+  /** New amount in euros (`null` when cleared), already while typing; not called for unreadable text. */
   onChange: (euros: number | null) => void;
   /** Reports whether the field blocks saving with unreadable text; withdrawn when hidden or disabled. */
   onProblemChange: (bad: boolean) => void;
@@ -31,7 +31,8 @@ interface Props {
 
 /**
  * Compact amount input for table cells: `MoneyInput` in a `Field` with a hidden label, which shows
- * the error for unreadable text right under the input.
+ * the error for unreadable text right under the input. Every readable keystroke is reported, so the
+ * automatic save starts from the last keystroke and not only when the field is left.
  */
 export function MoneyCell({ label, value, onChange, onProblemChange, disabled }: Props) {
   const { locale } = useFormat();
@@ -56,6 +57,16 @@ export function MoneyCell({ label, value, onChange, onProblemChange, disabled }:
     setBad(isUnreadableMoney(text, locale));
   }
 
+  /** Passes a readable amount on while typing. */
+  function typed(text: string) {
+    if (text.trim() === "") {
+      if (value !== null) onChange(null);
+      return;
+    }
+    const cents = parseMoney(text, locale, 2);
+    if (cents !== null && cents !== toCents(value)) onChange(cents / 100);
+  }
+
   return (
     <Field
       label={label}
@@ -68,6 +79,7 @@ export function MoneyCell({ label, value, onChange, onProblemChange, disabled }:
         className="text-right"
         value={toCents(value)}
         onChange={(cents) => onChange(cents === null ? null : cents / 100)}
+        onInput={(e) => typed(e.currentTarget.value)}
         onBlur={(e) => check(e.currentTarget.value)}
         onKeyDown={(e) => e.key === "Enter" && check(e.currentTarget.value)}
         disabled={disabled}
