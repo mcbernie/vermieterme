@@ -256,4 +256,27 @@ describe("BillingDetailView", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Bestätigen" })));
     expect(screen.getByLabelText("Gesamtbetrag Grundsteuer")).toHaveValue("1.500,00\u00a0€");
   });
+
+  it("treats text without a digit as unfinished: no error while typing, marked when the field is left (#33)", async () => {
+    vi.useFakeTimers();
+    const fetchMock = stub();
+    await mount();
+    const input = await typeOnly("Gesamtbetrag Grundsteuer", "-");
+    expect(screen.queryByText("Bitte einen gültigen Betrag eingeben.")).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTime(1500));
+    expect(amountSaves(fetchMock)).toHaveLength(0);
+    await act(async () => fireEvent.blur(input));
+    expect(screen.getByText("Bitte einen gültigen Betrag eingeben.")).toBeInTheDocument();
+  });
+
+  it("saves a negative amount typed with a leading minus (#33)", async () => {
+    vi.useFakeTimers();
+    const fetchMock = stub();
+    await mount();
+    const input = await typeOnly("Gesamtbetrag Grundsteuer", "-");
+    await act(async () => fireEvent.input(input, { target: { value: "-50" } }));
+    expect(screen.queryByText("Bitte einen gültigen Betrag eingeben.")).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTime(1500));
+    expect(amountSaves(fetchMock)).toContainEqual({ costCategoryId: "c1", totalAmount: -50, unitAmount: null });
+  });
 });

@@ -37,8 +37,10 @@ interface Props {
 export function MoneyCell({ label, value, onChange, onProblemChange, disabled }: Props) {
   const { locale } = useFormat();
   const [bad, setBad] = useState(false);
+  // Text without a digit while typing ("-", "€"): not finished yet, blocks saving but shows no error.
+  const [unfinished, setUnfinished] = useState(false);
   // A disabled field cannot be corrected, so it does not block saving.
-  const blocking = bad && !disabled;
+  const blocking = (bad || unfinished) && !disabled;
   const report = useRef(onProblemChange);
   useLayoutEffect(() => {
     report.current = onProblemChange;
@@ -54,20 +56,28 @@ export function MoneyCell({ label, value, onChange, onProblemChange, disabled }:
 
   /** Checks the text the input just committed (on blur or Enter). */
   function check(text: string) {
+    setUnfinished(false);
     setBad(isUnreadableMoney(text, locale));
   }
 
   /**
    * Passes a readable amount on while typing. Unreadable text is marked at once, so the last readable
    * intermediate value (e.g. "12" before "12x3") is not saved; correcting it lifts the mark again.
+   * Text without any digit is only unfinished (blocks saving, no error) until the field is left.
    */
   function typed(text: string) {
+    setUnfinished(false);
     if (text.trim() === "") {
       setBad(false);
       if (value !== null) onChange(null);
       return;
     }
     const cents = parseMoney(text, locale, 2);
+    if (cents === null && !/\d/.test(text)) {
+      setBad(false);
+      setUnfinished(true);
+      return;
+    }
     setBad(cents === null);
     if (cents !== null && cents !== toCents(value)) onChange(cents / 100);
   }
@@ -76,7 +86,7 @@ export function MoneyCell({ label, value, onChange, onProblemChange, disabled }:
     <Field
       label={label}
       classNames={{ label: "sr-only" }}
-      error={blocking ? "Bitte einen gültigen Betrag eingeben." : undefined}
+      error={bad && !disabled ? "Bitte einen gültigen Betrag eingeben." : undefined}
       className="ml-auto w-36"
     >
       <MoneyInput

@@ -40,7 +40,8 @@ export async function saveAll(id: string, values: SaveValues): Promise<boolean> 
  * unmounted. While an amount field holds unreadable text nothing is saved, also not when the page
  * is left. Otherwise a pending automatic save is still sent when the page unmounts. Nothing is
  * scheduled after the unmount. A save that fails after the unmount is lost without notice, since no
- * page is left to show it; the send after leaving is a best effort, not a guarantee.
+ * page is left to show it; the send after leaving is a best effort, not a guarantee. Closing the tab
+ * or reloading cannot send anything, so the browser is asked to warn while changes are unsaved.
  */
 export function useBillingSave(id: string, values: SaveValues) {
   const [saving, setSaving] = useState(false);
@@ -142,6 +143,15 @@ export function useBillingSave(id: string, values: SaveValues) {
       else void drain();
     };
   }, [drain]);
+
+  // Closing or reloading the tab sends nothing: warn while changes are unsaved or on their way.
+  const unsaved = pending || saving;
+  useEffect(() => {
+    if (!unsaved) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsaved]);
 
   return { saving, pending, state, lastSavedAt, problems, save, schedule, reportProblem };
 }

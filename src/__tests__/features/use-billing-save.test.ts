@@ -26,6 +26,7 @@ describe("useBillingSave", () => {
     vi.stubGlobal("fetch", fetchMock);
   });
   afterEach(() => {
+    expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -194,5 +195,19 @@ describe("useBillingSave", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.current.state).toBe("invalid");
     expect(result.current.pending).toBe(true);
+  });
+
+  it("warns before the tab is closed while a change is unsaved, and not afterwards", async () => {
+    const { result } = renderHook(() => useBillingSave("bp", values));
+    const leave = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(leave()).toBe(false);
+    act(() => result.current.schedule());
+    expect(leave()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
+    expect(leave()).toBe(false);
   });
 });
