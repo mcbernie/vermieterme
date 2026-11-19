@@ -1,14 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useEffect, useId, useState } from "react";
+import { Button, DateInput, Field, Modal, MoneyInput, TextInput } from "@zweiund40gmbh/ui";
 
 export interface RentChangeDialogValue {
   amount: number;
@@ -29,6 +22,7 @@ interface RentChangeDialogProps {
   submitLabel?: string;
 }
 
+/** Dialog to confirm amount, effective date and reason of a rent change. Amounts are euros in and out. */
 export function RentChangeDialog({
   open,
   onOpenChange,
@@ -41,7 +35,8 @@ export function RentChangeDialog({
   amountLabel = "Neuer Betrag (EUR)",
   submitLabel = "Anpassung anlegen",
 }: RentChangeDialogProps) {
-  const [amount, setAmount] = useState<string>(defaultAmount.toFixed(2));
+  const formId = useId();
+  const [cents, setCents] = useState<number | null>(Math.round(defaultAmount * 100));
   const [effectiveDate, setEffectiveDate] = useState<string>(defaultEffectiveDate);
   const [reason, setReason] = useState<string>(defaultReason);
   const [submitting, setSubmitting] = useState(false);
@@ -49,7 +44,7 @@ export function RentChangeDialog({
   // Re-seed inputs whenever the dialog (re)opens with fresh defaults.
   useEffect(() => {
     if (open) {
-      setAmount(defaultAmount.toFixed(2));
+      setCents(Math.round(defaultAmount * 100));
       setEffectiveDate(defaultEffectiveDate);
       setReason(defaultReason);
       setSubmitting(false);
@@ -58,12 +53,11 @@ export function RentChangeDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const parsed = parseFloat(amount);
-    if (!Number.isFinite(parsed) || parsed < 0) return;
+    if (cents === null || cents < 0 || !effectiveDate) return;
     setSubmitting(true);
     try {
       await onSubmit({
-        amount: parsed,
+        amount: cents / 100,
         effectiveDate,
         reason: reason.trim() ? reason.trim() : null,
       });
@@ -74,73 +68,32 @@ export function RentChangeDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            {description && (
-              <DialogDescription>{description}</DialogDescription>
-            )}
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-zinc-700">
-                {amountLabel}
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                required
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                autoFocus
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-zinc-700">
-                Gültig ab
-              </label>
-              <input
-                type="date"
-                required
-                value={effectiveDate}
-                onChange={(e) => setEffectiveDate(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-zinc-700">
-                Grund (optional)
-              </label>
-              <input
-                type="text"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-              />
-            </div>
-          </div>
-          <DialogFooter className="mt-6">
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-            >
-              Abbrechen
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50"
-            >
-              {submitting ? "Speichern..." : submitLabel}
-            </button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description || undefined}
+      size="sm"
+      footer={
+        <>
+          <Button onClick={() => onOpenChange(false)}>Abbrechen</Button>
+          <Button type="submit" form={formId} variant="primary" disabled={submitting}>
+            {submitting ? "Speichern..." : submitLabel}
+          </Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={handleSubmit} className="grid gap-4">
+        <Field label={amountLabel} required>
+          <MoneyInput value={cents} onChange={setCents} min={0} />
+        </Field>
+        <Field label="Gültig ab" required>
+          <DateInput value={effectiveDate} onChange={setEffectiveDate} showError={false} />
+        </Field>
+        <Field label="Grund (optional)">
+          <TextInput value={reason} onChange={(e) => setReason(e.target.value)} />
+        </Field>
+      </form>
+    </Modal>
   );
 }
