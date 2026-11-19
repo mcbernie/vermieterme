@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Button, FileDropzone, formatBytes, useConfirm, useFormat } from "@zweiund40gmbh/ui";
+import { Button, FileDropzone, InlineNotice, formatBytes, useConfirm, useFormat } from "@zweiund40gmbh/ui";
 import type { Document } from "@/types";
 
 interface DocumentUploadProps {
@@ -24,6 +24,7 @@ export function DocumentUpload({
   const format = useFormat();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const fetchDocuments = useCallback(async () => {
     const params = new URLSearchParams();
@@ -52,6 +53,7 @@ export function DocumentUpload({
     if (!file) return;
 
     setUploading(true);
+    setUploadError(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -66,9 +68,12 @@ export function DocumentUpload({
 
       if (res.ok) {
         await fetchDocuments();
+      } else {
+        setUploadError("Das Dokument konnte nicht hochgeladen werden.");
       }
     } catch (error) {
       console.error("Upload failed:", error);
+      setUploadError("Das Dokument konnte nicht hochgeladen werden.");
     } finally {
       setUploading(false);
     }
@@ -119,8 +124,11 @@ export function DocumentUpload({
         accept={accept}
         disabled={uploading}
         onFiles={handleUpload}
+        onReject={() => setUploadError(null)}
+        hint={`Erlaubt: ${accept} · eine Datei je Auswahl`}
         label={uploading ? "Lade hoch..." : label}
       />
+      {uploadError && <InlineNotice tone="bad">{uploadError}</InlineNotice>}
     </div>
   );
 }

@@ -12,9 +12,11 @@ import { vpiReason } from "./vpi-text";
  */
 export function useVpiAdjustment(refetch: () => Promise<void>) {
   const [target, setTarget] = useState<VpiSuggestion | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
 
   async function apply(suggestion: VpiSuggestion, value: RentChangeDialogValue) {
+    setError(null);
     try {
       const res = await fetch("/api/rent-changes", {
         method: "POST",
@@ -27,8 +29,11 @@ export function useVpiAdjustment(refetch: () => Promise<void>) {
           reason: value.reason ?? vpiReason(suggestion),
         }),
       });
-      if (!res.ok) return;
-      await fetch(`/api/tenants/${suggestion.tenantId}`, {
+      if (!res.ok) {
+        setError("Die Mietanpassung konnte nicht angelegt werden.");
+        return;
+      }
+      const put = await fetch(`/api/tenants/${suggestion.tenantId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -36,12 +41,18 @@ export function useVpiAdjustment(refetch: () => Promise<void>) {
           indexReferenceDate: value.effectiveDate,
         }),
       });
+      if (!put.ok) {
+        setError("Die Mietanpassung wurde angelegt, der Referenz-VPI des Mieters konnte aber nicht aktualisiert werden.");
+        await refetch();
+        return;
+      }
       setAppliedIds((prev) => new Set(prev).add(suggestion.tenantId));
       await refetch();
-    } catch (error) {
-      console.error("Failed to apply VPI adjustment:", error);
+    } catch (err) {
+      console.error("Failed to apply VPI adjustment:", err);
+      setError("Die Mietanpassung konnte nicht durchgeführt werden.");
     }
   }
 
-  return { target, setTarget, appliedIds, apply };
+  return { target, setTarget, appliedIds, apply, error };
 }

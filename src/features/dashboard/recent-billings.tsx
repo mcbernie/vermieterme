@@ -5,14 +5,18 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import type { BillingPeriodWithProperty } from "@/types";
 import { billingStatusTone } from "./billing-tone";
 
-/** Result cell: back payment (bad) or refund (ok), empty without cost data. */
-function Result({ bp }: { bp: BillingPeriodWithProperty }) {
-  if (!bp.costs || bp.costs.length === 0) return <span className="text-ink3">–</span>;
-  const t = calculateBillingTotals(bp.costs, bp.prepayments ?? [], bp.startDate, bp.endDate);
-  return t.difference < 0 ? (
-    <span className="text-bad">Nachzahlung: {formatCurrency(Math.abs(t.difference))}</span>
+/** Cost totals of a billing period, `null` without cost data. */
+function totalsOf(bp: BillingPeriodWithProperty) {
+  if (!bp.costs || bp.costs.length === 0) return null;
+  return calculateBillingTotals(bp.costs, bp.prepayments ?? [], bp.startDate, bp.endDate);
+}
+
+/** Result cell: back payment (bad) or refund (ok). */
+function Result({ difference }: { difference: number }) {
+  return difference < 0 ? (
+    <span className="text-bad">Nachzahlung: {formatCurrency(Math.abs(difference))}</span>
   ) : (
-    <span className="text-ok">Erstattung: {formatCurrency(t.difference)}</span>
+    <span className="text-ok">Erstattung: {formatCurrency(difference)}</span>
   );
 }
 
@@ -38,12 +42,16 @@ export function RecentBillings({ billingPeriods }: { billingPeriods: BillingPeri
                 <th>Objekt</th>
                 <th>Zeitraum</th>
                 <th>Status</th>
+                <th className="text-right">Kosten</th>
+                <th className="text-right">Vorauszahlungen</th>
                 <th>Ergebnis</th>
               </tr>
             </thead>
             <tbody>
               {billingPeriods.slice(0, 5).map((bp) => {
                 const status = getBillingStatus(bp);
+                const totals = totalsOf(bp);
+                const dash = <span className="text-ink3">–</span>;
                 return (
                   <tr key={bp.id}>
                     <td>
@@ -57,9 +65,9 @@ export function RecentBillings({ billingPeriods }: { billingPeriods: BillingPeri
                     <td>
                       <Tag tone={billingStatusTone(status.label)}>{status.label}</Tag>
                     </td>
-                    <td className="num">
-                      <Result bp={bp} />
-                    </td>
+                    <td className="num text-right">{totals ? formatCurrency(totals.totalUnitCosts) : dash}</td>
+                    <td className="num text-right">{totals ? formatCurrency(totals.totalPrepayment) : dash}</td>
+                    <td className="num">{totals ? <Result difference={totals.difference} /> : dash}</td>
                   </tr>
                 );
               })}

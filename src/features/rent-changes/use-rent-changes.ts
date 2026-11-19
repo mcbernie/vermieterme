@@ -45,11 +45,12 @@ export function useRentChanges() {
   useEffect(() => {
     async function load() {
       try {
-        const propsRes = await fetch("/api/properties");
-        await reload();
+        const [, propsRes] = await Promise.all([reload(), fetch("/api/properties")]);
         if (propsRes.ok) {
           const props: PropertyWithUnits[] = await propsRes.json();
-          setProperties(await Promise.all(props.map((p) => fetch(`/api/properties/${p.id}`).then((r) => r.json()))));
+          const details = await Promise.all(props.map((p) => fetch(`/api/properties/${p.id}`)));
+          const ok = details.filter((r) => r.ok);
+          setProperties(await Promise.all(ok.map((r) => r.json())));
         }
       } catch (error) {
         console.error("Failed to fetch data:", error);

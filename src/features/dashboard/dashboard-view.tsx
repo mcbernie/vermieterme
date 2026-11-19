@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Button, LoadingState, PageHeader } from "@zweiund40gmbh/ui";
+import { Button, InlineNotice, LoadingState, PageHeader } from "@zweiund40gmbh/ui";
 import { RentChangeDialog } from "@/components/rent-change-dialog";
 import { useMultiFetch } from "@/hooks/use-fetch";
 import { formatCurrency } from "@/lib/format";
@@ -59,6 +59,7 @@ export function DashboardView() {
         <LoadingState />
       ) : (
         <>
+          {vpi.error && <InlineNotice tone="bad">{vpi.error}</InlineNotice>}
           <StatRow properties={properties.length} units={units} billings={billingPeriods.length} />
           {suggestions.length > 0 && (
             <VpiSuggestions suggestions={suggestions} appliedIds={vpi.appliedIds} onApply={vpi.setTarget} />
