@@ -172,4 +172,17 @@ describe("useTenants", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeNull();
   });
+
+  it("keeps the error of another list when one list reloads successfully", async () => {
+    const answers = defaultAnswers();
+    answers["GET /api/properties"] = { status: 500, body: {} };
+    stubApi(answers);
+    const { result } = await loaded();
+    expect(result.current.error).not.toBeNull();
+    await act(async () => {
+      await result.current.deleteTenant("t1");
+    });
+    expect(result.current.error).not.toBeNull();
+    expect(result.current.tenantsError).toBeNull();
+  });
 });

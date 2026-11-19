@@ -124,4 +124,38 @@ describe("TenantAccessToken", () => {
     expect(screen.getByText("NEU222")).toBeInTheDocument();
     expect(screen.queryByText("ALT111")).not.toBeInTheDocument();
   });
+
+  it("keeps the buttons of another tenant usable while a generate is running", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === "POST"
+          ? new Promise<Response>(() => undefined)
+          : Promise.resolve(Response.json({ hasToken: false, token: null })),
+      ),
+    );
+    const { rerender } = setup();
+    fireEvent.click(await screen.findByRole("button", { name: "Einladungscode generieren" }));
+    expect(await screen.findByRole("button", { name: "Wird generiert …" })).toBeDisabled();
+    rerender(view("t2"));
+    expect(await screen.findByRole("button", { name: "Einladungscode generieren" })).toBeEnabled();
+  });
+
+  it("keeps the revoke button of another tenant usable while a revoke is running", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === "DELETE"
+          ? new Promise<Response>(() => undefined)
+          : Promise.resolve(Response.json({ hasToken: true, token: "ABC123" })),
+      ),
+    );
+    const { rerender } = setup();
+    fireEvent.click(await screen.findByRole("button", { name: "Zugang widerrufen" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Widerrufen" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Zugang widerrufen" })).toBeDisabled());
+    rerender(view("t2"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Zugang widerrufen" })).toBeEnabled());
+  });
 });

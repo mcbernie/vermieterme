@@ -36,8 +36,10 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   const [token, setToken] = useState<string | null>(null);
   // Tenant whose code has been loaded; while it differs from `tenantId`, the code is loading.
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // Tenant with a running request; the buttons of another tenant stay usable.
+  const [busyFor, setBusyFor] = useState<string | null>(null);
   const [failure, setFailure] = useState<TenantError | null>(null);
+  const busy = busyFor === tenantId;
   const loading = loadedFor !== tenantId;
   const error = failure?.tenantId === tenantId ? failure.text : null;
   // Tenant shown right now; answers of `generate`/`revoke` for another tenant are dropped.
@@ -65,9 +67,9 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   /** Creates a new invitation code. */
   async function generate() {
     const id = tenantId;
-    setBusy(true);
+    setBusyFor(id);
     const res = await apiResult(`/api/tenants/${id}/access-token`, { method: "POST", accept: isTokenResponse });
-    setBusy(false);
+    setBusyFor((current) => (current === id ? null : current));
     if (shownTenant.current !== id) return;
     if (res.ok) setToken(res.data.token);
     report(id, res.ok ? null : res.error);
@@ -83,9 +85,9 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
     });
     if (!ok) return;
     const id = tenantId;
-    setBusy(true);
+    setBusyFor(id);
     const res = await apiResult(`/api/tenants/${id}/access-token`, { method: "DELETE" });
-    setBusy(false);
+    setBusyFor((current) => (current === id ? null : current));
     if (shownTenant.current !== id) return;
     if (res.ok) setToken(null);
     report(id, res.ok ? null : res.error);
