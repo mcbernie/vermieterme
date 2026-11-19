@@ -72,4 +72,22 @@ describe("BillingDetailView reload", () => {
     expect(amountSaves(fetchMock)).toHaveLength(0);
     expect(screen.queryByText(/Nicht gespeichert/)).not.toBeInTheDocument();
   });
+
+  it("keeps an amount saved while a reload runs when the answer predates the save (#64)", async () => {
+    const fetchMock = stub();
+    const answer = fetchMock.getMockImplementation();
+    await mount();
+    let release: () => void = () => undefined;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url !== "/api/billing-periods/bp" || (init?.method ?? "GET") !== "GET") return answer!(url, init);
+      const old = await answer!(url, init); // the state before the save below
+      return new Promise<Response>((resolve) => (release = () => resolve(old)));
+    });
+    await typeMoney("Gesamtbetrag Grundsteuer", "1500");
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Bestätigen" })));
+    await clickSave();
+    expect(amountSaves(fetchMock)).toContainEqual(expect.objectContaining({ costCategoryId: "c1", totalAmount: 1500 }));
+    await act(async () => release());
+    expect(screen.getByLabelText("Gesamtbetrag Grundsteuer")).toHaveValue("1.500,00 €");
+  });
 });

@@ -32,13 +32,18 @@ type FieldProblem = "unreadable" | "unfinished";
 export interface DirtyKeys {
   /** Records a change of an amount. */
   mark(key: string): void;
-  /** Revision of the latest change; a save that sends the values of now settles up to it. */
+  /** Revision of the latest change; a save that sends the values of now settles up to it (loads use `settled`). */
   revision(): number;
   /** Marks the changes up to `revision` as stored; later changes stay unsaved. */
   settle(revision: number): void;
   /**
-   * Keys with unsaved changes. With `since` (a revision taken when a load started) also the keys
-   * changed after it, since the loaded data may predate their save.
+   * Revision up to which every change is confirmed stored. A load takes it when it starts: the loaded
+   * data contains these changes, but not necessarily any later one.
+   */
+  settled(): number;
+  /**
+   * Keys with unsaved changes. With `since` (`settled()` taken when a load started) also the keys
+   * whose save only ended after that start, since the loaded data may predate their save.
    */
   keys(since?: number): ReadonlySet<string>;
 }
@@ -55,6 +60,7 @@ export function createDirtyKeys(): DirtyKeys {
     settle(revision) {
       stored = Math.max(stored, revision);
     },
+    settled: () => stored,
     keys(since = Infinity) {
       const after = Math.min(stored, since);
       return new Set([...changes].filter(([, rev]) => rev > after).map(([key]) => key));

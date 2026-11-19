@@ -15,8 +15,11 @@ import {
 } from "./billing-calc";
 import type { DirtyKeys } from "./use-billing-save";
 
+/** Part of the unsaved amounts a load needs: the saved state at its start and the keys to keep. */
+type LoadDirty = Pick<DirtyKeys, "keys" | "settled">;
+
 /** No unsaved amounts: a reload takes everything from the server. */
-const NOTHING_DIRTY: Pick<DirtyKeys, "keys" | "revision"> = { keys: () => new Set(), revision: () => 0 };
+const NOTHING_DIRTY: LoadDirty = { keys: () => new Set(), settled: () => 0 };
 
 /** Load state of the detail page. */
 export type DetailStatus = "loading" | "ready" | "notFound" | "failed";
@@ -27,7 +30,7 @@ export type DetailStatus = "loading" | "ready" | "notFound" | "failed";
  * @param dirty Amounts with unsaved changes (from the save); only these survive a reload, flags and
  *   all other amounts come from the server.
  */
-export function useBillingDetail(id: string, dirty: Pick<DirtyKeys, "keys" | "revision"> = NOTHING_DIRTY) {
+export function useBillingDetail(id: string, dirty: LoadDirty = NOTHING_DIRTY) {
   const [period, setPeriod] = useState<BillingPeriodDetail | null>(null);
   const [categories, setCategories] = useState<CostCategory[]>([]);
   const [costs, setCosts] = useState<CostValues>({});
@@ -47,7 +50,9 @@ export function useBillingDetail(id: string, dirty: Pick<DirtyKeys, "keys" | "re
     async (controllers: Set<AbortController>): Promise<boolean> => {
       if (disposed.current) return true;
       const current = ++request.current;
-      const since = dirty.revision();
+      // Changes not yet confirmed stored at this point may be missing from the answer, however their
+      // save ends; so the saved state counts, not the latest change.
+      const since = dirty.settled();
       const ctrl = new AbortController();
       controllers.add(ctrl);
       const [bp, cc] = await Promise.all([
@@ -64,7 +69,7 @@ export function useBillingDetail(id: string, dirty: Pick<DirtyKeys, "keys" | "re
       const seeded = seedValues(bp.data);
       setPeriod(bp.data);
       setCategories(cc.data);
-      // Amounts typed since the last successful save survive the reload (they are saved on their own).
+      // Amounts not confirmed stored when the load started survive it (they are saved on their own).
       const unsaved = dirty.keys(since);
       setCosts((prev) => mergeCosts(seeded.costs, prev, unsaved));
       setPrepayments((prev) => mergePrepayments(seeded.prepayments, prev, unsaved));
