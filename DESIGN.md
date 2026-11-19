@@ -11,7 +11,10 @@ keine Landingpage.
 - **Flach:** keine `shadow-*`, keine Verläufe, keine Glas-/Blur-Effekte, keine dekorativen Icons in Kreisen.
 - **Farben nur über Tokens**, nie Tailwind-Palettenfarben (`zinc-*`, `red-*`, `gray-*`, `green-*` …) oder Hex-Werte.
   Hell und Dunkel funktionieren damit automatisch.
-- **Akzent sparsam:** Petrol (`--accent`) für primäre Aktion, aktive Navigation, Links. Status über
+- **Palette** „Become Vacation“: Vanille als Grund, Schiefer für Text und Kopfzeile, Petrolgrün als Akzent, Koralle
+  nur dekorativ (Linie unter der Kopfzeile), Mint als Markierung. Werte und abgeleitete Stufen in `globals.css`.
+- **Akzent sparsam:** Petrolgrün (`--accent`) für primäre Aktion, aktive Navigation, Links. Als Textfarbe immer
+  `text-accentstrong` für Links (dunklere Stufe, 6,5:1). Status über
   `ok`/`warn`/`bad`/`info` (+ `*-soft` als Fläche).
 - **Zahlen** rechtsbündig mit `num` (tabellarische Ziffern), Beträge über `src/lib/format.ts`.
 - **Texte** deutsch mit Umlauten, Nutzer wird gesiezt; Überschriften kurz und ohne Emoji.
