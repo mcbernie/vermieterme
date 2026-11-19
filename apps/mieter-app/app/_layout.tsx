@@ -28,7 +28,7 @@ export default function RootLayout() {
     } else if (authed && inAuthGroup) {
       router.replace("/");
     }
-  }, [checking, authed, segments]);
+  }, [checking, authed, segments, router]);
 
   if (checking) {
     return (
