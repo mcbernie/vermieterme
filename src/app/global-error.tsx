@@ -4,7 +4,9 @@ import { useEffect } from "react";
 
 /**
  * Last-resort error boundary. It replaces the root layout (own `<html>`, no providers, no library
- * components), so it only uses plain elements and the CSS variables of the tokens.
+ * components), so it only uses plain elements and the CSS variables of the tokens. The hex fallbacks after the
+ * variables are deliberate: the page may render without CSS. They duplicate palette values of `globals.css`
+ * (vanilla, ink, slate, teal) and must follow when the palette changes.
  */
 export default function GlobalError({
   error,

@@ -21,9 +21,9 @@
   --pal-wine: #8d253a;
   --pal-slate: #435356;
   /* Derived steps (contrast): teal for text and filled controls, slate for text and dark surfaces. */
-  --pal-teal-dark: #1d7362; /* white text 5.7:1, on vanilla 4.8:1 */
-  --pal-teal-deep: #175c4e; /* on vanilla 6.5:1, on hover 5.9:1 */
-  --pal-ink: #263133; /* on vanilla 11.1:1 */
+  --pal-teal-dark: #1d7362; /* white text 5.7:1, on vanilla 4.75:1 */
+  --pal-teal-deep: #175c4e;
+  --pal-ink: #263133;
   --pal-paper: #faf7f0;
   --pal-night: #1b2324;
   --pal-night-layer: #243032;
@@ -35,20 +35,20 @@
   --field: #f6f2e8;
   --hover: #e6dfcb;
   --border: #d9d1bb;
-  --border-strong: #8a8576; /* 3.1:1 on vanilla */
+  --border-strong: #8a8576; /* 3.07:1 on vanilla */
   --text: var(--pal-ink);
-  --text2: var(--pal-slate); /* 6.7:1 */
-  --text3: #5f6b6c; /* 4.6:1 */
-  --accent: var(--pal-teal-dark); /* also text colour in the library: 4.8:1 on vanilla, 5.3:1 on paper */
+  --text2: var(--pal-slate);
+  --text3: #576364;
+  --accent: var(--pal-teal-dark); /* also text colour in the library: 4.75:1 on vanilla; on hover only 4.29:1 (transient) */
   --accent-fill: var(--pal-teal-dark); /* background of filled controls with --on-accent text */
   --on-accent: var(--pal-white);
   --accent-hover: var(--pal-teal-deep);
   --accent-strong: var(--pal-teal-deep); /* accent as text/link color */
   --accent-soft: color-mix(in srgb, var(--pal-teal) 10%, transparent);
-  --highlight: var(--pal-mint); /* sparing highlight (search hits), always with --pal-ink text (10.6:1) */
   --ok: #276b44;
   --warn: #765900;
-  --bad: var(--pal-wine);
+  --bad: var(--pal-wine); /* also fill of the danger button */
+  --on-bad: var(--pal-white); /* text on the danger button */
   --info: #2f5e8c;
   --ok-soft: #dcefe6;
   --warn-soft: #f6ebc8;
@@ -56,15 +56,15 @@
   --info-soft: #dfe8f1;
   --gray-soft: #e6dfcb;
   --th: #e6dfcb;
-  --hdr: var(--pal-slate); /* vanilla text 6.7:1 */
+  --hdr: var(--pal-slate); /* vanilla text 6.69:1 */
   --hdr-ink: var(--pal-vanilla);
   --hdr-hover: #56696c;
   --hdr-line: var(--pal-coral); /* decorative underline of the header */
-  --hdr-focus: var(--pal-mint); /* 6.4:1 on slate */
+  --hdr-focus: var(--pal-mint);
+  --hdr-accent: var(--pal-mint); /* accent inside the header, both themes (teal on slate has only 1.4:1) */
+  --hdr-accent-ink: var(--pal-night);
   --band: var(--pal-slate);
   --band-ink: var(--pal-vanilla);
-  --danger: var(--pal-wine); /* fill of destructive buttons, same in both themes (white text 8.5:1) */
-  --danger-hover: #73192c;
   --btn2: var(--pal-slate);
   --btn2-hover: var(--pal-ink);
   --btn2-ink: var(--pal-vanilla);
@@ -86,19 +86,20 @@
     --field: #2c393b;
     --hover: #33423f;
     --border: #3e4d4f;
-    --border-strong: #6f7e80; /* 3.2:1 on layer */
-    --text: var(--pal-vanilla); /* 11.3:1 on layer */
+    --border-strong: #7b8b8d;
+    --text: var(--pal-vanilla);
     --text2: #c9c3b3;
-    --text3: #b3ad9e; /* 4.7:1 on hover */
+    --text3: #bdb7a8;
     --accent: var(--pal-aqua);
     --accent-fill: var(--pal-aqua);
-    --on-accent: var(--pal-night); /* 9.7:1 on aqua */
+    --on-accent: var(--pal-night);
     --accent-hover: var(--pal-mint);
-    --accent-strong: var(--pal-aqua); /* 8.3:1 on layer */
+    --accent-strong: var(--pal-aqua);
     --accent-soft: color-mix(in srgb, var(--pal-aqua) 12%, transparent);
     --ok: #5fd3a0;
     --warn: #f1c21b;
-    --bad: #ff7a93;
+    --bad: #ff8fa4;
+    --on-bad: var(--pal-night);
     --info: #8ab8e6;
     --ok-soft: #123d30;
     --warn-soft: #3d3300;
@@ -123,19 +124,20 @@
   --field: #2c393b;
   --hover: #33423f;
   --border: #3e4d4f;
-  --border-strong: #6f7e80; /* 3.2:1 on layer */
-  --text: var(--pal-vanilla); /* 11.3:1 on layer */
+  --border-strong: #7b8b8d;
+  --text: var(--pal-vanilla);
   --text2: #c9c3b3;
-  --text3: #b3ad9e; /* 4.7:1 on hover */
+  --text3: #bdb7a8;
   --accent: var(--pal-aqua);
   --accent-fill: var(--pal-aqua);
-  --on-accent: var(--pal-night); /* 9.7:1 on aqua */
+  --on-accent: var(--pal-night);
   --accent-hover: var(--pal-mint);
-  --accent-strong: var(--pal-aqua); /* 8.3:1 on layer */
+  --accent-strong: var(--pal-aqua);
   --accent-soft: color-mix(in srgb, var(--pal-aqua) 12%, transparent);
   --ok: #5fd3a0;
   --warn: #f1c21b;
-  --bad: #ff7a93;
+  --bad: #ff8fa4;
+  --on-bad: var(--pal-night);
   --info: #8ab8e6;
   --ok-soft: #123d30;
   --warn-soft: #3d3300;
@@ -194,6 +196,7 @@
   --zui-ok: var(--ok);
   --zui-warn: var(--warn);
   --zui-bad: var(--bad);
+  --zui-bad-contrast: var(--on-bad);
   --zui-info: var(--info);
   --zui-ok-soft: var(--ok-soft);
   --zui-warn-soft: var(--warn-soft);
@@ -230,13 +233,13 @@
 @layer components {
   .panel { background: var(--layer); border: 1px solid var(--border); padding: 1rem; }
   /* Dark app header with accent underline: the library header re-themed through its tokens (the popover of the
-     user menu is portaled, so it keeps the normal theme). Text on --hdr: vanilla on slate 6.7:1, on #141b1c > 14:1. */
+     user menu is portaled, so it keeps the normal theme). Contrasts: see src/__tests__/design/globals-contrast.test.ts. */
   .app-header {
     --zui-surface: var(--hdr);
     --zui-text: var(--hdr-ink);
     --zui-hover: var(--hdr-hover);
-    --zui-accent: var(--accent-fill);
-    --zui-accent-contrast: var(--on-accent);
+    --zui-accent: var(--hdr-accent);
+    --zui-accent-contrast: var(--hdr-accent-ink);
     --zui-focus: var(--hdr-focus);
     border-bottom: 3px solid var(--hdr-line);
   }

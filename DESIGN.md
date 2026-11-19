@@ -12,9 +12,12 @@ keine Landingpage.
 - **Farben nur über Tokens**, nie Tailwind-Palettenfarben (`zinc-*`, `red-*`, `gray-*`, `green-*` …) oder Hex-Werte.
   Hell und Dunkel funktionieren damit automatisch.
 - **Palette** „Become Vacation“: Vanille als Grund, Schiefer für Text und Kopfzeile, Petrolgrün als Akzent, Koralle
-  nur dekorativ (Linie unter der Kopfzeile), Mint als Markierung. Werte und abgeleitete Stufen in `globals.css`.
-- **Akzent sparsam:** Petrolgrün (`--accent`) für primäre Aktion, aktive Navigation, Links. Als Textfarbe immer
-  `text-accentstrong` für Links (dunklere Stufe, 6,5:1). Status über
+  nur dekorativ (Linie unter der Kopfzeile), Mint als Akzent in der Kopfzeile. Die Palette gilt nur für dieses
+  Projekt (Konfiguration in `globals.css`), nicht in `@zweiund40gmbh/ui`. Alle Kontraste (Text 4,5:1, Rahmen/Fokus
+  3:1) prüft `src/__tests__/design/globals-contrast.test.ts`; wer ein Token ändert, lässt ihn laufen.
+- **Akzent sparsam:** Petrolgrün (`--accent`) für primäre Aktion, aktive Navigation, Links. Als Textfarbe für Links
+  `text-accentstrong` (dunklere Stufe). `--accent` selbst hält ≥ 4,5:1 auf Grund und Ebene (hell 4,75:1), auf der
+  Hover-Fläche nur 4,29:1 (vorübergehend, bewusst). Status über
   `ok`/`warn`/`bad`/`info` (+ `*-soft` als Fläche).
 - **Zahlen** rechtsbündig mit `num` (tabellarische Ziffern), Beträge über `src/lib/format.ts`.
 - **Texte** deutsch mit Umlauten, Nutzer wird gesiezt; Überschriften kurz und ohne Emoji.
