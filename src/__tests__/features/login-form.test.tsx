@@ -128,6 +128,17 @@ describe("LoginForm", () => {
     expect(signIn).toHaveBeenCalledWith("apple", { callbackUrl: "/billing" });
   });
 
+  it("shows a neutral notice and unlocks the form when Apple sign-in throws", async () => {
+    signIn.mockRejectedValueOnce(new Error("x"));
+    getProviders.mockResolvedValue({ credentials: {}, apple: {} });
+    await renderForm();
+    fireEvent.click(await screen.findByRole("button", { name: "Mit Apple anmelden" }));
+    expect(await screen.findByText("Anmeldung derzeit nicht möglich. Bitte versuchen Sie es erneut.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mit Apple anmelden" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Mit Apple anmelden" }));
+    expect(signIn).toHaveBeenCalledTimes(2);
+  });
+
   it("offers Apple only when the provider is configured", async () => {
     getProviders.mockResolvedValue({ credentials: {}, apple: {} });
     await renderForm();

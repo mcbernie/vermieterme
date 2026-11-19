@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { safeCallbackUrl } from "@/features/auth/safe-callback-url";
 
 describe("safeCallbackUrl", () => {
-  it.each(["/billing", "/a?b=1", "/tenants#x", "/"])("keeps the local path %s", (url) => {
+  it.each(["/billing", "/a?b=1", "/tenants#x", "/", "/login-help"])("keeps the local path %s", (url) => {
     expect(safeCallbackUrl(url)).toBe(url);
   });
 
@@ -18,6 +18,10 @@ describe("safeCallbackUrl", () => {
     "/\t/x.de",
     "/\n/x.de",
     "/\u0000a",
+    "/login",
+    "/login?callbackUrl=%2Fbilling",
+    "/login/",
+    "/login#x",
     "",
     null,
     undefined,
