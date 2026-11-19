@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfirmProvider, UiProvider } from "@zweiund40gmbh/ui";
 import { TenantsView } from "@/features/tenants/tenants-view";
-import { SESSION_EXPIRED } from "@/features/tenants/request";
+import { SESSION_EXPIRED } from "@/lib/api-client";
 import { defaultAnswers, stubApi } from "../features/tenant-api-stub";
 
 afterEach(() => {
@@ -73,10 +73,11 @@ describe("TenantsView", () => {
 
   it("shows a load error with retry and no empty state", async () => {
     const answers = defaultAnswers();
-    answers["GET /api/tenants"] = { status: 401, body: { error: "Nicht angemeldet" } };
+    // 401 now counts as expired session; a 403 keeps the server text of a client error.
+    answers["GET /api/tenants"] = { status: 403, body: { error: "Kein Zugriff" } };
     stubApi(answers);
     setup();
-    expect(await screen.findByText("Nicht angemeldet")).toBeInTheDocument();
+    expect(await screen.findByText("Kein Zugriff")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Erneut laden" })).toBeInTheDocument();
     expect(screen.queryByText("Noch keine Mieter vorhanden")).not.toBeInTheDocument();
   });

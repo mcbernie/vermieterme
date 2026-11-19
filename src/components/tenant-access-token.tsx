@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, CopyField, InlineNotice, LoadingState, useConfirm } from "@zweiund40gmbh/ui";
-import { requestJson } from "@/features/tenants/request";
+import { apiResult } from "@/lib/api-client";
 
 interface TenantAccessTokenProps {
   tenantId: string;
@@ -51,7 +51,7 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   useEffect(() => {
     shownTenant.current = tenantId;
     let active = true;
-    void requestJson(`/api/tenants/${tenantId}/access-token`, { accept: isTokenResponse }).then((res) => {
+    void apiResult(`/api/tenants/${tenantId}/access-token`, { accept: isTokenResponse }).then((res) => {
       if (!active) return;
       setToken(res.ok ? res.data.token : null);
       setFailure(res.ok ? null : { tenantId, text: res.error });
@@ -66,7 +66,7 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   async function generate() {
     const id = tenantId;
     setBusy(true);
-    const res = await requestJson(`/api/tenants/${id}/access-token`, { method: "POST", accept: isTokenResponse });
+    const res = await apiResult(`/api/tenants/${id}/access-token`, { method: "POST", accept: isTokenResponse });
     setBusy(false);
     if (shownTenant.current !== id) return;
     if (res.ok) setToken(res.data.token);
@@ -84,7 +84,7 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
     if (!ok) return;
     const id = tenantId;
     setBusy(true);
-    const res = await requestJson(`/api/tenants/${id}/access-token`, { method: "DELETE" });
+    const res = await apiResult(`/api/tenants/${id}/access-token`, { method: "DELETE" });
     setBusy(false);
     if (shownTenant.current !== id) return;
     if (res.ok) setToken(null);

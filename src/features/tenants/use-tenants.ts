@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PropertyWithUnits, RentChangeWithUnit, TenantWithUnit } from "@/types";
-import { isArray, requestJson, UNEXPECTED_ANSWER, type RequestResult } from "./request";
+import { apiResult, isArray, UNEXPECTED_ANSWER, type ApiResult } from "@/lib/api-client";
 import { formToPayload, type TenantFormValues } from "./tenant-form-values";
 import type { RentChangeType } from "./tenant-helpers";
 
@@ -22,7 +22,7 @@ export type MutationError = string | null;
 type ListKey = "tenants" | "properties" | "rentChanges";
 
 /** Error text of a failed result, or null. */
-function errorOf(result: RequestResult<unknown>): MutationError {
+function errorOf(result: ApiResult<unknown>): MutationError {
   return result.ok ? null : result.error;
 }
 
@@ -32,11 +32,11 @@ function isPropertyWithUnits(data: unknown): data is PropertyWithUnits {
 }
 
 /** Loads all properties with their units (one detail request per property). */
-async function loadProperties(): Promise<RequestResult<PropertyWithUnits[]>> {
-  const list = await requestJson<{ id: string }[]>("/api/properties", { accept: isArray });
+async function loadProperties(): Promise<ApiResult<PropertyWithUnits[]>> {
+  const list = await apiResult<{ id: string }[]>("/api/properties", { accept: isArray });
   if (!list.ok) return list;
   const details = await Promise.all(
-    list.data.map((p) => requestJson(`/api/properties/${p.id}`, { accept: isPropertyWithUnits })),
+    list.data.map((p) => apiResult(`/api/properties/${p.id}`, { accept: isPropertyWithUnits })),
   );
   const data: PropertyWithUnits[] = [];
   for (const d of details) {
@@ -48,18 +48,18 @@ async function loadProperties(): Promise<RequestResult<PropertyWithUnits[]>> {
 
 /** Results of all requests of the page. */
 interface Snapshot {
-  tenants: RequestResult<TenantWithUnit[]>;
-  properties: RequestResult<PropertyWithUnits[]>;
-  rentChanges: RequestResult<RentChangeWithUnit[]>;
+  tenants: ApiResult<TenantWithUnit[]>;
+  properties: ApiResult<PropertyWithUnits[]>;
+  rentChanges: ApiResult<RentChangeWithUnit[]>;
 }
 
 /** Loads tenants, properties with units and rent changes in parallel; never rejects. */
 async function loadSnapshot(): Promise<Snapshot> {
   try {
     const [tenants, properties, rentChanges] = await Promise.all([
-      requestJson<TenantWithUnit[]>("/api/tenants", { accept: isArray }),
+      apiResult<TenantWithUnit[]>("/api/tenants", { accept: isArray }),
       loadProperties(),
-      requestJson<RentChangeWithUnit[]>("/api/rent-changes", { accept: isArray }),
+      apiResult<RentChangeWithUnit[]>("/api/rent-changes", { accept: isArray }),
     ]);
     return { tenants, properties, rentChanges };
   } catch {
@@ -131,7 +131,7 @@ export function useTenants() {
   const refresh = useCallback(
     async <T,>(key: ListKey, url: string, setData: (data: T[]) => void) => {
       const current = begin([key]);
-      const res = await requestJson<T[]>(url, { accept: isArray });
+      const res = await apiResult<T[]>(url, { accept: isArray });
       if (!current(key)) return;
       if (res.ok) setData(res.data);
       setErrors((prev) => ({ ...prev, [key]: errorOf(res) }));
@@ -144,8 +144,8 @@ export function useTenants() {
     async (form: TenantFormValues, id?: string): Promise<MutationError> => {
       const body = formToPayload(form);
       const res = id
-        ? await requestJson(`/api/tenants/${id}`, { method: "PUT", body })
-        : await requestJson("/api/tenants", { method: "POST", body });
+        ? await apiResult(`/api/tenants/${id}`, { method: "PUT", json: body })
+        : await apiResult("/api/tenants", { method: "POST", json: body });
       if (!res.ok) return res.error;
       await refresh("tenants", "/api/tenants", setTenants);
       return null;
@@ -156,7 +156,7 @@ export function useTenants() {
   /** Deletes a tenant and reloads the list. */
   const deleteTenant = useCallback(
     async (id: string): Promise<MutationError> => {
-      const res = await requestJson(`/api/tenants/${id}`, { method: "DELETE" });
+      const res = await apiResult(`/api/tenants/${id}`, { method: "DELETE" });
       if (!res.ok) return res.error;
       await refresh("tenants", "/api/tenants", setTenants);
       return null;
@@ -167,7 +167,7 @@ export function useTenants() {
   /** Records a rent or prepayment change and reloads the rent changes. */
   const saveAdjustment = useCallback(
     async (adjustment: RentAdjustment): Promise<MutationError> => {
-      const res = await requestJson("/api/rent-changes", { method: "POST", body: adjustment });
+      const res = await apiResult("/api/rent-changes", { method: "POST", json: adjustment });
       if (!res.ok) return res.error;
       await refresh("rentChanges", "/api/rent-changes", setRentChanges);
       return null;
