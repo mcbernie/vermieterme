@@ -25,13 +25,16 @@ export function useBillingDetail(id: string) {
   const [actionError, setActionError] = useState<string | null>(null);
   const request = useRef(0);
   const live = useRef(new Set<AbortController>());
+  const disposed = useRef(false);
 
   /**
    * Loads the period and the cost categories and re-seeds the form values. The request is aborted on
-   * unmount and a response is dropped when a newer load started. Returns false when loading failed.
+   * unmount (no new load starts afterwards) and a response is dropped when a newer load started.
+   * Returns false when loading failed.
    */
   const load = useCallback(
     async (controllers: Set<AbortController>): Promise<boolean> => {
+      if (disposed.current) return true;
       const current = ++request.current;
       const ctrl = new AbortController();
       controllers.add(ctrl);
@@ -57,13 +60,21 @@ export function useBillingDetail(id: string) {
     [id],
   );
 
-  /** Reloads after a mutation or on retry. */
+  /** Reloads after a mutation. */
   const reload = useCallback(() => load(live.current), [load]);
+
+  /** Loads again after a failed load, showing the loading state meanwhile. */
+  function retry() {
+    setStatus("loading");
+    return reload();
+  }
 
   useEffect(() => {
     const controllers = live.current;
+    disposed.current = false;
     void load(controllers);
     return () => {
+      disposed.current = true;
       controllers.forEach((c) => c.abort());
       controllers.clear();
     };
@@ -151,6 +162,7 @@ export function useBillingDetail(id: string) {
     prepayments,
     actionError,
     reload,
+    retry,
     patchCost,
     setPrepayment: (unitId: string, value: number | null) => setPrepayments((prev) => ({ ...prev, [unitId]: value })),
     toggleEnabled,

@@ -39,6 +39,7 @@ export function useBillingList() {
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
   const request = useRef(0);
   const live = useRef(new Set<AbortController>());
+  const disposed = useRef(false);
   const quickRunning = useRef(false);
 
   /** Stores a load result unless a newer load started meanwhile. */
@@ -49,9 +50,10 @@ export function useBillingList() {
     setLoading(false);
   }, []);
 
-  /** Loads the list; the request is aborted on unmount and an outdated response is dropped. */
+  /** Loads the list; the request is aborted on unmount (no new load starts afterwards) and an outdated response is dropped. */
   const load = useCallback(
     async (controllers: Set<AbortController>) => {
+      if (disposed.current) return;
       const current = ++request.current;
       const ctrl = new AbortController();
       controllers.add(ctrl);
@@ -62,13 +64,21 @@ export function useBillingList() {
     [apply],
   );
 
-  /** Reloads after a mutation or on retry. */
+  /** Reloads after a mutation. */
   const reload = useCallback(() => load(live.current), [load]);
+
+  /** Loads again after a failed load, showing the loading state meanwhile. */
+  function retry() {
+    setLoading(true);
+    return reload();
+  }
 
   useEffect(() => {
     const controllers = live.current;
+    disposed.current = false;
     void load(controllers);
     return () => {
+      disposed.current = true;
       controllers.forEach((c) => c.abort());
       controllers.clear();
     };
@@ -129,6 +139,7 @@ export function useBillingList() {
     actionError,
     creatingFor,
     reload,
+    retry,
     create,
     quickCreate,
     remove,

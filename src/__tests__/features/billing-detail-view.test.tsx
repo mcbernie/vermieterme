@@ -78,6 +78,15 @@ describe("BillingDetailView", () => {
     expect(screen.getByText("Die Abrechnung konnte nicht geladen werden.")).toBeInTheDocument();
   });
 
+  it("shows the loading state while retrying a failed load", async () => {
+    const fetchMock = stub(undefined, 500);
+    await mount();
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Erneut versuchen" })));
+    expect(screen.queryByText("Die Abrechnung konnte nicht geladen werden.")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="loading-state"]')).toBeInTheDocument();
+  });
+
   it("saves an edited amount in euros", async () => {
     const fetchMock = stub();
     await mount();
@@ -85,7 +94,7 @@ describe("BillingDetailView", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Speichern" })));
     const body = writesTo(fetchMock, "/costs").map((c) => JSON.parse(c[1]?.body as string));
     expect(body).toContainEqual({ costCategoryId: "c1", totalAmount: 1250.5, unitAmount: null });
-    expect(screen.getByText("Gespeichert")).toBeInTheDocument();
+    expect(screen.getByText(/^Gespeichert um/)).toBeInTheDocument();
   });
 
   it("marks an unreadable amount at the field and does not save", async () => {
@@ -197,5 +206,16 @@ describe("BillingDetailView", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps an unsaved amount across tabs and shows it in the summary at once", async () => {
+    stub();
+    await mount();
+    const input = await typeOnly("Gesamtbetrag Grundsteuer", "1500");
+    await act(async () => fireEvent.click(screen.getByRole("tab", { name: "Zusammenfassung" })));
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("1.800,00 €");
+    await act(async () => fireEvent.click(screen.getByRole("tab", { name: "Kosten" })));
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveValue("1500");
   });
 });

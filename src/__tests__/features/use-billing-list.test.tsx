@@ -107,4 +107,15 @@ describe("useBillingList", () => {
     await act(async () => result.current.remove("bp1"));
     expect(result.current.actionError).toBe("Abrechnung nicht gefunden");
   });
+
+  it("starts no new load after unmount", async () => {
+    const fetchMock = vi.fn(async () => json([]));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result, unmount } = renderHook(() => useBillingList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const calls = fetchMock.mock.calls.length;
+    unmount();
+    await result.current.reload();
+    expect(fetchMock.mock.calls.length).toBe(calls);
+  });
 });

@@ -6,8 +6,6 @@ import { costPayload, type CostValues, type PrepaymentValues } from "./billing-c
 
 /** Delay of the automatic save after the last change (ms). */
 export const AUTOSAVE_DELAY = 1500;
-/** How long "Gespeichert" stays visible (ms). */
-const SAVED_VISIBLE = 2000;
 
 /** Result of the last save: stored, failed, or refused because an amount is unreadable. */
 export type SaveState = "saved" | "error" | "invalid" | null;
@@ -28,9 +26,9 @@ export async function saveAll(id: string, values: SaveValues): Promise<boolean> 
     .filter(([, v]) => v.totalAmount !== null)
     .map(([categoryId, v]) => sendJson(`/api/billing-periods/${id}/costs`, "POST", costPayload(categoryId, v), fallback));
   const prepayments = Object.entries(values.prepayments)
-    .filter(([, v]) => v !== null && v !== undefined)
-    .map(([unitId, v]) =>
-      sendJson(`/api/billing-periods/${id}/prepayments`, "POST", { unitId, monthlyAmount: v ?? 0 }, fallback),
+    .filter((entry): entry is [string, number] => entry[1] !== null && entry[1] !== undefined)
+    .map(([unitId, monthlyAmount]) =>
+      sendJson(`/api/billing-periods/${id}/prepayments`, "POST", { unitId, monthlyAmount }, fallback),
     );
   const results = await Promise.all([...costs, ...prepayments]);
   return results.every((r) => r.ok);
@@ -44,7 +42,9 @@ export async function saveAll(id: string, values: SaveValues): Promise<boolean> 
  */
 export function useBillingSave(id: string, values: SaveValues) {
   const [saving, setSaving] = useState(false);
+  const [pending, setPending] = useState(false);
   const [state, setState] = useState<SaveState>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [problems, setProblems] = useState<ReadonlySet<string>>(new Set());
   const valuesRef = useRef(values);
   const problemsRef = useRef(problems);
@@ -52,7 +52,6 @@ export function useBillingSave(id: string, values: SaveValues) {
   const again = useRef(false);
   const mounted = useRef(true);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Saves read the latest committed values, also from timers and unmount.
   useLayoutEffect(() => {
@@ -84,18 +83,19 @@ export function useBillingSave(id: string, values: SaveValues) {
       return;
     }
     setSaving(true);
+    setPending(false);
     setState(null);
     const ok = await drain();
     if (!mounted.current) return;
     setSaving(false);
     setState(ok ? "saved" : "error");
-    if (savedTimer.current) clearTimeout(savedTimer.current);
-    if (ok) savedTimer.current = setTimeout(() => setState(null), SAVED_VISIBLE);
+    if (ok) setLastSavedAt(new Date());
   }, [drain]);
 
   /** Schedules an automatic save after the last change. */
   const schedule = useCallback(() => {
     if (debounce.current) clearTimeout(debounce.current);
+    setPending(true);
     debounce.current = setTimeout(() => void save(), AUTOSAVE_DELAY);
   }, [save]);
 
@@ -121,7 +121,6 @@ export function useBillingSave(id: string, values: SaveValues) {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      if (savedTimer.current) clearTimeout(savedTimer.current);
       if (!debounce.current) return;
       clearTimeout(debounce.current);
       debounce.current = null;
@@ -132,5 +131,5 @@ export function useBillingSave(id: string, values: SaveValues) {
     };
   }, [drain]);
 
-  return { saving, state, problems, save, schedule, reportProblem };
+  return { saving, pending, state, lastSavedAt, problems, save, schedule, reportProblem };
 }

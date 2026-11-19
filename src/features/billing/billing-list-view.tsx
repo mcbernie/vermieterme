@@ -56,7 +56,7 @@ export function BillingListView() {
           title="Die Abrechnungen konnten nicht geladen werden."
           error={null}
           formatError={() => "Bitte versuchen Sie es erneut."}
-          onRetry={() => void list.reload()}
+          onRetry={() => void list.retry()}
         />
       ) : (
         <>

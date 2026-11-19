@@ -87,4 +87,13 @@ describe("BillingListView", () => {
     expect(screen.getByText("Die Abrechnungen konnten nicht geladen werden.")).toBeInTheDocument();
     expect(screen.queryByText(/Noch keine Abrechnungen/)).not.toBeInTheDocument();
   });
+
+  it("shows the loading state while retrying a failed load", async () => {
+    const fetchMock = stub(200, true);
+    await mount();
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Erneut versuchen" })));
+    expect(screen.queryByText("Die Abrechnungen konnten nicht geladen werden.")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="loading-state"]')).toBeInTheDocument();
+  });
 });

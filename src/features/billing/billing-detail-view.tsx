@@ -2,7 +2,15 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { EmptyState, ErrorState, InlineNotice, LoadingState, Tabs, tabPanelProps } from "@zweiund40gmbh/ui";
+import {
+  EmptyState,
+  ErrorState,
+  InlineNotice,
+  LoadingState,
+  Tabs,
+  tabPanelProps,
+  type AutosaveStatus,
+} from "@zweiund40gmbh/ui";
 import { DocumentUpload } from "@/components/document-upload";
 import { nkRecommendations, reviewProgress, unitResults } from "./billing-calc";
 import { BillingDetailHeader } from "./billing-detail-header";
@@ -28,6 +36,16 @@ const SAVE_ERRORS: Partial<Record<NonNullable<SaveState>, string>> = {
   error: "Fehler beim Speichern",
   invalid: "Nicht gespeichert: Bitte korrigieren Sie die markierten Beträge.",
 };
+
+/**
+ * State of the save indicator. A failed or refused save counts as unsaved changes; its reason is
+ * shown as page notice.
+ */
+function indicator(saver: { saving: boolean; pending: boolean; state: SaveState }): AutosaveStatus {
+  if (saver.saving) return "saving";
+  if (saver.pending || saver.state === "error" || saver.state === "invalid") return "pending";
+  return saver.state === "saved" ? "saved" : "idle";
+}
 
 /** Billing period editor: costs, prepayments, summary with recommendations and receipts in tabs. */
 export function BillingDetailView({ id }: { id: string }) {
@@ -65,7 +83,7 @@ export function BillingDetailView({ id }: { id: string }) {
         title="Die Abrechnung konnte nicht geladen werden."
         error={null}
         formatError={() => "Bitte versuchen Sie es erneut."}
-        onRetry={() => void detail.reload()}
+        onRetry={() => void detail.retry()}
       />
     );
   }
@@ -79,7 +97,8 @@ export function BillingDetailView({ id }: { id: string }) {
         id={id}
         period={period}
         saving={saver.saving}
-        saved={saver.state === "saved"}
+        saveStatus={indicator(saver)}
+        lastSavedAt={saver.lastSavedAt}
         onSave={() => void saver.save()}
         onDate={detail.setDate}
       />

@@ -1,4 +1,4 @@
-import { Button, PageHeader } from "@zweiund40gmbh/ui";
+import { Button, PageHeader, SaveStatus, type AutosaveStatus } from "@zweiund40gmbh/ui";
 import { getDaysInPeriod, getMonthsInPeriod } from "@/lib/billing";
 import { formatDate } from "@/lib/format";
 import type { BillingPeriodDetail } from "@/types";
@@ -8,14 +8,15 @@ interface Props {
   id: string;
   period: BillingPeriodDetail;
   saving: boolean;
-  /** Shows "Gespeichert" next to the save button. */
-  saved: boolean;
+  /** Save indicator next to the save button; errors are shown as page notice instead. */
+  saveStatus: AutosaveStatus;
+  lastSavedAt: Date | null;
   onSave: () => void;
   onDate: (field: "sentDate" | "paidDate", value: string) => void;
 }
 
 /** Page header of a billing period: period facts, save and PDF actions, and sent/paid dates. */
-export function BillingDetailHeader({ id, period, saving, saved, onSave, onDate }: Props) {
+export function BillingDetailHeader({ id, period, saving, saveStatus, lastSavedAt, onSave, onDate }: Props) {
   const { property } = period;
   const months = getMonthsInPeriod(period.startDate, period.endDate);
   const days = getDaysInPeriod(period.startDate, period.endDate);
@@ -37,11 +38,7 @@ export function BillingDetailHeader({ id, period, saving, saved, onSave, onDate 
         }
         actions={
           <div className="flex items-center gap-3">
-            {saved && (
-              <span role="status" className="text-sm text-ok">
-                Gespeichert
-              </span>
-            )}
+            <SaveStatus status={saveStatus} lastSavedAt={lastSavedAt} />
             <Button variant="primary" onClick={onSave} disabled={saving}>
               {saving ? "Speichern..." : "Speichern"}
             </Button>
