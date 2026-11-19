@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTOSAVE_DELAY, useBillingSave, type SaveValues } from "@/features/billing/use-billing-save";
 
@@ -70,6 +71,23 @@ describe("useBillingSave", () => {
       await first;
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("saves nothing when the page is left with an unreadable amount", async () => {
+    const { unmount } = renderHook(() => {
+      const saver = useBillingSave("bp", values);
+      const { reportProblem } = saver;
+      // Like an amount field: reports its problem and withdraws it on unmount, after the hook cleanup.
+      useEffect(() => {
+        reportProblem("cost-total-c1", true);
+        return () => reportProblem("cost-total-c1", false);
+      }, [reportProblem]);
+      return saver;
+    });
+    unmount();
+    await act(async () => vi.advanceTimersByTime(AUTOSAVE_DELAY));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("shows an error when a request fails", async () => {

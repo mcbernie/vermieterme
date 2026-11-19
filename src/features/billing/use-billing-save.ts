@@ -37,8 +37,9 @@ export async function saveAll(id: string, values: SaveValues): Promise<boolean> 
 /**
  * Manual and debounced automatic saving of a billing period. Never runs two saves at once: a save
  * requested meanwhile runs once more with the latest values afterwards, also after the page
- * unmounted. While an amount field holds unreadable text nothing is saved. A pending automatic save
- * is still sent when the page unmounts.
+ * unmounted. While an amount field holds unreadable text nothing is saved, also not when the page
+ * is left. Otherwise a pending automatic save is still sent when the page unmounts. Nothing is
+ * scheduled after the unmount.
  */
 export function useBillingSave(id: string, values: SaveValues) {
   const [saving, setSaving] = useState(false);
@@ -72,6 +73,7 @@ export function useBillingSave(id: string, values: SaveValues) {
 
   /** Saves now (cancelling a pending automatic save). */
   const save = useCallback(async () => {
+    if (!mounted.current) return;
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = null;
     if (problemsRef.current.size > 0) {
@@ -94,6 +96,7 @@ export function useBillingSave(id: string, values: SaveValues) {
 
   /** Schedules an automatic save after the last change. */
   const schedule = useCallback(() => {
+    if (!mounted.current) return;
     if (debounce.current) clearTimeout(debounce.current);
     setPending(true);
     debounce.current = setTimeout(() => void save(), AUTOSAVE_DELAY);
@@ -109,7 +112,8 @@ export function useBillingSave(id: string, values: SaveValues) {
       else next.delete(key);
       problemsRef.current = next;
       setProblems(next);
-      if (next.size === 0) {
+      // Fields withdraw their problem while the page unmounts; that must not start a save.
+      if (next.size === 0 && mounted.current) {
         setState((s) => (s === "invalid" ? null : s));
         schedule();
       }
