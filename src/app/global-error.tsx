@@ -8,10 +8,8 @@ import { useEffect } from "react";
  */
 export default function GlobalError({
   error,
-  reset,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -40,7 +38,7 @@ export default function GlobalError({
           </p>
           <button
             type="button"
-            onClick={reset}
+            onClick={() => window.location.reload()}
             style={{
               border: 0,
               padding: "8px 16px",

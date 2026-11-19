@@ -20,7 +20,8 @@ export default function Error({
     <main className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4 text-center">
       <ErrorState
         title="Etwas ist schiefgelaufen"
-        error={new globalThis.Error("Ein unerwarteter Fehler ist aufgetreten. Versuchen Sie es erneut oder kehren Sie zum Dashboard zurück.")}
+        error={error}
+        formatError={() => "Ein unerwarteter Fehler ist aufgetreten. Versuchen Sie es erneut oder kehren Sie zum Dashboard zurück."}
         onRetry={reset}
       />
       <Link href="/" className="text-sm text-accentstrong hover:underline">

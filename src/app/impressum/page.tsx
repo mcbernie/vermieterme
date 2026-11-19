@@ -34,7 +34,7 @@ export default function ImpressumPage() {
           <p>
             Quellcode verfügbar auf{" "}
             <a
-              href="https://github.com/nicowilms/vermieterme"
+              href="https://github.com/mcbernie/vermieterme"
               className="text-accentstrong hover:underline"
               target="_blank"
               rel="noopener noreferrer"
