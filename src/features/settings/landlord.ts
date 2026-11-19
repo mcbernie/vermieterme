@@ -1,7 +1,7 @@
 import { formatIBAN } from "@/lib/iban";
 import type { LandlordInfo } from "@/types";
 import { apiJson } from "@/lib/api-client";
-import { LOAD_FAILED } from "./use-load";
+import { LOAD_FAILED } from "@/components/form/use-load";
 
 /** Landlord record as the API returns it (optional fields may be null). */
 type LandlordRecord = { id?: string } & { [K in keyof Omit<LandlordInfo, "id">]?: string | null };

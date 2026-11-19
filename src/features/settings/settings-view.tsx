@@ -6,7 +6,7 @@ import { CostCategoriesSection } from "./cost-categories-section";
 import { loadLandlord } from "./landlord";
 import { LandlordForm } from "./landlord-form";
 import { LoadGate, SettingsSection } from "./section";
-import { useLoad } from "./use-load";
+import { useLoad } from "@/components/form/use-load";
 import { UsersSection } from "./users-section";
 
 /** Landlord and bank details: loads them and shows the form only when loading succeeded. */

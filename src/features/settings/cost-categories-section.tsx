@@ -7,7 +7,7 @@ import { CostCategoryModal, type CostCategoryValues } from "./cost-category-moda
 import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "./section";
 import { useAction } from "@/components/form/use-action";
-import { LOAD_FAILED, useLoad } from "./use-load";
+import { LOAD_FAILED, useLoad } from "@/components/form/use-load";
 
 /** Loads the cost categories. */
 const loadCategories = (signal: AbortSignal) =>

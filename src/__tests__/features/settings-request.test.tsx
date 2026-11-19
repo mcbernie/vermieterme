@@ -9,7 +9,7 @@ import {
   SessionExpiredError,
 } from "@/lib/api-client";
 import { useAction } from "@/components/form/use-action";
-import { LOAD_FAILED, REFRESH_FAILED, useLoad } from "@/features/settings/use-load";
+import { LOAD_FAILED, REFRESH_FAILED, useLoad } from "@/components/form/use-load";
 import { fakeResponse, json, loginPage, mockFetch } from "./settings-helpers";
 
 afterEach(() => vi.unstubAllGlobals());

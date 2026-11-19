@@ -6,7 +6,7 @@ import type { AppUser } from "@/types";
 import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "./section";
 import { useAction } from "@/components/form/use-action";
-import { LOAD_FAILED, useLoad } from "./use-load";
+import { LOAD_FAILED, useLoad } from "@/components/form/use-load";
 import { UserFormModal, type NewUserValues } from "./user-form-modal";
 
 /** Loads the users that may sign in. */

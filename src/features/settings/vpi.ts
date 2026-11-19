@@ -1,6 +1,6 @@
 import type { VpiEntry } from "@/types";
 import { apiJson, SessionExpiredError } from "@/lib/api-client";
-import { LOAD_FAILED } from "./use-load";
+import { LOAD_FAILED } from "@/components/form/use-load";
 
 /** German month names, index 0 = January. */
 export const MONTH_NAMES = [

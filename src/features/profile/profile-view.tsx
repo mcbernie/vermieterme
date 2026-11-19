@@ -4,7 +4,7 @@ import { PageHeader } from "@zweiund40gmbh/ui";
 import { useSession } from "next-auth/react";
 import { apiJson } from "@/lib/api-client";
 import { LoadGate, SettingsSection } from "@/features/settings/section";
-import { LOAD_FAILED, useLoad } from "@/features/settings/use-load";
+import { LOAD_FAILED, useLoad } from "@/components/form/use-load";
 import type { AppUser } from "@/types";
 import { NameForm } from "./name-form";
 import { PasswordForm } from "./password-form";
