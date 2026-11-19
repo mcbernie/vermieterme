@@ -1,4 +1,5 @@
 import { parseDecimal, type DateInputProblem } from "@zweiund40gmbh/ui";
+import { dateError } from "@/components/form/date-problem";
 import { validateIBAN } from "@/lib/iban";
 import type { Tenant } from "@/types";
 
@@ -123,13 +124,6 @@ export function formToPayload(form: TenantFormValues) {
  */
 export function ibanHint(iban: string): string | undefined {
   return iban && !validateIBAN(iban) ? "Ungültige IBAN" : undefined;
-}
-
-/** Error text of a date field, or undefined when it is fine. */
-function dateError(problem: DateInputProblem | null | undefined, value: string, required: boolean) {
-  if (problem) return "Bitte ein gültiges Datum eingeben.";
-  if (required && value === "") return "Bitte ein Datum angeben.";
-  return undefined;
 }
 
 /**

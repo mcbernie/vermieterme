@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { Button, DateInput, InlineNotice, Field, Modal, MoneyInput, Select, TextInput } from "@zweiund40gmbh/ui";
-import { dateError, useDateProblem } from "./date-problem";
+import { dateError, useDateProblem } from "@/components/form/date-problem";
 import type { RentChangeWithUnit } from "@/types";
 import type { RentChangePayload } from "./use-rent-changes";
 import { TYPE_OPTIONS, centsToEuros, eurosToCents } from "./rent-change-utils";

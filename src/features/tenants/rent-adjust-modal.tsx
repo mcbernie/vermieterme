@@ -12,8 +12,8 @@ import {
   TextInput,
   parseMoney,
   todayIso,
-  type DateInputProblem,
 } from "@zweiund40gmbh/ui";
+import { dateError, useDateProblem } from "@/components/form/date-problem";
 import type { RentChangeType } from "./tenant-helpers";
 import type { MutationError, RentAdjustment } from "./use-tenants";
 
@@ -42,7 +42,7 @@ export function RentAdjustModal({ unitId, tenantName, defaultType, onSave, onClo
   const [type, setType] = useState<RentChangeType>(defaultType);
   const [cents, setCents] = useState<number | null>(null);
   const [effectiveDate, setEffectiveDate] = useState(todayIso());
-  const [dateProblem, setDateProblem] = useState<DateInputProblem | null>(null);
+  const date = useDateProblem();
   const [reason, setReason] = useState("");
   const [attempted, setAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -55,11 +55,7 @@ export function RentAdjustModal({ unitId, tenantName, defaultType, onSave, onClo
     : attempted && cents === null
       ? "Bitte einen Betrag angeben."
       : undefined;
-  const dateError = dateProblem
-    ? "Bitte ein gültiges Datum eingeben."
-    : attempted && !effectiveDate
-      ? "Bitte ein Datum angeben."
-      : undefined;
+  const dateMessage = dateError(date.problem, effectiveDate, attempted);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -68,7 +64,7 @@ export function RentAdjustModal({ unitId, tenantName, defaultType, onSave, onClo
     // MoneyInput keeps unreadable text without reporting it, so the last reported amount may be stale.
     const unreadable = isUnreadableAmount(amountRef.current?.value ?? "");
     setAmountUnreadable(unreadable);
-    if (unreadable || cents === null || !effectiveDate || dateProblem) return;
+    if (unreadable || cents === null || !effectiveDate || date.problem) return;
     setBusy(true);
     const error = await onSave({
       unitId,
@@ -116,11 +112,11 @@ export function RentAdjustModal({ unitId, tenantName, defaultType, onSave, onClo
               min={0}
             />
           </Field>
-          <Field label="Gültig ab" required error={dateError}>
+          <Field label="Gültig ab" required error={dateMessage}>
             <DateInput
               value={effectiveDate}
               onChange={setEffectiveDate}
-              onProblemChange={setDateProblem}
+              onProblemChange={date.onProblemChange}
               showError={false}
             />
           </Field>

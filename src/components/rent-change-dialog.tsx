@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { dateError, useDateProblem } from "@/features/rent-changes/date-problem";
+import { dateError, useDateProblem } from "@/components/form/date-problem";
 import { Button, DateInput, InlineNotice, Field, Modal, MoneyInput, TextInput } from "@zweiund40gmbh/ui";
 
 export interface RentChangeDialogValue {

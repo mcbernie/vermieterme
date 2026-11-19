@@ -14,16 +14,16 @@ export function useDateProblem() {
 
 /**
  * Error text for a date field, or `undefined` when the field is fine.
- * @param problem Current problem reported by the `DateInput`.
+ * @param problem Current problem reported by the `DateInput` (`undefined` = none reported yet).
  * @param value Current ISO day (`''` = empty).
- * @param attempted Whether the user already tried to submit (empty is only an error then).
+ * @param emptyIsError Whether an empty field is an error, e.g. a required field after a submit attempt.
  */
 export function dateError(
-  problem: DateInputProblem | null,
+  problem: DateInputProblem | null | undefined,
   value: string,
-  attempted: boolean
+  emptyIsError: boolean
 ): string | undefined {
   if (problem) return "Bitte ein gültiges Datum eingeben.";
-  if (attempted && value === "") return "Bitte ein Datum angeben.";
+  if (emptyIsError && value === "") return "Bitte ein Datum angeben.";
   return undefined;
 }

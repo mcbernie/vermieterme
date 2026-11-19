@@ -2,7 +2,7 @@
 
 import { DateInput, Field } from "@zweiund40gmbh/ui";
 import { formatDateISO } from "@/lib/format";
-import { dateError, useDateProblem } from "@/features/rent-changes/date-problem";
+import { dateError, useDateProblem } from "@/components/form/date-problem";
 
 interface Props {
   sentDate: string | null;

@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Button, DateInput, Field, InlineNotice, Modal, Select } from "@zweiund40gmbh/ui";
 import { useSave } from "@/features/properties/use-save";
-import { dateError, useDateProblem } from "@/features/rent-changes/date-problem";
+import { dateError, useDateProblem } from "@/components/form/date-problem";
 import type { BillingPeriodWithProperty, Property } from "@/types";
 import type { WriteResult } from "./billing-http";
 import { copySourceOptions, shiftYear } from "./billing-list-utils";
