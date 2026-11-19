@@ -158,4 +158,26 @@ describe("TenantAccessToken", () => {
     rerender(view("t2"));
     await waitFor(() => expect(screen.getByRole("button", { name: "Zugang widerrufen" })).toBeEnabled());
   });
+
+  it("keeps a tenant locked until its own generate ends, also after another one started (#63)", async () => {
+    const release = new Map<string, () => void>();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") return Promise.resolve(Response.json({ hasToken: false, token: null }));
+        return new Promise<Response>((resolve) => release.set(url, () => resolve(Response.json({ token: "X" }))));
+      }),
+    );
+    const { rerender } = setup();
+    fireEvent.click(await screen.findByRole("button", { name: "Einladungscode generieren" }));
+    rerender(view("t2"));
+    fireEvent.click(await screen.findByRole("button", { name: "Einladungscode generieren" }));
+    expect(await screen.findByRole("button", { name: "Wird generiert …" })).toBeDisabled();
+    rerender(view("t1"));
+    expect(await screen.findByRole("button", { name: "Wird generiert …" })).toBeDisabled();
+    await act(async () => release.get("/api/tenants/t2/access-token")?.());
+    expect(screen.getByRole("button", { name: "Wird generiert …" })).toBeDisabled();
+    await act(async () => release.get("/api/tenants/t1/access-token")?.());
+    expect(await screen.findByText("X")).toBeInTheDocument();
+  });
 });

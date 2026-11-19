@@ -36,10 +36,10 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   const [token, setToken] = useState<string | null>(null);
   // Tenant whose code has been loaded; while it differs from `tenantId`, the code is loading.
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
-  // Tenant with a running request; the buttons of another tenant stay usable.
-  const [busyFor, setBusyFor] = useState<string | null>(null);
+  // Tenants with a running request; only their own buttons are locked until it ends.
+  const [busyFor, setBusyFor] = useState<ReadonlySet<string>>(new Set());
   const [failure, setFailure] = useState<TenantError | null>(null);
-  const busy = busyFor === tenantId;
+  const busy = busyFor.has(tenantId);
   const loading = loadedFor !== tenantId;
   const error = failure?.tenantId === tenantId ? failure.text : null;
   // Tenant shown right now; answers of `generate`/`revoke` for another tenant are dropped.
@@ -64,12 +64,26 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
     };
   }, [tenantId]);
 
+  /** Runs a request for tenant `id`, keeping its buttons locked until the request ends. */
+  async function whileBusy<T>(id: string, request: () => Promise<T>): Promise<T> {
+    setBusyFor((current) => new Set(current).add(id));
+    try {
+      return await request();
+    } finally {
+      setBusyFor((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
+
   /** Creates a new invitation code. */
   async function generate() {
     const id = tenantId;
-    setBusyFor(id);
-    const res = await apiResult(`/api/tenants/${id}/access-token`, { method: "POST", accept: isTokenResponse });
-    setBusyFor((current) => (current === id ? null : current));
+    const res = await whileBusy(id, () =>
+      apiResult(`/api/tenants/${id}/access-token`, { method: "POST", accept: isTokenResponse }),
+    );
     if (shownTenant.current !== id) return;
     if (res.ok) setToken(res.data.token);
     report(id, res.ok ? null : res.error);
@@ -79,15 +93,15 @@ export function TenantAccessToken({ tenantId, tenantName, onClose }: TenantAcces
   async function revoke() {
     const ok = await confirm({
       title: "Zugang widerrufen",
-      message: `Möchten Sie den App-Zugang für ${tenantName} wirklich widerrufen? Der Mieter kann sich danach nicht mehr in der App anmelden.`,
+      message:
+        `Möchten Sie den App-Zugang für ${tenantName} wirklich widerrufen? ` +
+        "Der Mieter kann sich danach nicht mehr in der App anmelden.",
       confirmLabel: "Widerrufen",
       danger: true,
     });
     if (!ok) return;
     const id = tenantId;
-    setBusyFor(id);
-    const res = await apiResult(`/api/tenants/${id}/access-token`, { method: "DELETE" });
-    setBusyFor((current) => (current === id ? null : current));
+    const res = await whileBusy(id, () => apiResult(`/api/tenants/${id}/access-token`, { method: "DELETE" }));
     if (shownTenant.current !== id) return;
     if (res.ok) setToken(null);
     report(id, res.ok ? null : res.error);
