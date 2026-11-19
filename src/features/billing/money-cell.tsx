@@ -57,13 +57,18 @@ export function MoneyCell({ label, value, onChange, onProblemChange, disabled }:
     setBad(isUnreadableMoney(text, locale));
   }
 
-  /** Passes a readable amount on while typing. */
+  /**
+   * Passes a readable amount on while typing. Unreadable text is marked at once, so the last readable
+   * intermediate value (e.g. "12" before "12x3") is not saved; correcting it lifts the mark again.
+   */
   function typed(text: string) {
     if (text.trim() === "") {
+      setBad(false);
       if (value !== null) onChange(null);
       return;
     }
     const cents = parseMoney(text, locale, 2);
+    setBad(cents === null);
     if (cents !== null && cents !== toCents(value)) onChange(cents / 100);
   }
 

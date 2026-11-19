@@ -61,6 +61,9 @@ async function typeMoney(label: string, text: string) {
 describe("BillingDetailView", () => {
   beforeEach(() => vi.spyOn(console, "error").mockImplementation(() => {}));
   afterEach(() => {
+    // Fake timers only; pending autosave timers must not reach a later test.
+    vi.clearAllTimers();
+    vi.useRealTimers();
     cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -156,6 +159,7 @@ describe("BillingDetailView", () => {
   });
 
   it("withdraws an unreadable amount when its field disappears", async () => {
+    vi.useFakeTimers();
     const fetchMock = stub();
     await mount();
     await typeMoney("Anteil Wohnung Wasser", "1.2.3");
@@ -170,6 +174,7 @@ describe("BillingDetailView", () => {
   });
 
   it("does not block saving with an unreadable amount of a hidden category", async () => {
+    vi.useFakeTimers();
     let hidden = false;
     const fetchMock = stub(
       (_url, init) => {
@@ -217,5 +222,21 @@ describe("BillingDetailView", () => {
     await act(async () => fireEvent.click(screen.getByRole("tab", { name: "Kosten" })));
     expect(input).toBeInTheDocument();
     expect(input).toHaveValue("1500");
+  });
+
+  it("marks unreadable text while typing and saves no readable intermediate value", async () => {
+    vi.useFakeTimers();
+    const fetchMock = stub();
+    await mount();
+    const input = await typeOnly("Gesamtbetrag Grundsteuer", "12");
+    await act(async () => fireEvent.input(input, { target: { value: "12x3" } }));
+    expect(screen.getByText("Bitte einen gültigen Betrag eingeben.")).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTime(1500));
+    expect(amountSaves(fetchMock)).toHaveLength(0);
+    await act(async () => fireEvent.input(input, { target: { value: "13" } }));
+    expect(screen.queryByText("Bitte einen gültigen Betrag eingeben.")).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTime(1500));
+    expect(amountSaves(fetchMock)).toContainEqual({ costCategoryId: "c1", totalAmount: 13, unitAmount: null });
+    expect(screen.queryByText(/Nicht gespeichert/)).not.toBeInTheDocument();
   });
 });

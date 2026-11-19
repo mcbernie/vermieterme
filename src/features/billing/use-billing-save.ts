@@ -39,7 +39,8 @@ export async function saveAll(id: string, values: SaveValues): Promise<boolean> 
  * requested meanwhile runs once more with the latest values afterwards, also after the page
  * unmounted. While an amount field holds unreadable text nothing is saved, also not when the page
  * is left. Otherwise a pending automatic save is still sent when the page unmounts. Nothing is
- * scheduled after the unmount.
+ * scheduled after the unmount. A save that fails after the unmount is lost without notice, since no
+ * page is left to show it; the send after leaving is a best effort, not a guarantee.
  */
 export function useBillingSave(id: string, values: SaveValues) {
   const [saving, setSaving] = useState(false);
