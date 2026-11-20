@@ -14,7 +14,7 @@ use sqlx::Row;
 use vermieterme_db::repo::account::{self, AccountPatch};
 use vermieterme_db::repo::session;
 use vermieterme_db::repo::user::{self, MemberPatch, NewUser, Role};
-use vermieterme_db::{AdminScope, Db, SecretToken, dual_test};
+use vermieterme_db::{AdminScope, Db, DbError, SecretToken, dual_test};
 
 /// Only the hash is stored; expiry, idle timeout and locks end the session.
 async fn session_validity(db: &Db) {
@@ -196,3 +196,40 @@ async fn session_ending(db: &Db) {
     );
 }
 dual_test!(session_end, session_ending);
+
+/// Switching into an unknown account or with an unknown session is `NotFound`, not a
+/// driver error; the session keeps its previous account.
+async fn acting_account_unknown(db: &Db) {
+    let mut c = db.pool().acquire().await.unwrap();
+    let (scope, uid) = setup(&mut c, "a@example.org", Role::Admin).await;
+    let admin = AdminScope::verified_admin(&uid);
+    let token = SecretToken::generate();
+    let s = session::create(&mut c, &uid, &token, NOW, NOW + HOUR)
+        .await
+        .unwrap();
+    session::set_acting_account(&mut c, &admin, &s.id, Some(scope.account_id()))
+        .await
+        .unwrap();
+
+    let err = session::set_acting_account(&mut c, &admin, &s.id, Some("unbekannt"))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DbError::NotFound), "{err:?}");
+    let err = session::set_acting_account(&mut c, &admin, "unbekannt", None)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, DbError::NotFound), "{err:?}");
+
+    let kept = session::find_valid(&mut c, &token, NOW, 0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        kept.session.acting_account_id.as_deref(),
+        Some(scope.account_id())
+    );
+    session::set_acting_account(&mut c, &admin, &s.id, None)
+        .await
+        .unwrap();
+}
+dual_test!(session_acting_unknown, acting_account_unknown);

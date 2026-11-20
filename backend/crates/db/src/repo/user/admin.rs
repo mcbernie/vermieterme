@@ -8,13 +8,18 @@ use crate::row::{flag_value, now_millis};
 use crate::scope::AdminScope;
 
 /// Creates a user with any role, in `account_id` or without account (admin bootstrap,
-/// admin user management, legacy import). Taken address -> [`DbError::Conflict`].
+/// admin user management, legacy import). Taken address -> [`DbError::Conflict`]; a
+/// member without account -> [`DbError::Constraint`] (only admins may have none; the
+/// schema enforces the same rule as `app_user_member_account_chk`).
 pub async fn create_for_admin(
     conn: &mut AnyConnection,
     _admin: &AdminScope,
     account_id: Option<&str>,
     new: &NewUser,
 ) -> DbResult<User> {
+    if new.role == Role::Member && account_id.is_none() {
+        return Err(DbError::Constraint);
+    }
     insert(
         conn,
         account_id,
@@ -36,7 +41,8 @@ pub async fn get_for_admin(
 }
 
 /// Updates any user including the role (admin); only sent fields change. The only way to
-/// change a role.
+/// change a role. Making a user without account a member is refused by the schema
+/// (`app_user_member_account_chk`) -> [`DbError::Constraint`].
 pub async fn update_for_admin(
     conn: &mut AnyConnection,
     _admin: &AdminScope,

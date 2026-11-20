@@ -16,7 +16,8 @@
 -- Foreign keys are table constraints (InnoDB ignores inline REFERENCES), and every
 -- foreign key has an explicitly named index, so MySQL creates no implicit ones.
 -- Every business table carries account_id; references between business tables are
--- composite (account_id, x_id) -> parent (account_id, id).
+-- composite (account_id, x_id) -> parent (account_id, id). Only exception: the
+-- informational billing_period.copied_from_id (see there).
 
 -- Accounts (customers, "Kunden") and their users ------------------------------------------
 
@@ -29,6 +30,9 @@ CREATE TABLE account (
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+-- A member always belongs to an account; only an admin may have none (bootstrap).
+-- Legacy import (P9): Prisma User.name and User.email are nullable, app_user.name and
+-- app_user.email are not, so the import needs a replacement rule for missing values.
 CREATE TABLE app_user (
     id            VARCHAR(36)  NOT NULL,
     account_id    VARCHAR(36)  NULL,
@@ -42,7 +46,8 @@ CREATE TABLE app_user (
     PRIMARY KEY (id),
     UNIQUE KEY app_user_email_key (email),
     KEY app_user_account_idx (account_id),
-    FOREIGN KEY (account_id) REFERENCES account (id)
+    FOREIGN KEY (account_id) REFERENCES account (id),
+    CONSTRAINT app_user_member_account_chk CHECK (role = 'admin' OR account_id IS NOT NULL)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 -- External identities (OIDC later); every login path ends in a web session.
@@ -71,7 +76,8 @@ CREATE TABLE user_token (
     FOREIGN KEY (user_id) REFERENCES app_user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
--- Web sessions; only the SHA-256 hash of the cookie value is stored.
+-- Web sessions; only the SHA-256 hash of the cookie value is stored. Housekeeping
+-- deletes by expires_at OR last_seen_at (one index per condition).
 CREATE TABLE web_session (
     id                VARCHAR(36) NOT NULL,
     token_hash        CHAR(64)    NOT NULL,
@@ -84,6 +90,8 @@ CREATE TABLE web_session (
     UNIQUE KEY web_session_token_key (token_hash),
     KEY web_session_user_idx (user_id),
     KEY web_session_acting_idx (acting_account_id),
+    KEY web_session_expires_idx (expires_at),
+    KEY web_session_last_seen_idx (last_seen_at),
     FOREIGN KEY (user_id) REFERENCES app_user (id) ON DELETE CASCADE,
     FOREIGN KEY (acting_account_id) REFERENCES account (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
@@ -105,6 +113,8 @@ CREATE TABLE audit_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 -- Settings per account --------------------------------------------------------------------
+-- Legacy import (P9): LandlordInfo and PdfTemplate may hold several rows in Prisma; here
+-- they are unique per account, so the import must pick one row per account.
 
 CREATE TABLE landlord (
     id             VARCHAR(36)  NOT NULL,
@@ -204,6 +214,8 @@ CREATE TABLE tenant (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 -- Invitation code of the tenant app: at most one per tenant, stored as HMAC-SHA256.
+-- code_hash is unique across all accounts; with 6 characters collisions are possible, so
+-- the code generator (P7) must retry with a new code on Conflict.
 CREATE TABLE tenant_invite_code (
     id         VARCHAR(36) NOT NULL,
     account_id VARCHAR(36) NOT NULL,
@@ -263,6 +275,11 @@ CREATE TABLE vpi_entry (
 
 -- Billing ---------------------------------------------------------------------------------
 
+-- copied_from_id is informational only (the period a copy was made from). Its foreign key
+-- has one column because ON DELETE SET NULL cannot null a composite key without also
+-- nulling account_id; it therefore does not stop a reference into another account. The
+-- copy function must load the source period through the account scope and may only set
+-- copied_from_id to a period of the same account; nothing may read across this link.
 CREATE TABLE billing_period (
     id             VARCHAR(36) NOT NULL,
     account_id     VARCHAR(36) NOT NULL,

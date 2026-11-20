@@ -65,6 +65,30 @@ async fn one_time_links(db: &Db) {
 }
 dual_test!(user_token_once, one_time_links);
 
+/// Two connections redeem the same link at the same time: exactly one wins. SQLite
+/// serialises the two writers (busy timeout), MariaDB row-locks the token row; in both
+/// the conditional `UPDATE` of the loser sees `used_at` set and changes nothing.
+async fn concurrent_consume(db: &Db) {
+    let mut c = db.pool().acquire().await.unwrap();
+    let (_, uid) = setup(&mut c, "m@example.org", Role::Member).await;
+    let mut a = db.pool().acquire().await.unwrap();
+    let mut b = db.pool().acquire().await.unwrap();
+    // Several rounds, so the two statements really overlap at least sometimes.
+    for _ in 0..10 {
+        let token = SecretToken::generate();
+        user_token::issue(&mut c, &uid, TokenPurpose::Reset, &token, NOW, NOW + HOUR)
+            .await
+            .unwrap();
+        let (ra, rb) = tokio::join!(
+            user_token::consume(&mut a, TokenPurpose::Reset, &token, NOW),
+            user_token::consume(&mut b, TokenPurpose::Reset, &token, NOW),
+        );
+        let winners: Vec<String> = [ra.unwrap(), rb.unwrap()].into_iter().flatten().collect();
+        assert_eq!(winners, std::slice::from_ref(&uid), "genau eine Einlösung");
+    }
+}
+dual_test!(user_token_concurrent, concurrent_consume);
+
 /// Entries are listed newest first, filterable, limited, with the actor's e-mail.
 async fn audit_log(db: &Db) {
     let mut c = db.pool().acquire().await.unwrap();

@@ -8,6 +8,17 @@
 //! Every repository function with account (customer) reference takes an explicit
 //! scope parameter ([`scope`]), so access to foreign data is structurally impossible:
 //! a foreign id behaves like a missing one ([`DbError::NotFound`]).
+//!
+//! # Rules the schema cannot enforce
+//!
+//! - `billing_period.copied_from_id` has a single-column foreign key (`ON DELETE SET
+//!   NULL` cannot null a composite key), so the schema does not stop it from pointing
+//!   into another account. It is informational only: the copy function loads the source
+//!   period through the account scope and sets the column only to a period of the same
+//!   account, and no query follows the link to read data.
+//! - The audit log stores the acting user's id only; the e-mail shown in the log is
+//!   joined at read time and becomes `None` once the user is deleted. This is
+//!   intentional: the log keeps no copy of personal data.
 
 pub mod dialect;
 mod error;

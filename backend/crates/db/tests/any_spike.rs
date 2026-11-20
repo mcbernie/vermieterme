@@ -53,8 +53,8 @@ async fn types_round_trip(db: &Db) {
 
     let none: Option<String> = None;
     sqlx::query(
-        "INSERT INTO app_user (id, account_id, email, name, password_hash, created_at, updated_at) \
-         VALUES ('u1', NULL, 'x@example.org', 'X', ?, 1, 1)",
+        "INSERT INTO app_user (id, account_id, email, name, password_hash, role, created_at, \
+         updated_at) VALUES ('u1', NULL, 'x@example.org', 'X', ?, 'admin', 1, 1)",
     )
     .bind(none)
     .execute(&mut *conn)

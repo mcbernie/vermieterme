@@ -78,7 +78,10 @@ pub async fn create(
     load(conn, &id).await
 }
 
-/// Lists all accounts with their user count, ordered by name.
+/// Lists all accounts with their user count, ordered by name. The order is byte-exact
+/// (`utf8mb4_bin` / SQLite `BINARY`): upper case before lower case, umlauts after "z".
+/// Locale-aware sorting and search over normalised names are up to the caller (sort in
+/// Rust or in the user interface).
 pub async fn list(conn: &mut AnyConnection, _admin: &AdminScope) -> DbResult<Vec<AccountSummary>> {
     let rows = sqlx::query(
         "SELECT a.id, a.name, a.locked, a.created_at, a.updated_at, \

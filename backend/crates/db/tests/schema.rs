@@ -66,7 +66,7 @@ async fn has_all_tables_with_account_id(db: &Db) {
     // dialect comparison pass trivially.
     let fks: usize = tables.iter().map(|t| t.foreign_keys.len()).sum();
     let indexes: usize = tables.iter().map(|t| t.indexes.len()).sum();
-    assert_eq!((fks, indexes), (24, 33));
+    assert_eq!((fks, indexes), (24, 35));
     // Every text column except the free-form TEXT ones has a length limit (#88).
     let unlimited: Vec<String> = tables
         .iter()

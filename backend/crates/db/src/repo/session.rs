@@ -39,20 +39,22 @@ pub struct ActiveSession {
     pub user: User,
 }
 
-/// Columns read by [`from_row`].
+/// Session columns of [`find_valid`], aliased where they clash with user columns
+/// (`id`, `created_at`); read by [`from_row`].
 macro_rules! columns {
     () => {
-        "s.id, s.user_id, s.acting_account_id, s.created_at, s.last_seen_at, s.expires_at"
+        "s.id AS session_id, s.user_id, s.acting_account_id, \
+         s.created_at AS session_created_at, s.last_seen_at, s.expires_at"
     };
 }
 
 /// Maps a row selected with `columns!()`.
 fn from_row(row: &AnyRow) -> DbResult<Session> {
     Ok(Session {
-        id: row.try_get("id")?,
+        id: row.try_get("session_id")?,
         user_id: row.try_get("user_id")?,
         acting_account_id: row.try_get("acting_account_id")?,
-        created_at: row.try_get("created_at")?,
+        created_at: row.try_get("session_created_at")?,
         last_seen_at: row.try_get("last_seen_at")?,
         expires_at: row.try_get("expires_at")?,
     })
@@ -91,7 +93,8 @@ pub async fn create(
 
 /// Finds the valid session of a presented token: not expired (`expires_at > now`), used
 /// after `idle_since`, user not locked, account not locked (admins are exempt from the
-/// account lock). Anything else -> `None`.
+/// account lock). Anything else -> `None`. Session and user come from one statement, so a
+/// user deleted concurrently yields `None` (401), never [`DbError::NotFound`] (404).
 pub async fn find_valid(
     conn: &mut AnyConnection,
     token: &SecretToken,
@@ -101,6 +104,8 @@ pub async fn find_valid(
     let sql = concat!(
         "SELECT ",
         columns!(),
+        ", ",
+        user::columns!(u),
         " FROM web_session s JOIN app_user u ON u.id = s.user_id \
          LEFT JOIN account a ON a.id = u.account_id \
          WHERE s.token_hash = ? AND s.expires_at > ? AND s.last_seen_at > ? \
@@ -114,7 +119,7 @@ pub async fn find_valid(
         .await?;
     let Some(row) = row else { return Ok(None) };
     let session = from_row(&row)?;
-    let user = user::load(conn, &session.user_id).await?;
+    let user = user::from_row(&row)?.user;
     Ok(Some(ActiveSession { session, user }))
 }
 
@@ -129,17 +134,25 @@ pub async fn touch(conn: &mut AnyConnection, session_id: &str, now: i64) -> DbRe
 }
 
 /// Sets or clears the account an admin works in. Audit logging is up to the caller.
+/// Unknown session or unknown account -> [`DbError::NotFound`].
 pub async fn set_acting_account(
     conn: &mut AnyConnection,
     _admin: &AdminScope,
     session_id: &str,
     account_id: Option<&str>,
 ) -> DbResult<()> {
-    let result = sqlx::query("UPDATE web_session SET acting_account_id = ? WHERE id = ?")
-        .bind(account_id)
-        .bind(session_id)
-        .execute(&mut *conn)
-        .await?;
+    // The EXISTS turns an unknown account into "no row changed" instead of a foreign key
+    // error; `NULL` (back to the own account) always passes.
+    let result = sqlx::query(
+        "UPDATE web_session SET acting_account_id = ? WHERE id = ? \
+         AND (? IS NULL OR EXISTS (SELECT 1 FROM account WHERE id = ?))",
+    )
+    .bind(account_id)
+    .bind(session_id)
+    .bind(account_id)
+    .bind(account_id)
+    .execute(&mut *conn)
+    .await?;
     if result.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }

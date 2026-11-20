@@ -14,7 +14,8 @@
 --
 -- Every business table carries account_id. References between business tables are
 -- composite foreign keys (account_id, x_id) -> parent (account_id, id), so a row can
--- never point at a row of another account.
+-- never point at a row of another account. Only exception: the informational
+-- billing_period.copied_from_id (see there).
 
 -- Accounts (customers, "Kunden") and their users ------------------------------------------
 
@@ -26,6 +27,9 @@ CREATE TABLE account (
     updated_at INTEGER NOT NULL
 ) STRICT;
 
+-- A member always belongs to an account; only an admin may have none (bootstrap).
+-- Legacy import (P9): Prisma User.name and User.email are nullable, app_user.name and
+-- app_user.email are not, so the import needs a replacement rule for missing values.
 CREATE TABLE app_user (
     id            TEXT    NOT NULL PRIMARY KEY CHECK (length(id) <= 36),
     account_id    TEXT    NULL REFERENCES account (id) CHECK (length(account_id) <= 36),
@@ -35,7 +39,8 @@ CREATE TABLE app_user (
     role          TEXT    NOT NULL DEFAULT 'member' CHECK (length(role) <= 16),
     locked        INTEGER NOT NULL DEFAULT 0,
     created_at    INTEGER NOT NULL,
-    updated_at    INTEGER NOT NULL
+    updated_at    INTEGER NOT NULL,
+    CONSTRAINT app_user_member_account_chk CHECK (role = 'admin' OR account_id IS NOT NULL)
 ) STRICT;
 CREATE UNIQUE INDEX app_user_email_key ON app_user (email);
 CREATE INDEX app_user_account_idx ON app_user (account_id);
@@ -76,6 +81,9 @@ CREATE TABLE web_session (
 CREATE UNIQUE INDEX web_session_token_key ON web_session (token_hash);
 CREATE INDEX web_session_user_idx ON web_session (user_id);
 CREATE INDEX web_session_acting_idx ON web_session (acting_account_id);
+-- Housekeeping deletes by expires_at OR last_seen_at (one index per condition).
+CREATE INDEX web_session_expires_idx ON web_session (expires_at);
+CREATE INDEX web_session_last_seen_idx ON web_session (last_seen_at);
 
 -- Audit log: action, entity and id only, never field values. No foreign keys, so entries
 -- survive the deletion of users.
@@ -93,6 +101,8 @@ CREATE INDEX audit_log_at_idx ON audit_log (at, id);
 CREATE INDEX audit_log_account_at_idx ON audit_log (account_id, at, id);
 
 -- Settings per account --------------------------------------------------------------------
+-- Legacy import (P9): LandlordInfo and PdfTemplate may hold several rows in Prisma; here
+-- they are unique per account, so the import must pick one row per account.
 
 CREATE TABLE landlord (
     id             TEXT    NOT NULL PRIMARY KEY CHECK (length(id) <= 36),
@@ -184,6 +194,8 @@ CREATE UNIQUE INDEX tenant_account_id_key ON tenant (account_id, id);
 CREATE INDEX tenant_account_unit_idx ON tenant (account_id, unit_id);
 
 -- Invitation code of the tenant app: at most one per tenant, stored as HMAC-SHA256.
+-- code_hash is unique across all accounts; with 6 characters collisions are possible, so
+-- the code generator (P7) must retry with a new code on Conflict.
 CREATE TABLE tenant_invite_code (
     id         TEXT    NOT NULL PRIMARY KEY CHECK (length(id) <= 36),
     account_id TEXT    NOT NULL CHECK (length(account_id) <= 36),
@@ -238,6 +250,11 @@ CREATE UNIQUE INDEX vpi_entry_period_key ON vpi_entry (year, month, base_year);
 
 -- Billing ---------------------------------------------------------------------------------
 
+-- copied_from_id is informational only (the period a copy was made from). Its foreign key
+-- has one column because ON DELETE SET NULL cannot null a composite key without also
+-- nulling account_id; it therefore does not stop a reference into another account. The
+-- copy function must load the source period through the account scope and may only set
+-- copied_from_id to a period of the same account; nothing may read across this link.
 CREATE TABLE billing_period (
     id             TEXT    NOT NULL PRIMARY KEY CHECK (length(id) <= 36),
     account_id     TEXT    NOT NULL CHECK (length(account_id) <= 36),

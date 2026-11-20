@@ -30,7 +30,8 @@ pub struct NewAuditEntry<'a> {
     pub entity_id: Option<&'a str>,
 }
 
-/// A stored entry; `user_email` is joined for display (`None` if the user was deleted).
+/// A stored entry; `user_email` is joined for display and is `None` once the user is
+/// deleted – intentional, the log keeps no copy of personal data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditEntry {
     /// Primary key.

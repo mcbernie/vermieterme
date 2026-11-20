@@ -119,20 +119,26 @@ pub struct LoginRecord {
     pub password_hash: Option<PasswordHash>,
 }
 
-/// Columns read by [`from_row`].
+/// Columns read by [`from_row`]; `columns!(u)` qualifies them with the alias `u` for
+/// joins (the result names stay the same, so [`from_row`] reads both forms).
 macro_rules! columns {
     () => {
         "id, account_id, email, name, role, locked, password_hash, created_at, updated_at"
     };
+    (u) => {
+        "u.id, u.account_id, u.email, u.name, u.role, u.locked, u.password_hash, \
+         u.created_at, u.updated_at"
+    };
 }
+pub(crate) use columns;
 
 /// Normalises an e-mail address for storage and lookup.
 pub fn normalize_email(email: &str) -> String {
     email.trim().to_lowercase()
 }
 
-/// Maps a row selected with `columns!()`.
-fn from_row(row: &AnyRow) -> DbResult<LoginRecord> {
+/// Maps a row selected with `columns!()` or `columns!(u)`.
+pub(crate) fn from_row(row: &AnyRow) -> DbResult<LoginRecord> {
     let role: String = row.try_get("role")?;
     let hash: Option<String> = row.try_get("password_hash")?;
     let user = User {
