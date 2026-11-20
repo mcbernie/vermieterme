@@ -8,7 +8,9 @@ use serde_json::{Value, json};
 use vermieterme_db::Db;
 use vermieterme_db::repo::user::Role;
 
-use super::support::{PASSWORD, Resp, TestApp, seed_account, seed_user};
+use vermieterme_api::config::Config;
+
+use super::support::{PASSWORD, Resp, TestApp, config, seed_account, seed_user};
 
 /// Two accounts, their members' sessions and an admin session.
 pub struct World {
@@ -26,7 +28,12 @@ pub struct World {
 
 /// Starts the server and creates [`World`].
 pub async fn world(db: &Db) -> World {
-    let app = TestApp::start(db).await;
+    world_with(db, config(&[])).await
+}
+
+/// Like [`world`] with the server configuration `config`.
+pub async fn world_with(db: &Db, config: Config) -> World {
+    let app = TestApp::start_with(db, config).await;
     let a = seed_account(db, "Kunde A").await;
     let b = seed_account(db, "Kunde B").await;
     seed_user(db, Some(&a.id), "a@example.org", Role::Member).await;

@@ -13,12 +13,13 @@ pub mod auth;
 // P5
 pub mod billing;
 pub mod config;
+// P6
+pub mod documents;
 pub mod error;
 pub mod health;
 // P4
 pub mod masterdata;
 pub mod users;
-// pub mod documents;     // P6
 // pub mod tenant_app;    // P7
 // pub mod pdf;           // P8
 // pub mod backup;        // P10

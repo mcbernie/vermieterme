@@ -5,13 +5,15 @@
 use axum::extract::{Path, State};
 use axum::response::Response;
 use serde::{Deserialize, Serialize};
+use vermieterme_db::repo::documents::Owner;
 use vermieterme_db::repo::masterdata::property as property_repo;
 use vermieterme_db::repo::masterdata::unit::{self, KINDS, Unit, UnitInput};
 
 use super::fields::{ID_INPUT_MAX, TEXT_MAX, filter};
 use super::property::{NOT_FOUND as PROPERTY_NOT_FOUND, SHARES_MAX};
-use super::{Rejection, audited_read_committed, created, deleted};
+use super::{audited_read_committed, created, deleted};
 use crate::auth::AccountCtx;
+use crate::documents::cascade::delete_owner;
 use crate::error::json::{ApiJson, ApiQuery, timestamp};
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
@@ -170,16 +172,14 @@ pub async fn remove(
     ctx: AccountCtx,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    audited_read_committed(
+    // The cascade reaches the tenants' documents; their files go after the commit (#106).
+    delete_owner(
         &state,
         &ctx,
         ("unit.delete", "unit"),
         NOT_FOUND,
-        |id: &String| id.clone(),
-        async |tx| {
-            unit::delete(tx, &ctx.scope, &id).await?;
-            Ok(Ok::<_, Rejection>(id.clone()))
-        },
+        Owner::Unit(&id),
+        async |tx| unit::delete(tx, &ctx.scope, &id).await,
     )
     .await?;
     Ok(deleted())

@@ -4,6 +4,7 @@
 use axum::extract::{Path, State};
 use axum::response::Response;
 use serde::Deserialize;
+use vermieterme_db::repo::documents::Owner;
 use vermieterme_db::repo::masterdata::tenant::{self, LEASE_TYPES, Tenant, TenantData};
 use vermieterme_db::repo::masterdata::unit as unit_repo;
 use vermieterme_domain::vpi::base_year_code;
@@ -14,6 +15,7 @@ use super::unit::NOT_FOUND as UNIT_NOT_FOUND;
 use super::unit_embed;
 use super::{audited, created, deleted};
 use crate::auth::AccountCtx;
+use crate::documents::cascade::delete_owner;
 use crate::error::json::{ApiJson, ApiQuery};
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
@@ -236,16 +238,14 @@ pub async fn remove(
     ctx: AccountCtx,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    audited(
+    // The cascade reaches the tenant's documents; their files go after the commit (#106).
+    delete_owner(
         &state,
         &ctx,
         ("tenant.delete", "tenant"),
         NOT_FOUND,
-        |id: &String| id.clone(),
-        async |tx| {
-            tenant::delete(tx, &ctx.scope, &id).await?;
-            Ok(id.clone())
-        },
+        Owner::Tenant(&id),
+        async |tx| tenant::delete(tx, &ctx.scope, &id).await,
     )
     .await?;
     Ok(deleted())

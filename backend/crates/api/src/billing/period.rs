@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use vermieterme_db::repo::billing::{
     BillingPeriod, NewPeriod, PeriodPatch, PeriodSummary, Rejection, period, summary,
 };
+use vermieterme_db::repo::documents::Owner;
 use vermieterme_db::repo::masterdata::property::{self, Property};
 use vermieterme_db::{AccountScope, AnyConnection, DbError, DbResult};
 
@@ -18,6 +19,7 @@ use super::detail::{Detail, load};
 use super::json::PeriodJson;
 use super::{NOT_FOUND, present};
 use crate::auth::AccountCtx;
+use crate::documents::cascade::delete_owner;
 use crate::error::json::{ApiJson, ApiQuery};
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
@@ -283,16 +285,13 @@ pub async fn remove(
     ctx: AccountCtx,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    audited_read_committed(
+    delete_owner(
         &state,
         &ctx,
         ("billing_period.delete", "billing_period"),
         NOT_FOUND,
-        |id: &String| id.clone(),
-        async |tx| {
-            period::delete(tx, &ctx.scope, &id).await?;
-            Ok(Ok::<_, Rejection>(id.clone()))
-        },
+        Owner::BillingPeriod(&id),
+        async |tx| period::delete(tx, &ctx.scope, &id).await,
     )
     .await?;
     Ok(deleted())
