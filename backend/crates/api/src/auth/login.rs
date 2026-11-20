@@ -10,11 +10,11 @@ use vermieterme_db::{AnyConnection, UserScope};
 use super::client_ip::ClientIp;
 use super::extract::CurrentUser;
 use super::password::{self, Verification};
-use super::rate_limit::{LOGIN_EMAIL, LOGIN_IP};
+use super::rate_limit::{LOGIN_EMAIL, LOGIN_IP, ip_key};
 use super::session::{self, SessionJson};
 use super::timing::Deadline;
 use crate::error::json::ApiJson;
-use crate::error::validate::PASSWORD_MAX;
+use crate::error::validate::{EMAIL_MAX, PASSWORD_MAX};
 use crate::error::{ApiError, ApiResult};
 use crate::routes::AppState;
 
@@ -37,9 +37,19 @@ pub async fn login(
     ApiJson(body): ApiJson<LoginBody>,
 ) -> ApiResult<Response> {
     let deadline = Deadline::start();
-    let ip = ip.to_string();
-    let email = normalize_email(&body.email);
+    let ip = ip_key(ip);
     let limiter = &state.limiter;
+    // An over-long address is never a valid login: refused before it becomes a key.
+    let Some(email) = limiter_email(&body.email) else {
+        let result = match limiter.begin(&LOGIN_IP, &ip) {
+            Err(wait) => Err(ApiError::rate_limited(wait)),
+            Ok(by_ip) => {
+                by_ip.failed();
+                Err(ApiError::unauthenticated(LOGIN_FAILED))
+            }
+        };
+        return deadline.finish(result).await;
+    };
     // Both reservations before any work: parallel requests cannot exceed the limits.
     let reserved = limiter
         .begin(&LOGIN_IP, &ip)
@@ -63,6 +73,13 @@ pub async fn login(
         }
     };
     deadline.finish(result).await
+}
+
+/// The normalised e-mail as rate-limit key; `None` if longer than [`EMAIL_MAX`] (checked
+/// before normalising, so a huge body is never copied into the limiter).
+fn limiter_email(email: &str) -> Option<String> {
+    let trimmed = email.trim();
+    (trimmed.chars().count() <= EMAIL_MAX).then(|| normalize_email(trimmed))
 }
 
 /// Verifies the credentials and starts the session; any mismatch -> generic 401.
@@ -120,4 +137,21 @@ pub async fn current(
     )
     .await?;
     Ok(axum::Json(document))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn limiter_email_is_normalised_and_capped() {
+        assert_eq!(
+            limiter_email(" Max@Example.org ").as_deref(),
+            Some("max@example.org")
+        );
+        let longest = format!("{}@x.de", "a".repeat(EMAIL_MAX - 5));
+        assert_eq!(limiter_email(&longest).map(|e| e.len()), Some(EMAIL_MAX));
+        assert_eq!(limiter_email(&format!("a{longest}")), None);
+        assert_eq!(limiter_email(&"x".repeat(1_000_000)), None);
+    }
 }

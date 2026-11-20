@@ -37,3 +37,14 @@ async fn parallel_logins_respect_the_limit() {
     assert!(unauthorized <= 5, "{statuses:?}");
     assert_eq!(unauthorized + limited, 20, "{statuses:?}");
 }
+
+/// An over-long e-mail is refused with the generic answer and counts against the address.
+#[tokio::test]
+async fn huge_email_is_refused_generically() {
+    let test_db = TestDb::sqlite().await;
+    let app = TestApp::start(test_db.db()).await;
+    let body = json!({"email": "x".repeat(1_000_000), "password": "falsch-falsch"});
+    let resp = app.call("POST", "/api/auth/login", None, body).await;
+    assert_eq!(resp.status, 401);
+    assert_eq!(resp.body["error"], "Anmeldung fehlgeschlagen");
+}

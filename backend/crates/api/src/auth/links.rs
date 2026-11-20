@@ -19,7 +19,7 @@ use vermieterme_db::{AnyConnection, DbResult, SecretToken, UserScope, in_transac
 use super::client_ip::ClientIp;
 use super::extract::millis;
 use super::password;
-use super::rate_limit::LINK_IP;
+use super::rate_limit::{LINK_IP, ip_key};
 use super::session;
 use super::timing::Deadline;
 use crate::config::{PASSWORD_RESET_TTL, USER_INVITE_TTL};
@@ -77,7 +77,7 @@ pub async fn accept_invite(
     ApiJson(body): ApiJson<AcceptInviteBody>,
 ) -> ApiResult<Response> {
     let deadline = Deadline::start();
-    let result = guarded(&state, &ip.to_string(), async {
+    let result = guarded(&state, &ip_key(ip), async {
         let mut v = Validator::new();
         let name = v.text("name", "Name", &body.name, NAME_MAX);
         v.password("password", &body.password);
@@ -120,7 +120,7 @@ pub async fn reset_password(
     ApiJson(body): ApiJson<ResetBody>,
 ) -> ApiResult<Response> {
     let deadline = Deadline::start();
-    let result = guarded(&state, &ip.to_string(), async {
+    let result = guarded(&state, &ip_key(ip), async {
         let mut v = Validator::new();
         v.password("password", &body.password);
         v.finish()?;

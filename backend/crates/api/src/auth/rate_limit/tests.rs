@@ -100,3 +100,32 @@ fn prune_keeps_active_entries() {
     limiter.prune();
     assert_eq!(limiter.lock().len(), 2);
 }
+
+#[test]
+fn ipv6_clients_are_keyed_per_64() {
+    let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+    assert_eq!(ip_key(ip("2001:db8:1:2::1")), "2001:db8:1:2::/64");
+    assert_eq!(
+        ip_key(ip("2001:db8:1:2::1")),
+        ip_key(ip("2001:db8:1:2:ffff:ffff:ffff:ffff"))
+    );
+    assert_ne!(ip_key(ip("2001:db8:1:2::1")), ip_key(ip("2001:db8:1:3::1")));
+    assert_eq!(ip_key(ip("::ffff:192.0.2.7")), "192.0.2.7");
+    assert_eq!(ip_key(ip("192.0.2.7")), "192.0.2.7");
+
+    let limiter = RateLimiter::default();
+    fail(&limiter, &TEST, &ip_key(ip("2001:db8::1")), 3);
+    assert!(limiter.begin(&TEST, &ip_key(ip("2001:db8::abcd"))).is_err());
+}
+
+#[test]
+fn key_count_is_capped() {
+    let limiter = RateLimiter::with_capacity(5);
+    for i in 0..50 {
+        limiter.begin(&TEST, &format!("k{i}")).unwrap().failed();
+    }
+    assert_eq!(limiter.lock().len(), 5);
+    // The newest keys are kept.
+    fail(&limiter, &TEST, "k49", 2);
+    assert!(limiter.begin(&TEST, "k49").is_err());
+}

@@ -9,10 +9,19 @@
 //! against the limit; the returned [`Attempt`] books the outcome. A success clears
 //! per-account keys ([`Policy::reset_on_success`]); per-IP keys only expire, so one
 //! valid account does not reset an attacker's budget.
+//!
+//! Memory is bounded: keys are short ([`ip_key`] folds an IPv6 client into its /64, the
+//! callers cap e-mail keys at `EMAIL_MAX`), the store holds at most [`MAX_ENTRIES`] keys
+//! and evicts the oldest beyond that, and expired keys are removed by the periodic
+//! housekeeping ([`RateLimiter::prune`]), never on the request path.
 
-use std::collections::HashMap;
+mod store;
+
+use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+
+use store::Store;
 
 /// Limits of one kind of key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,8 +64,23 @@ const fn policy(prefix: &'static str, max_failures: u32, reset_on_success: bool)
 /// `Retry-After` when the budget is taken by attempts still running (not a lock).
 const BUSY_RETRY: Duration = Duration::from_secs(1);
 
-/// Number of keys above which expired entries are pruned on insert.
-const PRUNE_ABOVE: usize = 10_000;
+/// Most keys kept in memory; a new key beyond that evicts the oldest one.
+pub const MAX_ENTRIES: usize = 100_000;
+
+/// Rate-limit key of a client address: IPv4 (also IPv4-mapped IPv6) per address, IPv6
+/// per /64 network – one client usually controls a whole /64.
+pub fn ip_key(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let network = u128::from(v6) & !u128::from(u64::MAX);
+                format!("{}/64", Ipv6Addr::from(network))
+            }
+        },
+    }
+}
 
 /// State of one key.
 #[derive(Debug, Clone, Copy)]
@@ -104,12 +128,26 @@ enum Outcome {
 }
 
 /// Shared limiter (inside `AppState`).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct RateLimiter {
-    entries: Mutex<HashMap<String, Entry>>,
+    entries: Mutex<Store<Entry>>,
+}
+
+impl Default for RateLimiter {
+    /// A limiter for [`MAX_ENTRIES`] keys.
+    fn default() -> Self {
+        Self::with_capacity(MAX_ENTRIES)
+    }
 }
 
 impl RateLimiter {
+    /// A limiter for at most `capacity` keys.
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            entries: Mutex::new(Store::with_capacity(capacity)),
+        }
+    }
+
     /// Reserves one attempt for `key`: `Err(retry_after)` if the key is locked or its
     /// budget is used up by failures and running attempts; else the reservation, which
     /// counts against the limit until it is booked or dropped.
@@ -117,12 +155,7 @@ impl RateLimiter {
         let now = Instant::now();
         let key = full_key(policy, key);
         let mut entries = self.lock();
-        if entries.len() > PRUNE_ABOVE && !entries.contains_key(&key) {
-            prune(&mut entries, now);
-        }
-        let entry = entries
-            .entry(key.clone())
-            .or_insert_with(|| Entry::new(now));
+        let entry = entries.entry(&key, || Entry::new(now));
         entry.refresh(policy, now);
         if let Some(until) = entry.locked_until {
             return Err(until - now);
@@ -175,7 +208,7 @@ impl RateLimiter {
     }
 
     /// The map; a poisoned lock is taken over (the data stays consistent per entry).
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, Entry>> {
+    fn lock(&self) -> MutexGuard<'_, Store<Entry>> {
         self.entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -228,8 +261,8 @@ fn full_key(policy: &Policy, key: &str) -> String {
 }
 
 /// Drops idle entries whose lock ended and whose window is over (all windows are equal).
-fn prune(entries: &mut HashMap<String, Entry>, now: Instant) {
-    entries.retain(|_, e| {
+fn prune(entries: &mut Store<Entry>, now: Instant) {
+    entries.retain(|e| {
         e.in_flight > 0
             || e.locked_until.is_some_and(|until| until > now)
             || now.duration_since(e.window_start) <= QUARTER_HOUR
