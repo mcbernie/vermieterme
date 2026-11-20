@@ -53,6 +53,8 @@ pub type AppRouter = Router<AppState>;
 pub fn router(state: AppState) -> Router {
     let app: AppRouter = Router::new();
     let app = app.merge(crate::auth::router()); // P3
+    let app = app.merge(crate::admin::router()); // P3
+    let app = app.merge(crate::users::router()); // P3
     let app = app.merge(crate::health::router()); // P3
     // let app = app.merge(crate::masterdata::router());    // P4
     // let app = app.merge(crate::billing::router());       // P5
