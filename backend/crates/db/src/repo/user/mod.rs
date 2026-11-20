@@ -64,7 +64,28 @@ pub struct User {
     pub updated_at: i64,
 }
 
-/// Data for a new user.
+/// Data for a new member, created through an account scope (always role `member`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewMember {
+    /// E-mail address (normalised on insert).
+    pub email: String,
+    /// Display name.
+    pub name: String,
+    /// Initial password hash; `None` for an invitation.
+    pub password_hash: Option<PasswordHash>,
+}
+
+/// Partial update of a member through an account scope; `None` keeps the stored value.
+/// Deliberately without role (role changes only via `update_for_admin`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MemberPatch {
+    /// New display name.
+    pub name: Option<String>,
+    /// New lock state.
+    pub locked: Option<bool>,
+}
+
+/// Data for a new user with any role (administration only).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewUser {
     /// E-mail address (normalised on insert).
@@ -77,7 +98,8 @@ pub struct NewUser {
     pub password_hash: Option<PasswordHash>,
 }
 
-/// Partial update; `None` keeps the stored value.
+/// Partial update of any user including the role (administration only); `None` keeps
+/// the stored value.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UserPatch {
     /// New display name.
@@ -134,7 +156,7 @@ mod admin;
 mod own;
 mod scoped;
 
-pub use admin::{admin_exists, create_admin, get_for_admin, update_for_admin};
+pub use admin::{admin_exists, create_for_admin, get_for_admin, update_for_admin};
 pub use own::{find_login, get_self, set_own_name, set_password_hash};
 pub use scoped::{create, delete, get, list, update};
 
@@ -142,7 +164,10 @@ pub use scoped::{create, delete, get, list, update};
 async fn insert(
     conn: &mut AnyConnection,
     account_id: Option<&str>,
-    new: &NewUser,
+    email: &str,
+    name: &str,
+    role: Role,
+    password_hash: Option<&PasswordHash>,
 ) -> DbResult<User> {
     let id = new_id();
     let now = now_millis();
@@ -152,10 +177,10 @@ async fn insert(
     )
     .bind(&id)
     .bind(account_id)
-    .bind(normalize_email(&new.email))
-    .bind(&new.name)
-    .bind(new.password_hash.as_ref().map(PasswordHash::as_str))
-    .bind(new.role.code())
+    .bind(normalize_email(email))
+    .bind(name)
+    .bind(password_hash.map(PasswordHash::as_str))
+    .bind(role.code())
     .bind(now)
     .bind(now)
     .execute(&mut *conn)

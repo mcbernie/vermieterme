@@ -5,15 +5,14 @@
 #![allow(clippy::unwrap_used)]
 
 use vermieterme_db::repo::account::{self, AccountPatch};
-use vermieterme_db::repo::user::{self, NewUser, Role, UserPatch};
+use vermieterme_db::repo::user::{self, MemberPatch, NewMember, NewUser, Role, UserPatch};
 use vermieterme_db::{AdminScope, Db, DbError, PasswordHash, UserScope, dual_test};
 
 /// A new member with the given address and no password (invitation).
-fn member(email: &str) -> NewUser {
-    NewUser {
+fn member(email: &str) -> NewMember {
+    NewMember {
         email: email.into(),
         name: "Erika Muster".into(),
-        role: Role::Member,
         password_hash: None,
     }
 }
@@ -94,9 +93,9 @@ async fn user_scope_isolation(db: &Db) {
         Err(DbError::NotFound)
     ));
     assert!(user::list(&mut c, &b).await.unwrap().is_empty());
-    let patch = UserPatch {
+    let patch = MemberPatch {
         locked: Some(true),
-        ..UserPatch::default()
+        ..MemberPatch::default()
     };
     assert!(matches!(
         user::update(&mut c, &b, &u.id, &patch).await,
@@ -142,10 +141,14 @@ async fn login_and_admin(db: &Db) {
     let system = AdminScope::system();
     assert!(!user::admin_exists(&mut c).await.unwrap());
     let new = NewUser {
+        email: "Admin@Example.org".into(),
+        name: "Admin".into(),
+        role: Role::Admin,
         password_hash: Some(PasswordHash::new("$2b$10$legacy")),
-        ..member("Admin@Example.org")
     };
-    let admin = user::create_admin(&mut c, &system, &new).await.unwrap();
+    let admin = user::create_for_admin(&mut c, &system, None, &new)
+        .await
+        .unwrap();
     assert_eq!(
         (admin.role, admin.account_id.as_deref()),
         (Role::Admin, None)
@@ -208,3 +211,51 @@ async fn login_and_admin(db: &Db) {
     assert!(matches!(err, Err(DbError::NotFound)));
 }
 dual_test!(user_login_admin, login_and_admin);
+
+/// An admin who is member of the account is invisible to the account scope: members can
+/// neither read, change, lock nor delete them, and the scope can only create members.
+async fn admin_invisible_to_members(db: &Db) {
+    let mut c = db.pool().acquire().await.unwrap();
+    let system = AdminScope::system();
+    let a = system.act_in(account::create(&mut c, &system, "A").await.unwrap().id);
+    let new = NewUser {
+        email: "admin@example.org".into(),
+        name: "Admin".into(),
+        role: Role::Admin,
+        password_hash: None,
+    };
+    let admin = user::create_for_admin(&mut c, &system, Some(a.account_id()), &new)
+        .await
+        .unwrap();
+    let created = user::create(&mut c, &a, &member("m@example.org"))
+        .await
+        .unwrap();
+    assert_eq!(
+        created.role,
+        Role::Member,
+        "Kunden-Scope legt nur Mitglieder an"
+    );
+
+    let ids: Vec<String> = user::list(&mut c, &a)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|u| u.id)
+        .collect();
+    assert_eq!(ids, [created.id]);
+    let get = user::get(&mut c, &a, &admin.id).await;
+    assert!(matches!(get, Err(DbError::NotFound)));
+    let lock = MemberPatch {
+        locked: Some(true),
+        name: Some("X".into()),
+    };
+    let update = user::update(&mut c, &a, &admin.id, &lock).await;
+    assert!(matches!(update, Err(DbError::NotFound)));
+    let delete = user::delete(&mut c, &a, &admin.id).await;
+    assert!(matches!(delete, Err(DbError::NotFound)));
+    let unchanged = user::get_for_admin(&mut c, &system, &admin.id)
+        .await
+        .unwrap();
+    assert_eq!(unchanged, admin, "Admin unverändert");
+}
+dual_test!(user_admin_hidden, admin_invisible_to_members);

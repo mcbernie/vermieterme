@@ -1,27 +1,42 @@
 //! User functions within one account ([`AccountScope`]).
+//!
+//! These functions see and change **members only** (`role = 'member'`). The role `admin`
+//! spans all accounts, so an admin who is also member of the account (decision 21) is
+//! invisible here and behaves like a foreign id ([`DbError::NotFound`]). The input types
+//! carry no role: through an account scope a user is always created as `member`, and
+//! role changes exist only in the administration (`update_for_admin`).
 
 use sqlx::AnyConnection;
 
-use super::{NewUser, Role, User, UserPatch, from_row, insert, load};
+use super::{MemberPatch, NewMember, Role, User, from_row, insert, load};
 use crate::error::{DbError, DbResult};
 use crate::row::{flag_value, now_millis};
 use crate::scope::AccountScope;
 
-/// Creates a user in the scope's account. Taken address -> [`DbError::Conflict`].
+/// Creates a member in the scope's account. Taken address -> [`DbError::Conflict`].
 pub async fn create(
     conn: &mut AnyConnection,
     scope: &AccountScope,
-    new: &NewUser,
+    new: &NewMember,
 ) -> DbResult<User> {
-    insert(conn, Some(scope.account_id()), new).await
+    insert(
+        conn,
+        Some(scope.account_id()),
+        &new.email,
+        &new.name,
+        Role::Member,
+        new.password_hash.as_ref(),
+    )
+    .await
 }
 
-/// Lists the users of the scope's account, ordered by name.
+/// Lists the members of the scope's account, ordered by name. The order is byte-exact
+/// (both dialects compare binary); locale-aware sorting is up to the user interface.
 pub async fn list(conn: &mut AnyConnection, scope: &AccountScope) -> DbResult<Vec<User>> {
     let sql = concat!(
         "SELECT ",
         columns!(),
-        " FROM app_user WHERE account_id = ? ORDER BY name, id"
+        " FROM app_user WHERE account_id = ? AND role = 'member' ORDER BY name, id"
     );
     let rows = sqlx::query(sql)
         .bind(scope.account_id())
@@ -30,12 +45,12 @@ pub async fn list(conn: &mut AnyConnection, scope: &AccountScope) -> DbResult<Ve
     rows.iter().map(|r| from_row(r).map(|l| l.user)).collect()
 }
 
-/// Reads a user of the scope's account; foreign or missing -> [`DbError::NotFound`].
+/// Reads a member of the scope's account; foreign, admin or missing -> [`DbError::NotFound`].
 pub async fn get(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<User> {
     let sql = concat!(
         "SELECT ",
         columns!(),
-        " FROM app_user WHERE id = ? AND account_id = ?"
+        " FROM app_user WHERE id = ? AND account_id = ? AND role = 'member'"
     );
     let row = sqlx::query(sql)
         .bind(id)
@@ -46,19 +61,18 @@ pub async fn get(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> Db
     Ok(from_row(&row)?.user)
 }
 
-/// Updates a user of the scope's account with one `UPDATE` (only sent fields change).
+/// Updates name and/or lock state of a member with one `UPDATE` (only sent fields change).
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
     id: &str,
-    patch: &UserPatch,
+    patch: &MemberPatch,
 ) -> DbResult<User> {
     let result = sqlx::query(
-        "UPDATE app_user SET name = COALESCE(?, name), role = COALESCE(?, role), \
-         locked = COALESCE(?, locked), updated_at = ? WHERE id = ? AND account_id = ?",
+        "UPDATE app_user SET name = COALESCE(?, name), locked = COALESCE(?, locked), \
+         updated_at = ? WHERE id = ? AND account_id = ? AND role = 'member'",
     )
     .bind(patch.name.as_deref())
-    .bind(patch.role.map(Role::code))
     .bind(patch.locked.map(flag_value))
     .bind(now_millis())
     .bind(id)
@@ -71,9 +85,10 @@ pub async fn update(
     load(conn, id).await
 }
 
-/// Deletes a user of the scope's account (sessions and tokens cascade).
+/// Deletes a member of the scope's account (sessions and tokens cascade).
 pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<()> {
-    let result = sqlx::query("DELETE FROM app_user WHERE id = ? AND account_id = ?")
+    let sql = "DELETE FROM app_user WHERE id = ? AND account_id = ? AND role = 'member'";
+    let result = sqlx::query(sql)
         .bind(id)
         .bind(scope.account_id())
         .execute(&mut *conn)

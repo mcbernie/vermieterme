@@ -11,7 +11,7 @@ use fixtures::{HOUR, NOW, setup};
 use sqlx::Row;
 use vermieterme_db::repo::account::{self, AccountPatch};
 use vermieterme_db::repo::session;
-use vermieterme_db::repo::user::{self, NewUser, Role, UserPatch};
+use vermieterme_db::repo::user::{self, MemberPatch, NewUser, Role};
 use vermieterme_db::{AdminScope, Db, SecretToken, dual_test};
 
 /// Only the hash is stored; expiry, idle timeout and locks end the session.
@@ -69,9 +69,9 @@ async fn session_validity(db: &Db) {
     );
 
     let admin = AdminScope::system();
-    let lock = UserPatch {
+    let lock = MemberPatch {
         locked: Some(true),
-        ..UserPatch::default()
+        ..MemberPatch::default()
     };
     user::update(&mut c, &scope, &uid, &lock).await.unwrap();
     assert!(
@@ -81,9 +81,9 @@ async fn session_validity(db: &Db) {
             .is_none(),
         "Benutzer gesperrt"
     );
-    let unlock = UserPatch {
+    let unlock = MemberPatch {
         locked: Some(false),
-        ..UserPatch::default()
+        ..MemberPatch::default()
     };
     user::update(&mut c, &scope, &uid, &unlock).await.unwrap();
     let lock = AccountPatch {
@@ -138,7 +138,7 @@ async fn session_ending(db: &Db) {
         role: Role::Admin,
         password_hash: None,
     };
-    let root = user::create_admin(&mut c, &admin, &admin_new)
+    let root = user::create_for_admin(&mut c, &admin, None, &admin_new)
         .await
         .unwrap();
     let admin_token = SecretToken::generate();

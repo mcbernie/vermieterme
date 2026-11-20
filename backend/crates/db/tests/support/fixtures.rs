@@ -10,7 +10,8 @@ pub const HOUR: i64 = 3_600_000;
 /// A fixed "now" (2027-01-15) for expiry tests.
 pub const NOW: i64 = 1_800_000_000_000;
 
-/// Creates an account with one user of `role`; returns scope and user id.
+/// Creates an account with one user of `role` (through the administration, the only way
+/// to create an admin); returns scope and user id.
 pub async fn setup(c: &mut AnyConnection, email: &str, role: Role) -> (AccountScope, String) {
     let admin = AdminScope::system();
     let scope = admin.act_in(account::create(c, &admin, "A").await.unwrap().id);
@@ -20,6 +21,9 @@ pub async fn setup(c: &mut AnyConnection, email: &str, role: Role) -> (AccountSc
         role,
         password_hash: None,
     };
-    let user = user::create(c, &scope, &new).await.unwrap();
+    let account_id = Some(scope.account_id());
+    let user = user::create_for_admin(c, &admin, account_id, &new)
+        .await
+        .unwrap();
     (scope, user.id)
 }

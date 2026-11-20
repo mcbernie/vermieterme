@@ -7,17 +7,23 @@ use crate::error::{DbError, DbResult};
 use crate::row::{flag_value, now_millis};
 use crate::scope::AdminScope;
 
-/// Creates an admin without account (bootstrap when no admin exists).
-pub async fn create_admin(
+/// Creates a user with any role, in `account_id` or without account (admin bootstrap,
+/// admin user management, legacy import). Taken address -> [`DbError::Conflict`].
+pub async fn create_for_admin(
     conn: &mut AnyConnection,
     _admin: &AdminScope,
+    account_id: Option<&str>,
     new: &NewUser,
 ) -> DbResult<User> {
-    let new = NewUser {
-        role: Role::Admin,
-        ..new.clone()
-    };
-    insert(conn, None, &new).await
+    insert(
+        conn,
+        account_id,
+        &new.email,
+        &new.name,
+        new.role,
+        new.password_hash.as_ref(),
+    )
+    .await
 }
 
 /// Reads any user (admin user management).
@@ -29,7 +35,8 @@ pub async fn get_for_admin(
     load(conn, id).await
 }
 
-/// Updates any user (admin); same semantics as [`super::update`].
+/// Updates any user including the role (admin); only sent fields change. The only way to
+/// change a role.
 pub async fn update_for_admin(
     conn: &mut AnyConnection,
     _admin: &AdminScope,
