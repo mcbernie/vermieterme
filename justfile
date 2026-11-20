@@ -52,7 +52,7 @@ lines:
 
 # Web lint (ESLint).
 web-lint:
-    pnpm exec eslint . --ignore-pattern '.claude/**'
+    pnpm exec eslint .
 
 # Web type check.
 web-types:
@@ -60,7 +60,7 @@ web-types:
 
 # Web unit tests (Vitest).
 web-test:
-    pnpm exec vitest run --exclude '.claude/**' --exclude 'node_modules/**'
+    pnpm exec vitest run
 
 # Web production build.
 web-build:

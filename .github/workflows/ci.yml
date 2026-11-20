@@ -29,7 +29,7 @@ jobs:
         with:
           workspaces: backend
           shared-key: rust
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: false
       - run: just fmt-check lint
 
   rust-test-sqlite:
@@ -42,7 +42,7 @@ jobs:
         with:
           workspaces: backend
           shared-key: rust
-          save-if: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: just test
 
   rust-test-mysql:

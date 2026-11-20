@@ -3,7 +3,8 @@
 #   - warns for files with more than WARN_LIMIT lines (default 300)
 #   - fails for files with more than FAIL_LIMIT lines (default 400)
 #     unless the path is listed in the allowlist
-# Skipped directories: node_modules, target, out, .next, .git, dist, .engineering.
+# Skipped: hidden directories (name starts with a dot), node_modules anywhere, and the root-level build
+# directories ./target, ./out, ./dist, ./backend/target.
 #
 # Usage: check-lines.sh [options] [root-dir]
 #   --warn N         warning threshold            (env WARN_LIMIT, default 300)
@@ -76,7 +77,7 @@ while IFS= read -r -d '' file; do
       echo "ALLOWED  $path: $lines lines (> $FAIL_LIMIT, in allowlist)"
     else
       echo "ERROR    $path: $lines lines (> $FAIL_LIMIT) - split the file or justify it in the allowlist"
-      echo "::error file=$path::$lines Zeilen (> $FAIL_LIMIT) - Datei aufteilen oder in der Allowlist begründen" 2>/dev/null || true
+      echo "::error file=$path::$lines Zeilen (> $FAIL_LIMIT) - Datei aufteilen oder in der Allowlist begründen"
       failures=$((failures + 1))
     fi
   elif [ "$lines" -gt "$WARN_LIMIT" ]; then
@@ -84,7 +85,7 @@ while IFS= read -r -d '' file; do
     warnings=$((warnings + 1))
   fi
 done < <(find . \
-  \( -name node_modules -o -name target -o -name out -o -name .next -o -name .git -o -name dist -o -name .engineering \) -prune -o \
+  \( -name node_modules -o \( -type d -name '.?*' \) -o -path ./target -o -path ./out -o -path ./dist -o -path ./backend/target \) -prune -o \
   -type f \( "${name_args[@]}" \) -print0)
 
 echo "check-lines: $warnings warning(s), $failures error(s)"
