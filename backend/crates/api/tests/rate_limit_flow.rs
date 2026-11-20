@@ -138,12 +138,15 @@ async fn forwarded_for_counts_per_client_behind_trusted_proxy() {
 async fn unknown_paths_and_methods_use_the_error_shape() {
     let test_db = TestDb::sqlite().await;
     let app = TestApp::start(test_db.db()).await;
-    let resp = app.get("/api/gibt-es-nicht", None).await;
-    assert_eq!(resp.status, 404);
-    assert_eq!(
-        resp.body,
-        json!({"error": "Nicht gefunden", "code": "not_found"})
-    );
+    for path in ["/api/gibt-es-nicht", "/api/", "/api"] {
+        let resp = app.get(path, None).await;
+        assert_eq!(resp.status, 404, "{path}");
+        assert_eq!(
+            resp.body,
+            json!({"error": "Nicht gefunden", "code": "not_found"}),
+            "{path}"
+        );
+    }
     let resp = app.get("/api/auth/login", None).await;
     assert_eq!(resp.status, 405);
     assert_eq!(resp.body["code"], "method_not_allowed");
