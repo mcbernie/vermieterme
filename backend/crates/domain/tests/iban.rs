@@ -21,7 +21,22 @@ fn rejects_invalid_input() {
     assert!(!is_valid_iban("DE00370400440532013000"));
     // German IBAN must have 22 characters, this has 21.
     assert!(!is_valid_iban("DE8937040044053201300"));
+    // Unknown country code: no length rule, rejected here by its check digits.
     assert!(!is_valid_iban("XX89370400440532013000"));
+}
+
+#[test]
+fn unknown_country_codes_are_only_checked_for_format_and_check_digits() {
+    // Same semantics as the old validator: with matching check digits it passes.
+    assert!(is_valid_iban("XX46370400440532013000"));
+}
+
+#[test]
+fn rejects_non_ascii_letters_that_upper_case_to_ascii() {
+    assert!(is_valid_iban("se4550000000058398257466"));
+    // `ſ` (long s) becomes `S` under Unicode upper-casing; it must stay invalid.
+    assert!(!is_valid_iban("ſe4550000000058398257466"));
+    assert!(!is_valid_iban("\u{fb00}4550000000058398257466"));
 }
 
 #[test]

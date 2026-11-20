@@ -134,6 +134,27 @@ fn accepts_json_numbers_and_skips_impossible_months_and_indices() {
 }
 
 #[test]
+fn skips_single_malformed_observations() {
+    let body = r#"{"data":{"structure":{"dimensions":{"observation":[{"values":
+        [{"id":"2024-01"},{"id":"2024-02"},{"nope":1},{"id":"2024-04"}]}]}},
+        "dataSets":[{"series":{
+            "a":{"observations":{"0":["117.6"],"1":null,"2":["1.0"],"3":"118.0"}},
+            "b":null,
+            "c":{"observations":null}}}]}}"#;
+    assert_eq!(
+        parse_bundesbank_response(body).unwrap(),
+        vec![point(2024, 1, 1176)]
+    );
+}
+
+#[test]
+fn tolerates_missing_or_null_series() {
+    let body = r#"{"data":{"structure":{"dimensions":{"observation":[{"values":[{"id":"2024-01"}]}]}},
+        "dataSets":[{"series":null}]}}"#;
+    assert_eq!(parse_bundesbank_response(body).unwrap(), vec![]);
+}
+
+#[test]
 fn rejects_bodies_of_the_wrong_shape() {
     assert!(parse_bundesbank_response("not json").is_err());
     assert!(parse_bundesbank_response("{}").is_err());

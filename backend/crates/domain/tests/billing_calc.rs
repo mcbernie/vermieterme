@@ -12,16 +12,11 @@ use vermieterme_domain::{CalendarDate, CalendarMonths, Cents, DistributionKey};
 
 use DistributionKey::{Mea, PerAttachment, PerNotice};
 
-const UNIT_1: UnitBasis = UnitBasis {
-    shares: 333,
-    total_shares: 1000,
-    unit_count: 2,
-};
-const UNIT_2: UnitBasis = UnitBasis {
-    shares: 667,
-    total_shares: 1000,
-    unit_count: 2,
-};
+/// Test helper: a unit of the fixture property (1000 shares, 2 units).
+#[allow(clippy::unwrap_used)]
+fn unit(shares: i64) -> UnitBasis {
+    UnitBasis::new(shares, 1000, 2).unwrap()
+}
 
 fn position(
     total: Option<i64>,
@@ -72,19 +67,19 @@ fn computes_unit_costs_from_positions() {
     // MEA rounded per position: 123457 * 333/1000 = 41111.181 -> 41111,
     // 123457 * 667/1000 = 82345.819 -> 82346; other keys take the entered unit amount.
     assert_eq!(
-        statement(&costs(), &UNIT_1, 8550).unit_costs,
+        statement(&costs(), &unit(333), 8550).unit_costs,
         Cents::new(41_111 + 21_030 + 1_200)
     );
     assert_eq!(
-        statement(&costs(), &UNIT_2, 0).unit_costs,
+        statement(&costs(), &unit(667), 0).unit_costs,
         Cents::new(82_346 + 21_030 + 1_200)
     );
 }
 
 #[test]
 fn computes_prepayments_results_and_totals_per_unit() {
-    let s1 = statement(&costs(), &UNIT_1, 8550);
-    let s2 = statement(&costs(), &UNIT_2, 0);
+    let s1 = statement(&costs(), &unit(333), 8550);
+    let s2 = statement(&costs(), &unit(667), 0);
     assert_eq!(s1.months, 12);
     assert_eq!(s1.prepayment, Cents::new(8550 * 12));
     assert_eq!(s1.result(), Cents::new(63_341 - 102_600));
@@ -96,8 +91,8 @@ fn computes_prepayments_results_and_totals_per_unit() {
 
 #[test]
 fn recommends_a_new_prepayment_only_for_back_payments() {
-    let s1 = statement(&costs(), &UNIT_1, 8550);
-    let s2 = statement(&costs(), &UNIT_2, 0);
+    let s1 = statement(&costs(), &unit(333), 8550);
+    let s2 = statement(&costs(), &unit(667), 0);
     assert_eq!(suggest_next_prepayment(Cents::new(8550), s1.result()), None);
     // 104576 / 12 = 8714.67 cents -> next 5-euro step 9000.
     assert_eq!(
@@ -110,13 +105,13 @@ fn recommends_a_new_prepayment_only_for_back_payments() {
 fn skips_positions_without_total_and_disabled_ones() {
     let mut without_total = costs();
     without_total[0].total_amount = None;
-    let with = statement(&costs(), &UNIT_1, 8550).unit_costs;
-    let without = statement(&without_total, &UNIT_1, 8550).unit_costs;
+    let with = statement(&costs(), &unit(333), 8550).unit_costs;
+    let without = statement(&without_total, &unit(333), 8550).unit_costs;
     assert_eq!(without, with - mea_share(Cents::new(123_457), 333, 1000));
     // Disabled c5 (80 €) is neither in the unit costs nor in the total.
     let mut enabled_c5 = costs();
     enabled_c5[4].enabled = true;
-    let s = statement(&enabled_c5, &UNIT_1, 0);
+    let s = statement(&enabled_c5, &unit(333), 0);
     assert_eq!(s.unit_costs, with + Cents::new(2_664));
     assert_eq!(s.total_costs, Cents::new(183_456 + 8_000));
 }
@@ -153,6 +148,15 @@ fn keeps_zero_unit_amount_apart_from_empty() {
     // Port of the save-payload case: `Some(0)` is an entered zero, `None` is empty.
     let zero = position(Some(0), Some(0), true, PerAttachment);
     let empty_mea = position(Some(123_457), None, true, Mea);
-    assert_eq!(zero.unit_share(&UNIT_1), Some(Cents::ZERO));
-    assert_eq!(empty_mea.unit_share(&UNIT_1), Some(Cents::new(41_111)));
+    assert_eq!(zero.unit_share(&unit(333)), Some(Cents::ZERO));
+    assert_eq!(empty_mea.unit_share(&unit(333)), Some(Cents::new(41_111)));
+}
+
+#[test]
+fn unreviewed_saturates_for_inconsistent_counts() {
+    let progress = ReviewProgress {
+        total: 0,
+        reviewed: 1,
+    };
+    assert_eq!(progress.unreviewed(), 0);
 }

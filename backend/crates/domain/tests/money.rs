@@ -38,6 +38,20 @@ fn converts_legacy_floats_by_their_decimal_text() {
 }
 
 #[test]
+fn legacy_float_extremes_give_meaningful_results() {
+    assert_eq!(Cents::from_euros_f64(1e40), Err(MoneyError::OutOfRange));
+    assert_eq!(Cents::from_euros_f64(-1e300), Err(MoneyError::OutOfRange));
+    assert_eq!(Cents::from_euros_f64(f64::MAX), Err(MoneyError::OutOfRange));
+    assert_eq!(Cents::from_euros_f64(1e-320), Ok(Cents::ZERO));
+    assert_eq!(Cents::from_euros_f64(-1e-10), Ok(Cents::ZERO));
+    assert_eq!(Cents::from_euros_f64(0.0049), Ok(Cents::ZERO));
+    assert_eq!(
+        Cents::parse_euros(&"9".repeat(40)),
+        Err(MoneyError::OutOfRange)
+    );
+}
+
+#[test]
 fn limit_is_checked() {
     assert!(Cents::new(Cents::LIMIT).is_within_limit());
     assert!(Cents::new(-Cents::LIMIT).is_within_limit());

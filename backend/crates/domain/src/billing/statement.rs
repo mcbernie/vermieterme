@@ -28,14 +28,52 @@ pub struct CostPosition {
 }
 
 /// What a unit's share depends on besides the position itself.
+///
+/// Built only through [`UnitBasis::new`], which rejects values that would give
+/// negative or inflated shares. The API validates the stored data on write
+/// (`shares >= 0`, `total_shares >= 1`); legacy rows that break the rules surface
+/// here as [`InvalidUnitBasis`] instead of a silently wrong bill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitBasis {
+    shares: i64,
+    total_shares: i64,
+    unit_count: i64,
+}
+
+/// The shares or the unit count of a unit basis are inconsistent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Miteigentumsanteile oder Anzahl der Einheiten sind ungültig")]
+pub struct InvalidUnitBasis;
+
+impl UnitBasis {
+    /// Checks and builds the basis: `0 <= shares <= total_shares` and
+    /// `unit_count >= 1` (the unit itself belongs to the property). A property
+    /// without shares (`total_shares = 0`) is allowed and gives MEA shares of 0.
+    pub fn new(shares: i64, total_shares: i64, unit_count: i64) -> Result<Self, InvalidUnitBasis> {
+        if shares < 0 || shares > total_shares || unit_count < 1 {
+            return Err(InvalidUnitBasis);
+        }
+        Ok(UnitBasis {
+            shares,
+            total_shares,
+            unit_count,
+        })
+    }
+
     /// Co-ownership shares of the unit.
-    pub shares: i64,
+    pub fn shares(&self) -> i64 {
+        self.shares
+    }
+
     /// Co-ownership shares of the whole property.
-    pub total_shares: i64,
+    pub fn total_shares(&self) -> i64 {
+        self.total_shares
+    }
+
     /// Number of units of the property (key `per_unit`).
-    pub unit_count: i64,
+    pub fn unit_count(&self) -> i64 {
+        self.unit_count
+    }
 }
 
 impl CostPosition {

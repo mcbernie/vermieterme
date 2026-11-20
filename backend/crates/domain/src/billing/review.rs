@@ -37,9 +37,10 @@ impl ReviewProgress {
         progress
     }
 
-    /// Positions still to review (`unreviewedCount` in the API).
+    /// Positions still to review (`unreviewedCount` in the API). Saturates at 0 for
+    /// hand-built values with more reviewed than total positions.
     pub fn unreviewed(&self) -> usize {
-        self.total - self.reviewed
+        self.total.saturating_sub(self.reviewed)
     }
 
     /// Whether there is at least one position and all are reviewed.

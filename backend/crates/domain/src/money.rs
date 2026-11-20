@@ -11,7 +11,7 @@ use std::ops::{Add, AddAssign, Neg, Sub, SubAssign};
 
 use serde::{Deserialize, Serialize};
 
-use crate::decimal::parse_scaled;
+use crate::decimal::{DecimalError, parse_scaled};
 use crate::rounding::{div_round_half_away, saturate_i64};
 
 /// Errors when turning external input into [`Cents`].
@@ -63,7 +63,10 @@ impl Cents {
     /// Parses a euro amount written as a decimal number with `.` as separator
     /// (`"1234.5"`, `"-0.05"`). More than two decimals are rounded half away from zero.
     pub fn parse_euros(text: &str) -> Result<Self, MoneyError> {
-        let cents = parse_scaled(text, 2).ok_or(MoneyError::Invalid)?;
+        let cents = parse_scaled(text, 2).map_err(|e| match e {
+            DecimalError::Malformed => MoneyError::Invalid,
+            DecimalError::TooLarge => MoneyError::OutOfRange,
+        })?;
         Self::checked_from_i128(cents)
     }
 
@@ -71,7 +74,9 @@ impl Cents {
     ///
     /// The shortest decimal representation of the float is rounded, so `0.1 + 0.2`
     /// stored as `0.30000000000000004` becomes 30 cents and `1.005` becomes 101 cents
-    /// (a plain `(x * 100).round()` would give 100).
+    /// (a plain `(x * 100).round()` would give 100). Huge values give
+    /// [`MoneyError::OutOfRange`], values below half a cent give zero; only NaN and
+    /// infinity are [`MoneyError::Invalid`].
     pub fn from_euros_f64(euros: f64) -> Result<Self, MoneyError> {
         if !euros.is_finite() {
             return Err(MoneyError::Invalid);

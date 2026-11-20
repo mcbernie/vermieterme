@@ -35,6 +35,7 @@ impl VpiValue {
     /// Parses a decimal text (`"119.35"`), rounded half away from zero to one decimal.
     pub fn parse(text: &str) -> Option<Self> {
         parse_scaled(text, 1)
+            .ok()
             .and_then(|t| i64::try_from(t).ok())
             .map(VpiValue)
     }

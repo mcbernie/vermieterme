@@ -8,12 +8,10 @@ use vermieterme_domain::{CalendarDate, CalendarMonths, Cents, DistributionKey};
 
 use DistributionKey::{Mea, PerAttachment, PerNotice, PerUnit};
 
+/// Test helper: a valid unit basis.
+#[allow(clippy::unwrap_used)]
 fn basis(shares: i64, total_shares: i64, unit_count: i64) -> UnitBasis {
-    UnitBasis {
-        shares,
-        total_shares,
-        unit_count,
-    }
+    UnitBasis::new(shares, total_shares, unit_count).unwrap()
 }
 
 fn position(total: i64, unit: Option<i64>, key: DistributionKey) -> CostPosition {
@@ -191,5 +189,20 @@ fn no_suggestion_for_refund_or_balanced_result() {
     assert_eq!(
         suggest_next_prepayment(Cents::new(10_000), Cents::new(-1)),
         None
+    );
+}
+
+#[test]
+fn unit_basis_rejects_inconsistent_values() {
+    assert!(UnitBasis::new(-1, 1000, 2).is_err());
+    assert!(UnitBasis::new(1001, 1000, 2).is_err());
+    assert!(UnitBasis::new(1, 1000, 0).is_err());
+    assert!(UnitBasis::new(1, 1000, -3).is_err());
+    assert!(UnitBasis::new(1, 0, 1).is_err());
+    let ok = basis(0, 0, 1);
+    assert_eq!((ok.shares(), ok.total_shares(), ok.unit_count()), (0, 0, 1));
+    assert_eq!(
+        position(10_000, None, Mea).unit_share(&ok),
+        Some(Cents::ZERO)
     );
 }

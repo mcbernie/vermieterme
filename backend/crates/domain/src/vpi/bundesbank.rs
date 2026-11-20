@@ -50,31 +50,25 @@ struct Dimensions {
 
 #[derive(Deserialize)]
 struct ObservationDimension {
+    /// Period entries `{"id": "2024-01"}`; kept as raw JSON so one odd entry only
+    /// skips its observation instead of failing the whole response.
     #[serde(default)]
-    values: Vec<PeriodId>,
-}
-
-#[derive(Deserialize)]
-struct PeriodId {
-    id: String,
+    values: Vec<Value>,
 }
 
 #[derive(Deserialize)]
 struct DataSet {
+    /// Series by key; each holds `observations: {index: [value, …]}`, read leniently.
     #[serde(default)]
-    series: BTreeMap<String, Series>,
-}
-
-#[derive(Deserialize)]
-struct Series {
-    #[serde(default)]
-    observations: BTreeMap<String, Vec<Value>>,
+    series: Option<BTreeMap<String, Value>>,
 }
 
 /// Parses the response body into monthly values, sorted by year and month.
 ///
-/// Observations with an unknown period, a period that is not `YYYY-MM` with month
-/// 1–12, or a value that is not a number are skipped. Only the first data set is read.
+/// Single observations that cannot be read are skipped: unknown or malformed index,
+/// a period that is not `YYYY-MM` with month 1–12, an entry that is not an array or
+/// a value that is not a number. Only the overall frame (`data.structure.dimensions`)
+/// must be present. Only the first data set is read.
 pub fn parse_bundesbank_response(json: &str) -> Result<Vec<VpiDataPoint>, VpiParseError> {
     let response: Response = serde_json::from_str(json).map_err(VpiParseError)?;
     let Some(periods) = response.data.structure.dimensions.observation.first() else {
@@ -85,12 +79,14 @@ pub fn parse_bundesbank_response(json: &str) -> Result<Vec<VpiDataPoint>, VpiPar
     };
     let mut points: Vec<VpiDataPoint> = data_set
         .series
-        .values()
-        .flat_map(|series| series.observations.iter())
+        .iter()
+        .flat_map(|series| series.values())
+        .filter_map(|series| series.get("observations")?.as_object())
+        .flat_map(|observations| observations.iter())
         .filter_map(|(index, observation)| {
             let period = periods.values.get(index.parse::<usize>().ok()?)?;
-            let (year, month) = parse_period(&period.id)?;
-            let value = observation_value(observation.first()?)?;
+            let (year, month) = parse_period(period.get("id")?.as_str()?)?;
+            let value = observation_value(observation.as_array()?.first()?)?;
             Some(VpiDataPoint { year, month, value })
         })
         .collect();

@@ -38,16 +38,20 @@ const COUNTRY_LENGTHS: [(&str, usize); 31] = [
     ("CY", 28),
 ];
 
-/// Removes whitespace and converts to upper case.
+/// Removes whitespace and converts ASCII letters to upper case. Other characters stay
+/// unchanged, so non-ASCII input (e.g. `ſ`, which Unicode upper-cases to `S`) is
+/// rejected by the format check instead of turning into a valid letter.
 fn normalize(iban: &str) -> String {
     iban.chars()
         .filter(|c| !c.is_whitespace())
-        .collect::<String>()
-        .to_uppercase()
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
 }
 
 /// Whether `iban` is a valid IBAN. Spaces and lower case are accepted; an empty
-/// string is invalid.
+/// string and any non-ASCII letter or digit are invalid. Country codes without an
+/// entry in the length table are not rejected as such, only checked for format and
+/// check digits (as before).
 pub fn is_valid_iban(iban: &str) -> bool {
     let cleaned = normalize(iban);
     let bytes = cleaned.as_bytes();
