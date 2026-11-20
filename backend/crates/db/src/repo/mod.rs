@@ -7,6 +7,8 @@
 
 pub mod account;
 pub mod audit;
+// P5
+pub mod billing;
 // P4
 pub mod masterdata;
 pub mod session;

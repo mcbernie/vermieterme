@@ -4,6 +4,7 @@ use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 
 use super::{Checked, Rejection};
+use crate::dialect::Dialect;
 use crate::error::{DbError, DbResult};
 use crate::row::{new_id, now_millis};
 use crate::scope::AccountScope;
@@ -139,9 +140,12 @@ pub async fn update(
 
 /// Deletes a category. A category used by costs of a billing period is refused with
 /// [`Rejection::CategoryInUse`] instead of cascading (the schema has no cascade here).
+/// The category row is locked first, so a cost saved at the same time (it locks the
+/// category too) is either seen by the check (409) or finds the category gone (404),
+/// never a foreign-key error.
 pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> Checked<()> {
     in_transaction(conn, async |tx| {
-        get(tx, scope, id).await?;
+        lock(tx, scope, id).await?;
         let used = sqlx::query(
             "SELECT 1 AS used FROM cost WHERE account_id = ? AND cost_category_id = ? LIMIT 1",
         )
@@ -160,4 +164,33 @@ pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) ->
         Ok(Ok(()))
     })
     .await
+}
+
+/// Reads a category and, on MySQL, locks its row until the end of the transaction (SQLite
+/// holds the write lock from `BEGIN IMMEDIATE`). Deleting a category and saving a cost of
+/// it (billing, P5) both start here, so they never run side by side.
+pub(crate) async fn lock(
+    conn: &mut AnyConnection,
+    scope: &AccountScope,
+    id: &str,
+) -> DbResult<CostCategory> {
+    let sql = Dialect::of(conn)?.pick(
+        concat!(
+            "SELECT ",
+            columns!(),
+            " FROM cost_category WHERE account_id = ? AND id = ?"
+        ),
+        concat!(
+            "SELECT ",
+            columns!(),
+            " FROM cost_category WHERE account_id = ? AND id = ? FOR UPDATE"
+        ),
+    );
+    let row = sqlx::query(sql)
+        .bind(scope.account_id())
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    from_row(&row)
 }

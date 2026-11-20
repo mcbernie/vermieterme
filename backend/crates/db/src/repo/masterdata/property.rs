@@ -198,8 +198,9 @@ pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) ->
 
 /// Reads the total shares of a property and, on MySQL, locks its row until the end of the
 /// transaction (SQLite has taken the write lock with `BEGIN IMMEDIATE` already). Unit and
-/// property changes both start here, so their share checks never run side by side.
-pub(super) async fn lock(
+/// property changes both start here, so their share checks never run side by side;
+/// creating or moving a billing period (P5) locks it against overlapping periods.
+pub(crate) async fn lock(
     conn: &mut AnyConnection,
     scope: &AccountScope,
     id: &str,
