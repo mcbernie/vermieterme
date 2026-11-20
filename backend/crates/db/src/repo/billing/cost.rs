@@ -163,7 +163,7 @@ pub(super) async fn find(
     Ok(costs.pop())
 }
 
-/// Locks the period and the category (lock order steps 1 and 2); returns the period and
+/// Locks the period and the category (lock order steps 3 and 4); returns the period and
 /// the position of the category, if it exists.
 pub(super) async fn lock_position(
     conn: &mut AnyConnection,

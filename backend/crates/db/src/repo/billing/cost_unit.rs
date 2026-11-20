@@ -15,9 +15,9 @@ use crate::tx::in_transaction;
 /// `category_id`; the position is created (without total) if it does not exist yet.
 ///
 /// The unit must belong to the period's property, otherwise it is
-/// [`DbError::NotFound`]. Its row is locked before writing (decision 37), so moving the
-/// unit to another property cannot slip in between. The version of the position guards
-/// like for [`cost::save`]; a real change of the amount raises it and makes the position
+/// [`DbError::NotFound`]. Its row is locked first, before period and category (lock
+/// order steps 2 to 4, decision 37), so moving the unit to another property cannot slip
+/// in between. The version of the position guards like for [`cost::save`]; a real change of the amount raises it and makes the position
 /// unreviewed (#67), an unchanged amount writes nothing.
 pub async fn set_unit_amount(
     conn: &mut AnyConnection,
@@ -27,8 +27,8 @@ pub async fn set_unit_amount(
     version: Option<i64>,
 ) -> Checked<Cost> {
     in_transaction(conn, async |tx| {
-        let (found, existing) = cost::lock_position(tx, scope, period_id, category_id).await?;
         let locked = unit::lock(tx, scope, unit_id).await?;
+        let (found, existing) = cost::lock_position(tx, scope, period_id, category_id).await?;
         if locked.property_id != found.property_id {
             return Err(DbError::NotFound);
         }

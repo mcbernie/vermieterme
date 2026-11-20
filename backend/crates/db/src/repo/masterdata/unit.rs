@@ -147,7 +147,8 @@ async fn check_shares(
 }
 
 /// Creates a unit. A foreign or unknown property is [`DbError::NotFound`]; shares above
-/// the property's total are refused with [`Rejection::SharesAboveTotal`].
+/// the property's total are refused with [`Rejection::SharesAboveTotal`]. The property
+/// is locked before the insert (lock order, see `repo::billing`).
 pub async fn create(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -180,6 +181,10 @@ pub async fn create(
 }
 
 /// Replaces the values of a unit (the property may change). Same rules as [`create`].
+///
+/// Lock order (see `repo::billing`): the current and the target property (sorted by
+/// id), then the unit. Their ids come from a plain read first, so the check for billing
+/// data reads with locks ([`in_billings`]) and never from an older snapshot.
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -187,7 +192,18 @@ pub async fn update(
     input: &UnitInput,
 ) -> Checked<Unit> {
     in_transaction(conn, async |tx| {
+        let owner = get(tx, scope, id).await?.property_id;
+        let mut properties = [owner.as_str(), input.property_id.as_str()];
+        properties.sort_unstable();
+        property::lock(tx, scope, properties[0]).await?;
+        if properties[1] != properties[0] {
+            property::lock(tx, scope, properties[1]).await?;
+        }
         let current = lock(tx, scope, id).await?;
+        if current.property_id != owner && current.property_id != input.property_id {
+            // Moved by someone else since the read above (rare): lock its property too.
+            property::lock(tx, scope, &current.property_id).await?;
+        }
         if let Err(rejection) = check_shares(tx, scope, input).await? {
             return Ok(Err(rejection));
         }
@@ -245,31 +261,74 @@ pub(crate) async fn lock(
     from_row(&row)
 }
 
-/// Whether billings reference the unit (prepayments or per-unit cost amounts).
-async fn in_billings(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<bool> {
-    let row = sqlx::query(
-        "SELECT (SELECT COUNT(*) FROM prepayment WHERE account_id = ? AND unit_id = ?) \
-         + (SELECT COUNT(*) FROM cost_unit_amount WHERE account_id = ? AND unit_id = ?) AS used",
-    )
-    .bind(scope.account_id())
-    .bind(id)
-    .bind(scope.account_id())
-    .bind(id)
-    .fetch_one(&mut *conn)
-    .await?;
-    let used: i64 = row.try_get("used")?;
-    Ok(used > 0)
+/// Ids of the units of a property, sorted, locked on MySQL until the end of the
+/// transaction (lock order step 2, after the property: see `repo::billing`). Creating a
+/// billing period and deleting a property take them, so moving a unit in or out waits.
+pub(crate) async fn lock_of_property(
+    conn: &mut AnyConnection,
+    scope: &AccountScope,
+    property_id: &str,
+) -> DbResult<Vec<String>> {
+    let sql = Dialect::of(conn)?.pick(
+        "SELECT id FROM unit WHERE account_id = ? AND property_id = ? ORDER BY id",
+        "SELECT id FROM unit WHERE account_id = ? AND property_id = ? ORDER BY id FOR UPDATE",
+    );
+    let rows = sqlx::query(sql)
+        .bind(scope.account_id())
+        .bind(property_id)
+        .fetch_all(&mut *conn)
+        .await?;
+    rows.iter()
+        .map(|row| Ok(row.try_get::<String, _>("id")?))
+        .collect()
 }
 
-/// Deletes a unit with its tenants, rent changes and billing data (cascade).
-pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<()> {
-    let result = sqlx::query("DELETE FROM unit WHERE account_id = ? AND id = ?")
-        .bind(scope.account_id())
-        .bind(id)
-        .execute(&mut *conn)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(DbError::NotFound);
+/// Whether billings reference the unit (prepayments or per-unit cost amounts). Reads
+/// with locks on MySQL, so it sees the latest committed rows even when the
+/// transaction's snapshot is older.
+async fn in_billings(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<bool> {
+    let dialect = Dialect::of(conn)?;
+    let queries = [
+        dialect.pick(
+            "SELECT 1 AS used FROM prepayment WHERE account_id = ? AND unit_id = ? LIMIT 1",
+            "SELECT 1 AS used FROM prepayment WHERE account_id = ? AND unit_id = ? LIMIT 1 \
+             FOR UPDATE",
+        ),
+        dialect.pick(
+            "SELECT 1 AS used FROM cost_unit_amount WHERE account_id = ? AND unit_id = ? LIMIT 1",
+            "SELECT 1 AS used FROM cost_unit_amount WHERE account_id = ? AND unit_id = ? \
+             LIMIT 1 FOR UPDATE",
+        ),
+    ];
+    for sql in queries {
+        let row = sqlx::query(sql)
+            .bind(scope.account_id())
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?;
+        if row.is_some() {
+            return Ok(true);
+        }
     }
-    Ok(())
+    Ok(false)
+}
+
+/// Deletes a unit with its tenants, rent changes and billing data (cascade). Its
+/// property is locked first (lock order, see `repo::billing`), so a billing period
+/// created at the same time either sees the unit or not, without a deadlock.
+pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<()> {
+    in_transaction(conn, async |tx| {
+        let owner = get(tx, scope, id).await?.property_id;
+        property::lock(tx, scope, &owner).await?;
+        let result = sqlx::query("DELETE FROM unit WHERE account_id = ? AND id = ?")
+            .bind(scope.account_id())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    })
+    .await
 }

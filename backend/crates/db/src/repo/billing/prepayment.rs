@@ -109,8 +109,8 @@ async fn find(
 /// monthly amount is required: [`Rejection::AmountRequired`]).
 ///
 /// The unit must belong to the period's property, otherwise it is
-/// [`DbError::NotFound`]; its row is locked first (decision 37), so moving the unit
-/// cannot slip in between. `reviewed` and the version behave like for costs: `reviewed`
+/// [`DbError::NotFound`]; its row is locked first and the period after it (lock order
+/// steps 2 and 3, decision 37), so moving the unit cannot slip in between. `reviewed` and the version behave like for costs: `reviewed`
 /// turns `false` only when the amount really changes, a request that changes nothing
 /// writes nothing.
 pub async fn save(
@@ -121,8 +121,8 @@ pub async fn save(
     patch: &PrepaymentPatch,
 ) -> Checked<Saved<Prepayment>> {
     in_transaction(conn, async |tx| {
-        let found = period::lock(tx, scope, period_id).await?;
         let locked = unit::lock(tx, scope, unit_id).await?;
+        let found = period::lock(tx, scope, period_id).await?;
         if locked.property_id != found.property_id {
             return Err(DbError::NotFound);
         }

@@ -11,24 +11,32 @@
 //! Cost and prepayment writes are partial (only the sent fields change, #25) and carry an
 //! optimistic version (#67). Every change runs in one transaction and locks the rows it
 //! depends on (MySQL `FOR UPDATE`; SQLite holds the write lock from `BEGIN IMMEDIATE`).
-//! The lock order is the same everywhere, so two changes never wait for each other in a
-//! circle:
 //!
-//! 1. billing period (the changed one, or the copy source),
-//! 2. cost category (deleting a category locks it too, so a parallel cost save gives 409
-//!    or 404, never a foreign-key error),
-//! 3. unit (before inserting a prepayment or a unit amount; moving a unit locks it too,
-//!    decision 37),
-//! 4. property (creating or moving a period, against overlapping periods).
+//! ## Lock order
+//!
+//! The one place this order is written down; master data (`unit`, `property`) follows
+//! it too. A change may skip steps but never takes an earlier step after a later one,
+//! so two changes never wait for each other in a circle (#113):
+//!
+//! 1. **property** – creating, changing or deleting a period (against overlapping
+//!    periods), creating, moving (current and target property, sorted by id) or deleting
+//!    a unit, deleting a property;
+//! 2. **units** – all units of the property (creating a period, deleting a property) or
+//!    the one unit (moving it, and before inserting a prepayment or a unit amount,
+//!    decision 37);
+//! 3. **billing period** – the changed one or the copy source;
+//! 4. **cost category** – deleting a category locks it too, so a parallel cost save
+//!    gives 409 or 404, never a foreign-key error;
+//! 5. rows below (costs, unit amounts, prepayments), by the writes themselves.
+//!
+//! Where a step needs an id from a later row (the property of a period or unit), that id
+//! comes from a plain read first; checks after the locks then read with locks too, so
+//! an older snapshot of the transaction cannot hide a row committed in between.
 //!
 //! Business rules that refuse a change come back as a [`Rejection`] inside `Ok`, so the
 //! HTTP layer can answer precisely while database failures stay `DbError`s.
 
-use sqlx::{AnyConnection, Row};
-
-use crate::dialect::Dialect;
 use crate::error::DbResult;
-use crate::scope::AccountScope;
 
 /// Column list of `billing_period` read by `period::from_row` (period and summary
 /// modules; defined before them so both can expand it).
@@ -96,25 +104,4 @@ impl<T> Saved<T> {
             Saved::Created(value) | Saved::Updated(value) => value,
         }
     }
-}
-
-/// Ids of the units of a property, locked on MySQL until the end of the transaction
-/// (lock order step 3), sorted by id so parallel callers lock in the same order.
-async fn lock_property_units(
-    conn: &mut AnyConnection,
-    scope: &AccountScope,
-    property_id: &str,
-) -> DbResult<Vec<String>> {
-    let sql = Dialect::of(conn)?.pick(
-        "SELECT id FROM unit WHERE account_id = ? AND property_id = ? ORDER BY id",
-        "SELECT id FROM unit WHERE account_id = ? AND property_id = ? ORDER BY id FOR UPDATE",
-    );
-    let rows = sqlx::query(sql)
-        .bind(scope.account_id())
-        .bind(property_id)
-        .fetch_all(&mut *conn)
-        .await?;
-    rows.iter()
-        .map(|row| Ok(row.try_get::<String, _>("id")?))
-        .collect()
 }

@@ -4,7 +4,7 @@ use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 use vermieterme_domain::billing::UnitBasis;
 
-use super::{Checked, Rejection};
+use super::{Checked, Rejection, unit};
 use crate::dialect::Dialect;
 use crate::error::{DbError, DbResult};
 use crate::row::{new_id, now_millis};
@@ -184,22 +184,32 @@ pub async fn update(
 }
 
 /// Deletes a property with its units, tenants and billing data (cascade of the schema).
+///
+/// Locks the property and then its units before the cascade (lock order, see
+/// `repo::billing`): the cascade reaches units and billing periods in an order of the
+/// database's choosing, and a prepayment save holds its unit before its period.
 pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<()> {
-    let result = sqlx::query("DELETE FROM property WHERE account_id = ? AND id = ?")
-        .bind(scope.account_id())
-        .bind(id)
-        .execute(&mut *conn)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(DbError::NotFound);
-    }
-    Ok(())
+    in_transaction(conn, async |tx| {
+        lock(tx, scope, id).await?;
+        unit::lock_of_property(tx, scope, id).await?;
+        let result = sqlx::query("DELETE FROM property WHERE account_id = ? AND id = ?")
+            .bind(scope.account_id())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    })
+    .await
 }
 
 /// Reads the total shares of a property and, on MySQL, locks its row until the end of the
-/// transaction (SQLite has taken the write lock with `BEGIN IMMEDIATE` already). Unit and
-/// property changes both start here, so their share checks never run side by side;
-/// creating or moving a billing period (P5) locks it against overlapping periods.
+/// transaction (SQLite has taken the write lock with `BEGIN IMMEDIATE` already). Step 1
+/// of the lock order (see `repo::billing`): unit and property changes start here, so
+/// their share checks never run side by side; creating, changing or deleting a billing
+/// period locks it against overlapping periods.
 pub(crate) async fn lock(
     conn: &mut AnyConnection,
     scope: &AccountScope,

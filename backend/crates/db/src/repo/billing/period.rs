@@ -3,10 +3,10 @@
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 
-use super::{Checked, Rejection, copy, lock_property_units};
+use super::{Checked, Rejection, copy};
 use crate::dialect::Dialect;
 use crate::error::{DbError, DbResult};
-use crate::repo::masterdata::property;
+use crate::repo::masterdata::{property, unit};
 use crate::row::{new_id, now_millis};
 use crate::scope::AccountScope;
 use crate::tx::in_transaction;
@@ -102,7 +102,7 @@ pub async fn get(
 }
 
 /// Reads a period and, on MySQL, locks its row until the end of the transaction (lock
-/// order step 1, see the module documentation of `billing`).
+/// order step 3, see the module documentation of `billing`).
 pub(super) async fn lock(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -132,12 +132,17 @@ pub(super) async fn lock(
 /// Creates a period, optionally as a copy of another period of the same property (costs
 /// with `enabled` and key override, unit amounts and prepayments; all unreviewed), in
 /// one transaction. Refused if the property has no units or another period overlaps.
+///
+/// Lock order (module `billing`): property, its units, then the copy source and its
+/// categories.
 pub async fn create(
     conn: &mut AnyConnection,
     scope: &AccountScope,
     input: &NewPeriod,
 ) -> Checked<BillingPeriod> {
     in_transaction(conn, async |tx| {
+        property::lock(tx, scope, &input.property_id).await?;
+        let units = unit::lock_of_property(tx, scope, &input.property_id).await?;
         let source = match &input.copy_from_id {
             Some(source_id) => match copy::lock_source(tx, scope, source_id).await? {
                 Ok(source) => Some(source),
@@ -150,8 +155,6 @@ pub async fn create(
         {
             return Ok(Err(Rejection::SourceOtherProperty));
         }
-        let units = lock_property_units(tx, scope, &input.property_id).await?;
-        property::lock(tx, scope, &input.property_id).await?;
         if units.is_empty() {
             return Ok(Err(Rejection::NoUnits));
         }
@@ -196,6 +199,8 @@ pub async fn create(
 /// The first other period of the property that shares at least one day with
 /// `start..=end` and is not `except`, as a [`Rejection::Overlap`]. Adjacent periods do
 /// not overlap: like before, a period may start on the last day of the previous one.
+/// Reads with locks on MySQL (the caller holds the property), so it sees periods
+/// committed after the transaction's snapshot.
 async fn overlap(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -206,18 +211,22 @@ async fn overlap(
 ) -> DbResult<Option<Rejection>> {
     // Text dates `YYYY-MM-DD` compare like dates. Same condition as the old code
     // (`start < other.end AND end > other.start`).
-    let row = sqlx::query(
+    let sql = Dialect::of(conn)?.pick(
         "SELECT start_date, end_date FROM billing_period WHERE account_id = ? \
          AND property_id = ? AND id <> ? AND start_date < ? AND end_date > ? \
          ORDER BY start_date LIMIT 1",
-    )
-    .bind(scope.account_id())
-    .bind(property_id)
-    .bind(except.unwrap_or(""))
-    .bind(end)
-    .bind(start)
-    .fetch_optional(&mut *conn)
-    .await?;
+        "SELECT start_date, end_date FROM billing_period WHERE account_id = ? \
+         AND property_id = ? AND id <> ? AND start_date < ? AND end_date > ? \
+         ORDER BY start_date LIMIT 1 FOR UPDATE",
+    );
+    let row = sqlx::query(sql)
+        .bind(scope.account_id())
+        .bind(property_id)
+        .bind(except.unwrap_or(""))
+        .bind(end)
+        .bind(start)
+        .fetch_optional(&mut *conn)
+        .await?;
     row.map(|row| {
         Ok(Rejection::Overlap {
             start: row.try_get("start_date")?,
@@ -229,6 +238,9 @@ async fn overlap(
 
 /// Changes the dates of a period (the property cannot change). The resulting dates are
 /// checked against each other and against the other periods of the property.
+///
+/// Lock order (module `billing`): the property (its id from a plain read; it cannot
+/// change), then the period.
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -236,13 +248,14 @@ pub async fn update(
     patch: &PeriodPatch,
 ) -> Checked<BillingPeriod> {
     in_transaction(conn, async |tx| {
+        let owner = get(tx, scope, id).await?.property_id;
+        property::lock(tx, scope, &owner).await?;
         let current = lock(tx, scope, id).await?;
         let start = patch.start_date.as_ref().unwrap_or(&current.start_date);
         let end = patch.end_date.as_ref().unwrap_or(&current.end_date);
         if end <= start {
             return Ok(Err(Rejection::EndNotAfterStart));
         }
-        property::lock(tx, scope, &current.property_id).await?;
         if let Some(rejection) =
             overlap(tx, scope, &current.property_id, Some(id), start, end).await?
         {
@@ -273,14 +286,23 @@ pub async fn update(
 
 /// Deletes a period with its costs, unit amounts, prepayments and document rows (cascade
 /// of the schema). Stored files of the documents are not touched here (P6).
+///
+/// Locks the property first (module `billing`, lock order): the cascade also clears
+/// `copied_from_id` in other periods of the property, which a parallel change of the
+/// dates may hold.
 pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<()> {
-    let result = sqlx::query("DELETE FROM billing_period WHERE account_id = ? AND id = ?")
-        .bind(scope.account_id())
-        .bind(id)
-        .execute(&mut *conn)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(DbError::NotFound);
-    }
-    Ok(())
+    in_transaction(conn, async |tx| {
+        let owner = get(tx, scope, id).await?.property_id;
+        property::lock(tx, scope, &owner).await?;
+        let result = sqlx::query("DELETE FROM billing_period WHERE account_id = ? AND id = ?")
+            .bind(scope.account_id())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    })
+    .await
 }

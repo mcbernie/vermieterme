@@ -9,7 +9,7 @@ use crate::error::{DbError, DbResult};
 use crate::row::{flag_value, new_id, now_millis};
 use crate::scope::AccountScope;
 
-/// Locks the source period (lock order step 1) and the categories of its costs (step 2).
+/// Locks the source period (lock order step 3) and the categories of its costs (step 4).
 /// A missing or foreign source is [`Rejection::SourceNotFound`], so the caller can tell
 /// it apart from a missing property.
 pub(super) async fn lock_source(
@@ -42,7 +42,7 @@ pub(super) async fn lock_source(
 /// Copies costs (amount, `enabled`, key override), their unit amounts and the
 /// prepayments of `source_id` into `target_id`; everything copied is unreviewed and
 /// starts at version 1. Unit amounts and prepayments are copied only for `units` (the
-/// locked units of the property, lock order step 3).
+/// locked units of the property, lock order step 2).
 pub(super) async fn copy_positions(
     conn: &mut AnyConnection,
     scope: &AccountScope,
