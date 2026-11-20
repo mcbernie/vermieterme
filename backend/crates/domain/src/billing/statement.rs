@@ -16,7 +16,9 @@ use crate::months::MonthRule;
 /// unit, so no special case is needed here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CostPosition {
-    /// Total amount of the property; `None` = no amount entered, the position is skipped.
+    /// Total amount of the property; `None` = no amount entered. Without a total a
+    /// `mea`/`per_unit` position is skipped; a `per_notice`/`per_attachment` position
+    /// still counts when this unit has an amount (decision 39).
     pub total_amount: Option<Cents>,
     /// Amount stored for this unit; `None` = not entered. Only used by the keys
     /// `per_notice` and `per_attachment`.
@@ -100,9 +102,21 @@ impl UnitBasis {
 }
 
 impl CostPosition {
-    /// Whether the position takes part in the calculation (enabled and with a total).
+    /// Whether the position takes part in the calculation for this unit.
+    ///
+    /// Disabled positions never count. `mea`/`per_unit` need the total;
+    /// `per_notice`/`per_attachment` count with a total or with an amount for this
+    /// unit, e.g. property tax billed per flat without a property total (decision 39).
     pub fn counts(&self) -> bool {
-        self.enabled && self.total_amount.is_some()
+        if !self.enabled {
+            return false;
+        }
+        match self.key {
+            DistributionKey::Mea | DistributionKey::PerUnit => self.total_amount.is_some(),
+            DistributionKey::PerNotice | DistributionKey::PerAttachment => {
+                self.total_amount.is_some() || self.unit_amount.is_some()
+            }
+        }
     }
 
     /// The unit's share of this position, `Ok(None)` when the position does not count.
@@ -113,13 +127,15 @@ impl CostPosition {
     /// `per_attachment` take the stored unit amount, 0 when none is stored, and never
     /// look at the basis. Errors only when a computed key meets an inconsistent basis.
     pub fn unit_share(&self, basis: &UnitBasis) -> Result<Option<Cents>, ShareError> {
-        let Some(total) = self.total_amount.filter(|_| self.enabled) else {
+        if !self.counts() {
             return Ok(None);
-        };
-        let share = match self.key {
-            DistributionKey::Mea => basis.mea_share(total)?,
-            DistributionKey::PerUnit => basis.per_unit_share(total)?,
-            DistributionKey::PerNotice | DistributionKey::PerAttachment => {
+        }
+        let share = match (self.key, self.total_amount) {
+            (DistributionKey::Mea, Some(total)) => basis.mea_share(total)?,
+            (DistributionKey::PerUnit, Some(total)) => basis.per_unit_share(total)?,
+            // Not reachable: `counts` requires the total for the computed keys.
+            (DistributionKey::Mea | DistributionKey::PerUnit, None) => return Ok(None),
+            (DistributionKey::PerNotice | DistributionKey::PerAttachment, _) => {
                 self.unit_amount.unwrap_or(Cents::ZERO)
             }
         };
@@ -130,7 +146,8 @@ impl CostPosition {
 /// Result of one unit in one billing period.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitStatement {
-    /// Sum of the totals of all counting positions (whole property).
+    /// Sum of the totals of all counting positions (whole property); a position
+    /// counting without a total (decision 39) adds nothing here.
     pub total_costs: Cents,
     /// Sum of the unit's shares.
     pub unit_costs: Cents,

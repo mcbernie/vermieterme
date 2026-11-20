@@ -203,3 +203,57 @@ fn per_unit_position_fails_without_units() {
         Some(ShareError::NoUnits)
     );
 }
+
+#[test]
+fn entered_unit_amount_counts_without_total_for_entered_keys() {
+    // Decision 39: e.g. property tax per flat, no property total entered (#80).
+    for key in [PerNotice, PerAttachment] {
+        let p = CostPosition {
+            total_amount: None,
+            ..position(0, Some(21_030), key)
+        };
+        assert!(p.counts(), "{key}");
+        assert_eq!(
+            p.unit_share(&basis(9, 1, 0)),
+            Ok(Some(Cents::new(21_030))),
+            "{key}"
+        );
+        let s = statement(&[p], &basis(9, 1, 0));
+        assert_eq!(
+            s.map(|s| (s.unit_costs, s.total_costs)),
+            Ok((Cents::new(21_030), Cents::ZERO))
+        );
+    }
+}
+
+#[test]
+fn entered_keys_without_any_amount_do_not_count() {
+    for key in [PerNotice, PerAttachment] {
+        let p = CostPosition {
+            total_amount: None,
+            ..position(0, None, key)
+        };
+        assert!(!p.counts(), "{key}");
+        assert_eq!(p.unit_share(&basis(1, 2, 2)), Ok(None), "{key}");
+        let mut disabled = position(0, Some(5_000), key);
+        disabled.total_amount = None;
+        disabled.enabled = false;
+        assert!(!disabled.counts(), "{key}");
+    }
+}
+
+#[test]
+fn computed_keys_need_the_total_even_with_a_unit_amount() {
+    for key in [Mea, PerUnit] {
+        let p = CostPosition {
+            total_amount: None,
+            ..position(0, Some(5_000), key)
+        };
+        assert!(!p.counts(), "{key}");
+        // Not counting: the broken basis is never looked at.
+        assert_eq!(
+            statement(&[p], &basis(9, 1, 0)).map(|s| s.unit_costs),
+            Ok(Cents::ZERO)
+        );
+    }
+}
