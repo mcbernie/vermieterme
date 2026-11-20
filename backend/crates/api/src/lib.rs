@@ -13,8 +13,9 @@ pub mod auth;
 pub mod config;
 pub mod error;
 pub mod health;
+// P4
+pub mod masterdata;
 pub mod users;
-// pub mod masterdata;    // P4
 // pub mod billing;       // P5
 // pub mod documents;     // P6
 // pub mod tenant_app;    // P7
