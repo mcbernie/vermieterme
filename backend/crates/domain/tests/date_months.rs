@@ -119,3 +119,24 @@ fn rule_is_exchangeable() {
         .collect();
     assert_eq!(months, vec![2, 12]);
 }
+
+#[test]
+fn from_date_keeps_the_year_range() {
+    use time::{Date, Month};
+    let date = |year| Date::from_calendar_date(year, Month::January, 1).unwrap();
+    assert_eq!(CalendarDate::from_date(date(0)), Err(DateError::Invalid));
+    assert_eq!(CalendarDate::from_date(date(-1)), Err(DateError::Invalid));
+    assert_eq!(
+        CalendarDate::from_date(date(1)).map(|d| d.to_string()),
+        Ok("0001-01-01".into())
+    );
+    assert_eq!(
+        CalendarDate::from_date(date(9999)).map(|d| d.year()),
+        Ok(9999)
+    );
+    assert_eq!(CalendarDate::from_ymd(0, 1, 1), Err(DateError::Invalid));
+    assert_eq!(
+        CalendarDate::from_ymd(10_000, 1, 1),
+        Err(DateError::Invalid)
+    );
+}

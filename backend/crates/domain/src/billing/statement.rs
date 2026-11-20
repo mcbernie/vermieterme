@@ -29,50 +29,58 @@ pub struct CostPosition {
 
 /// What a unit's share depends on besides the position itself.
 ///
-/// Built only through [`UnitBasis::new`], which rejects values that would give
-/// negative or inflated shares. The API validates the stored data on write
-/// (`shares >= 0`, `total_shares >= 1`); legacy rows that break the rules surface
-/// here as [`InvalidUnitBasis`] instead of a silently wrong bill.
+/// Plain stored data, deliberately unchecked: a property whose shares are
+/// inconsistent can still be billed as long as no position needs them. The checks
+/// happen in [`UnitBasis::mea_share`] and [`UnitBasis::per_unit_share`], the only
+/// way to compute these shares. The API validates on write (`shares >= 0`,
+/// `totalShares >= 1`); legacy properties may have `total_shares = 0` (the old form
+/// stored 0 for an empty field), which is accepted when the unit has 0 shares too
+/// and gives MEA shares of 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitBasis {
-    shares: i64,
-    total_shares: i64,
-    unit_count: i64,
+    /// Co-ownership shares of the unit.
+    pub shares: i64,
+    /// Co-ownership shares of the whole property.
+    pub total_shares: i64,
+    /// Number of units of the property (key `per_unit`).
+    pub unit_count: i64,
 }
 
-/// The shares or the unit count of a unit basis are inconsistent.
+/// A share cannot be computed because the stored basis is inconsistent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("Miteigentumsanteile oder Anzahl der Einheiten sind ungültig")]
-pub struct InvalidUnitBasis;
+pub enum ShareError {
+    /// Key `mea`: unit shares negative or above the shares of the property.
+    #[error(
+        "MEA-Anteil nicht berechenbar: Die Miteigentumsanteile der Einheit sind negativ oder größer als die des Objekts"
+    )]
+    InvalidShares,
+    /// Key `per_unit`: the property has no units.
+    #[error("Anteil nach Einheiten nicht berechenbar: Das Objekt hat keine Einheiten")]
+    NoUnits,
+}
 
 impl UnitBasis {
-    /// Checks and builds the basis: `0 <= shares <= total_shares` and
-    /// `unit_count >= 1` (the unit itself belongs to the property). A property
-    /// without shares (`total_shares = 0`) is allowed and gives MEA shares of 0.
-    pub fn new(shares: i64, total_shares: i64, unit_count: i64) -> Result<Self, InvalidUnitBasis> {
-        if shares < 0 || shares > total_shares || unit_count < 1 {
-            return Err(InvalidUnitBasis);
+    /// MEA share of `total`: `total * shares / total_shares`, rounded half away from
+    /// zero. Requires `0 <= shares <= total_shares`; `total_shares = 0` (with
+    /// `shares = 0`) gives 0.
+    pub fn mea_share(&self, total: Cents) -> Result<Cents, ShareError> {
+        if self.shares < 0 || self.shares > self.total_shares {
+            return Err(ShareError::InvalidShares);
         }
-        Ok(UnitBasis {
-            shares,
-            total_shares,
-            unit_count,
-        })
+        Ok(total
+            .mul_ratio(self.shares, self.total_shares)
+            .unwrap_or(Cents::ZERO))
     }
 
-    /// Co-ownership shares of the unit.
-    pub fn shares(&self) -> i64 {
-        self.shares
-    }
-
-    /// Co-ownership shares of the whole property.
-    pub fn total_shares(&self) -> i64 {
-        self.total_shares
-    }
-
-    /// Number of units of the property (key `per_unit`).
-    pub fn unit_count(&self) -> i64 {
-        self.unit_count
+    /// Equal share of `total` over all units of the property, rounded half away from
+    /// zero. Requires `unit_count >= 1`.
+    pub fn per_unit_share(&self, total: Cents) -> Result<Cents, ShareError> {
+        if self.unit_count < 1 {
+            return Err(ShareError::NoUnits);
+        }
+        total
+            .mul_ratio(1, self.unit_count)
+            .ok_or(ShareError::NoUnits)
     }
 }
 
@@ -82,34 +90,26 @@ impl CostPosition {
         self.enabled && self.total_amount.is_some()
     }
 
-    /// The unit's share of this position, or `None` when the position does not count.
+    /// The unit's share of this position, `Ok(None)` when the position does not count.
     ///
     /// `mea` and `per_unit` are always computed from the total and rounded per
     /// position to whole cents; a stored unit amount is ignored there, since it may
     /// be a stale value from before a key change (decision 5, #81). `per_notice` and
-    /// `per_attachment` take the stored unit amount, 0 when none is stored.
-    pub fn unit_share(&self, basis: &UnitBasis) -> Option<Cents> {
-        let total = self.total_amount.filter(|_| self.enabled)?;
-        Some(match self.key {
-            DistributionKey::Mea => mea_share(total, basis.shares, basis.total_shares),
-            DistributionKey::PerUnit => per_unit_share(total, basis.unit_count),
+    /// `per_attachment` take the stored unit amount, 0 when none is stored, and never
+    /// look at the basis. Errors only when a computed key meets an inconsistent basis.
+    pub fn unit_share(&self, basis: &UnitBasis) -> Result<Option<Cents>, ShareError> {
+        let Some(total) = self.total_amount.filter(|_| self.enabled) else {
+            return Ok(None);
+        };
+        let share = match self.key {
+            DistributionKey::Mea => basis.mea_share(total)?,
+            DistributionKey::PerUnit => basis.per_unit_share(total)?,
             DistributionKey::PerNotice | DistributionKey::PerAttachment => {
                 self.unit_amount.unwrap_or(Cents::ZERO)
             }
-        })
+        };
+        Ok(Some(share))
     }
-}
-
-/// Share of `total` for `shares` of `total_shares`, rounded half away from zero.
-/// A property without shares gives 0 (as before).
-pub fn mea_share(total: Cents, shares: i64, total_shares: i64) -> Cents {
-    total.mul_ratio(shares, total_shares).unwrap_or(Cents::ZERO)
-}
-
-/// Equal share of `total` over `unit_count` units, rounded half away from zero.
-/// A property without units gives 0.
-pub fn per_unit_share(total: Cents, unit_count: i64) -> Cents {
-    total.mul_ratio(1, unit_count).unwrap_or(Cents::ZERO)
 }
 
 /// Result of one unit in one billing period.
@@ -153,21 +153,25 @@ pub struct Period {
 /// `costs` are the positions of the period built for this unit (see
 /// [`CostPosition`]: total of the property, amount stored for this unit).
 /// `monthly_prepayment` is the sum of the unit's monthly prepayments for this period.
+/// Fails only if a counting `mea`/`per_unit` position meets an inconsistent basis.
 pub fn unit_statement(
     costs: &[CostPosition],
     basis: &UnitBasis,
     monthly_prepayment: Cents,
     period: Period,
     rule: &dyn MonthRule,
-) -> UnitStatement {
+) -> Result<UnitStatement, ShareError> {
     let counting = || costs.iter().filter(|c| c.counts());
     let total_costs = counting().filter_map(|c| c.total_amount).sum();
-    let unit_costs = counting().filter_map(|c| c.unit_share(basis)).sum();
+    let mut unit_costs = Cents::ZERO;
+    for cost in counting() {
+        unit_costs += cost.unit_share(basis)?.unwrap_or(Cents::ZERO);
+    }
     let months = rule.months(period.start, period.end);
-    UnitStatement {
+    Ok(UnitStatement {
         total_costs,
         unit_costs,
         months,
         prepayment: monthly_prepayment.times(i64::from(months)),
-    }
+    })
 }

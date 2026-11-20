@@ -12,7 +12,4 @@ mod statement;
 pub use key::{DistributionKey, UnknownKey, effective_key};
 pub use prepayment::{PREPAYMENT_STEP, suggest_next_prepayment};
 pub use review::{CostReview, ReviewProgress};
-pub use statement::{
-    CostPosition, InvalidUnitBasis, Period, UnitBasis, UnitStatement, mea_share, per_unit_share,
-    unit_statement,
-};
+pub use statement::{CostPosition, Period, ShareError, UnitBasis, UnitStatement, unit_statement};

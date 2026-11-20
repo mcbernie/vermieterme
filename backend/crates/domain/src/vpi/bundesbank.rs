@@ -25,6 +25,15 @@ pub struct VpiDataPoint {
 #[error("Antwort der Bundesbank hat ein unerwartetes Format")]
 pub struct VpiParseError(#[source] serde_json::Error);
 
+/// Reads a list that may be missing (`default`) or `null` as empty.
+fn null_as_empty<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<Vec<T>>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
+
 #[derive(Deserialize)]
 struct Response {
     data: Data,
@@ -33,7 +42,7 @@ struct Response {
 #[derive(Deserialize)]
 struct Data {
     structure: Structure,
-    #[serde(rename = "dataSets", default)]
+    #[serde(rename = "dataSets", default, deserialize_with = "null_as_empty")]
     data_sets: Vec<DataSet>,
 }
 
@@ -44,7 +53,7 @@ struct Structure {
 
 #[derive(Deserialize)]
 struct Dimensions {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     observation: Vec<ObservationDimension>,
 }
 
@@ -52,7 +61,7 @@ struct Dimensions {
 struct ObservationDimension {
     /// Period entries `{"id": "2024-01"}`; kept as raw JSON so one odd entry only
     /// skips its observation instead of failing the whole response.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     values: Vec<Value>,
 }
 
@@ -67,8 +76,9 @@ struct DataSet {
 ///
 /// Single observations that cannot be read are skipped: unknown or malformed index,
 /// a period that is not `YYYY-MM` with month 1–12, an entry that is not an array or
-/// a value that is not a number. Only the overall frame (`data.structure.dimensions`)
-/// must be present. Only the first data set is read.
+/// a value that is not a number. Missing or `null` lists count as empty. Only the
+/// overall frame (`data.structure.dimensions`) must be present. Only the first data
+/// set is read.
 pub fn parse_bundesbank_response(json: &str) -> Result<Vec<VpiDataPoint>, VpiParseError> {
     let response: Response = serde_json::from_str(json).map_err(VpiParseError)?;
     let Some(periods) = response.data.structure.dimensions.observation.first() else {

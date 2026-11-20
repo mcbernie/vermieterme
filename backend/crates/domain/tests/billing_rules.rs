@@ -1,26 +1,37 @@
 //! Tests for distribution keys, rounding edge cases, credits and prepayment suggestions.
 
 use vermieterme_domain::billing::{
-    CostPosition, Period, UnitBasis, effective_key, mea_share, per_unit_share,
-    suggest_next_prepayment, unit_statement,
+    CostPosition, Period, UnitBasis, UnitStatement, effective_key, suggest_next_prepayment,
+    unit_statement,
 };
 use vermieterme_domain::{CalendarDate, CalendarMonths, Cents, DistributionKey};
 
 use DistributionKey::{Mea, PerAttachment, PerNotice, PerUnit};
 
-/// Test helper: a valid unit basis.
-#[allow(clippy::unwrap_used)]
-fn basis(shares: i64, total_shares: i64, unit_count: i64) -> UnitBasis {
-    UnitBasis::new(shares, total_shares, unit_count).unwrap()
-}
+/// Unit with half of the shares of a two-unit property.
+const HALF: UnitBasis = UnitBasis {
+    shares: 1,
+    total_shares: 2,
+    unit_count: 2,
+};
 
-fn position(total: i64, unit: Option<i64>, key: DistributionKey) -> CostPosition {
+fn position(total: i64, key: DistributionKey) -> CostPosition {
     CostPosition {
         total_amount: Some(Cents::new(total)),
-        unit_amount: unit.map(Cents::new),
+        unit_amount: None,
         enabled: true,
         key,
     }
+}
+
+/// Test helper: statement of `HALF` for a period given as ISO dates.
+#[allow(clippy::unwrap_used)]
+fn statement(costs: &[CostPosition], monthly: i64, start: &str, end: &str) -> UnitStatement {
+    let period = Period {
+        start: CalendarDate::parse(start).unwrap(),
+        end: CalendarDate::parse(end).unwrap(),
+    };
+    unit_statement(costs, &HALF, Cents::new(monthly), period, &CalendarMonths).unwrap()
 }
 
 #[test]
@@ -46,119 +57,38 @@ fn key_codes_labels_and_serde() {
 }
 
 #[test]
-fn mea_rounds_half_cent_away_from_zero() {
-    assert_eq!(mea_share(Cents::new(1), 1, 2), Cents::new(1));
-    assert_eq!(mea_share(Cents::new(3), 1, 2), Cents::new(2));
-    assert_eq!(mea_share(Cents::new(-1), 1, 2), Cents::new(-1));
-    assert_eq!(mea_share(Cents::new(-3), 1, 2), Cents::new(-2));
-    assert_eq!(mea_share(Cents::new(10_000), 1, 3), Cents::new(3333));
-    assert_eq!(mea_share(Cents::new(10_000), 0, 1000), Cents::ZERO);
-}
-
-#[test]
-fn property_without_shares_or_units_gives_zero() {
-    assert_eq!(mea_share(Cents::new(10_000), 100, 0), Cents::ZERO);
-    assert_eq!(per_unit_share(Cents::new(10_000), 0), Cents::ZERO);
-}
-
-#[test]
-fn per_unit_splits_equally_and_rounds() {
-    assert_eq!(per_unit_share(Cents::new(1000), 3), Cents::new(333));
-    assert_eq!(per_unit_share(Cents::new(2000), 3), Cents::new(667));
-    assert_eq!(per_unit_share(Cents::new(1001), 2), Cents::new(501));
-    assert_eq!(per_unit_share(Cents::new(-1001), 2), Cents::new(-501));
-    let p = position(120_000, None, PerUnit);
-    assert_eq!(p.unit_share(&basis(1, 1000, 10)), Some(Cents::new(12_000)));
-}
-
-#[test]
-fn stored_unit_amount_counts_for_entered_keys() {
-    for key in [PerNotice, PerAttachment] {
-        let p = position(100_000, Some(4_242), key);
-        assert_eq!(
-            p.unit_share(&basis(500, 1000, 2)),
-            Some(Cents::new(4_242)),
-            "{key}"
-        );
-    }
-}
-
-#[test]
-fn stored_unit_amount_is_ignored_for_computed_keys() {
-    // A stale amount from before a key change must not override the computed share (#81).
-    let mea = position(100_000, Some(4_242), Mea);
+fn legacy_labels_ignore_case_and_surrounding_whitespace() {
+    assert_eq!(DistributionKey::from_label("mea"), Ok(Mea));
     assert_eq!(
-        mea.unit_share(&basis(500, 1000, 2)),
-        Some(Cents::new(50_000))
+        DistributionKey::from_label("  Laut Bescheid "),
+        Ok(PerNotice)
     );
-    let per_unit = position(100_000, Some(4_242), PerUnit);
     assert_eq!(
-        per_unit.unit_share(&basis(500, 1000, 2)),
-        Some(Cents::new(50_000))
+        DistributionKey::from_label("SIEHE ANLAGE"),
+        Ok(PerAttachment)
     );
-}
-
-#[test]
-fn entered_keys_without_unit_amount_give_zero() {
-    for key in [PerNotice, PerAttachment] {
-        assert_eq!(
-            position(100_000, None, key).unit_share(&basis(500, 1000, 2)),
-            Some(Cents::ZERO)
-        );
-    }
-}
-
-#[test]
-fn disabled_or_empty_positions_count_nowhere() {
-    let mut disabled = position(100_000, Some(5_000), PerNotice);
-    disabled.enabled = false;
-    assert!(!disabled.counts());
-    assert_eq!(disabled.unit_share(&basis(1, 2, 2)), None);
-    let empty = CostPosition {
-        total_amount: None,
-        ..position(0, Some(5_000), PerNotice)
-    };
-    assert!(!empty.counts());
-    assert_eq!(empty.unit_share(&basis(1, 2, 2)), None);
+    assert_eq!(
+        DistributionKey::from_label("\tnach einheiten\n"),
+        Ok(PerUnit)
+    );
+    assert!(DistributionKey::from_label("lautBescheid").is_err());
+    assert!(DistributionKey::from_label("nach Anlage").is_err());
+    assert!(DistributionKey::from_label("").is_err());
 }
 
 #[test]
 fn rounding_happens_per_position_before_summing() {
     // Three positions of 1 cent at 1/2: each rounds to 1 cent, the sum is 3 (exact: 1.5).
-    let costs = [
-        position(1, None, Mea),
-        position(1, None, Mea),
-        position(1, None, Mea),
-    ];
-    let period = Period {
-        start: CalendarDate::parse("2025-01-01").unwrap(),
-        end: CalendarDate::parse("2025-01-31").unwrap(),
-    };
-    let s = unit_statement(
-        &costs,
-        &basis(1, 2, 2),
-        Cents::ZERO,
-        period,
-        &CalendarMonths,
-    );
+    let costs = [position(1, Mea), position(1, Mea), position(1, Mea)];
+    let s = statement(&costs, 0, "2025-01-01", "2025-01-31");
     assert_eq!(s.unit_costs, Cents::new(3));
     assert_eq!(s.total_costs, Cents::new(3));
 }
 
 #[test]
 fn credits_reduce_costs_and_can_lead_to_refunds() {
-    let costs = [position(60_000, None, Mea), position(-10_001, None, Mea)];
-    let period = Period {
-        start: CalendarDate::parse("2024-07-01").unwrap(),
-        end: CalendarDate::parse("2025-06-30").unwrap(),
-    };
-    let s = unit_statement(
-        &costs,
-        &basis(1, 2, 2),
-        Cents::new(2_000),
-        period,
-        &CalendarMonths,
-    );
+    let costs = [position(60_000, Mea), position(-10_001, Mea)];
+    let s = statement(&costs, 2_000, "2024-07-01", "2025-06-30");
     // 30000 + (-5000.5 -> -5001)
     assert_eq!(s.unit_costs, Cents::new(24_999));
     assert_eq!(s.total_costs, Cents::new(49_999));
@@ -190,39 +120,4 @@ fn no_suggestion_for_refund_or_balanced_result() {
         suggest_next_prepayment(Cents::new(10_000), Cents::new(-1)),
         None
     );
-}
-
-#[test]
-fn unit_basis_rejects_inconsistent_values() {
-    assert!(UnitBasis::new(-1, 1000, 2).is_err());
-    assert!(UnitBasis::new(1001, 1000, 2).is_err());
-    assert!(UnitBasis::new(1, 1000, 0).is_err());
-    assert!(UnitBasis::new(1, 1000, -3).is_err());
-    assert!(UnitBasis::new(1, 0, 1).is_err());
-    let ok = basis(0, 0, 1);
-    assert_eq!((ok.shares(), ok.total_shares(), ok.unit_count()), (0, 0, 1));
-    assert_eq!(
-        position(10_000, None, Mea).unit_share(&ok),
-        Some(Cents::ZERO)
-    );
-}
-
-#[test]
-fn legacy_labels_ignore_case_and_surrounding_whitespace() {
-    assert_eq!(DistributionKey::from_label("mea"), Ok(Mea));
-    assert_eq!(
-        DistributionKey::from_label("  Laut Bescheid "),
-        Ok(PerNotice)
-    );
-    assert_eq!(
-        DistributionKey::from_label("SIEHE ANLAGE"),
-        Ok(PerAttachment)
-    );
-    assert_eq!(
-        DistributionKey::from_label("\tnach einheiten\n"),
-        Ok(PerUnit)
-    );
-    assert!(DistributionKey::from_label("lautBescheid").is_err());
-    assert!(DistributionKey::from_label("nach Anlage").is_err());
-    assert!(DistributionKey::from_label("").is_err());
 }

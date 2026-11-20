@@ -6,16 +6,19 @@
 
 use vermieterme_domain::billing::{
     CostPosition, CostReview, Period, ReviewProgress, UnitBasis, UnitStatement, effective_key,
-    mea_share, suggest_next_prepayment, unit_statement,
+    suggest_next_prepayment, unit_statement,
 };
 use vermieterme_domain::{CalendarDate, CalendarMonths, Cents, DistributionKey};
 
 use DistributionKey::{Mea, PerAttachment, PerNotice};
 
-/// Test helper: a unit of the fixture property (1000 shares, 2 units).
-#[allow(clippy::unwrap_used)]
+/// A unit of the fixture property (1000 shares, 2 units).
 fn unit(shares: i64) -> UnitBasis {
-    UnitBasis::new(shares, 1000, 2).unwrap()
+    UnitBasis {
+        shares,
+        total_shares: 1000,
+        unit_count: 2,
+    }
 }
 
 fn position(
@@ -58,8 +61,10 @@ fn period() -> Period {
     }
 }
 
+/// Test helper: statement of a unit over the fixture period.
+#[allow(clippy::unwrap_used)]
 fn statement(costs: &[CostPosition], basis: &UnitBasis, monthly: i64) -> UnitStatement {
-    unit_statement(costs, basis, Cents::new(monthly), period(), &CalendarMonths)
+    unit_statement(costs, basis, Cents::new(monthly), period(), &CalendarMonths).unwrap()
 }
 
 #[test]
@@ -107,7 +112,10 @@ fn skips_positions_without_total_and_disabled_ones() {
     without_total[0].total_amount = None;
     let with = statement(&costs(), &unit(333), 8550).unit_costs;
     let without = statement(&without_total, &unit(333), 8550).unit_costs;
-    assert_eq!(without, with - mea_share(Cents::new(123_457), 333, 1000));
+    assert_eq!(
+        without,
+        with - unit(333).mea_share(Cents::new(123_457)).unwrap()
+    );
     // Disabled c5 (80 €) is neither in the unit costs nor in the total.
     let mut enabled_c5 = costs();
     enabled_c5[4].enabled = true;
@@ -148,8 +156,11 @@ fn keeps_zero_unit_amount_apart_from_empty() {
     // Port of the save-payload case: `Some(0)` is an entered zero, `None` is empty.
     let zero = position(Some(0), Some(0), true, PerAttachment);
     let empty_mea = position(Some(123_457), None, true, Mea);
-    assert_eq!(zero.unit_share(&unit(333)), Some(Cents::ZERO));
-    assert_eq!(empty_mea.unit_share(&unit(333)), Some(Cents::new(41_111)));
+    assert_eq!(zero.unit_share(&unit(333)), Ok(Some(Cents::ZERO)));
+    assert_eq!(
+        empty_mea.unit_share(&unit(333)),
+        Ok(Some(Cents::new(41_111)))
+    );
 }
 
 #[test]

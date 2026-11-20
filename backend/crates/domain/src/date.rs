@@ -25,13 +25,9 @@ pub struct CalendarDate(Date);
 impl CalendarDate {
     /// Builds a date from year, month (1–12) and day; fails for days that do not exist.
     pub fn from_ymd(year: i32, month: u8, day: u8) -> Result<Self, DateError> {
-        if !(1..=9999).contains(&year) {
-            return Err(DateError::Invalid);
-        }
         let month = Month::try_from(month).map_err(|_| DateError::Invalid)?;
-        Date::from_calendar_date(year, month, day)
-            .map(CalendarDate)
-            .map_err(|_| DateError::Invalid)
+        let date = Date::from_calendar_date(year, month, day).map_err(|_| DateError::Invalid)?;
+        Self::from_date(date)
     }
 
     /// Parses exactly `YYYY-MM-DD` (four-digit year, two-digit month and day).
@@ -53,9 +49,14 @@ impl CalendarDate {
         Self::from_ymd(year, month, day)
     }
 
-    /// Wraps a `time::Date`.
-    pub fn from_date(date: Date) -> Self {
-        CalendarDate(date)
+    /// Wraps a `time::Date`; fails outside the years 1–9999 (same range as
+    /// [`CalendarDate::parse`], so every value prints as parseable `YYYY-MM-DD`).
+    pub fn from_date(date: Date) -> Result<Self, DateError> {
+        if (1..=9999).contains(&date.year()) {
+            Ok(CalendarDate(date))
+        } else {
+            Err(DateError::Invalid)
+        }
     }
 
     /// The underlying `time::Date`.

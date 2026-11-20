@@ -155,6 +155,19 @@ fn tolerates_missing_or_null_series() {
 }
 
 #[test]
+fn treats_null_lists_like_missing_ones() {
+    for body in [
+        r#"{"data":{"structure":{"dimensions":{"observation":[{"values":[{"id":"2024-01"}]}]}},"dataSets":null}}"#,
+        r#"{"data":{"structure":{"dimensions":{"observation":null}},"dataSets":[]}}"#,
+        r#"{"data":{"structure":{"dimensions":{"observation":[{"values":null}]}},
+            "dataSets":[{"series":{"a":{"observations":{"0":["117.6"]}}}}]}}"#,
+        r#"{"data":{"structure":{"dimensions":{}}}}"#,
+    ] {
+        assert_eq!(parse_bundesbank_response(body).unwrap(), vec![], "{body}");
+    }
+}
+
+#[test]
 fn rejects_bodies_of_the_wrong_shape() {
     assert!(parse_bundesbank_response("not json").is_err());
     assert!(parse_bundesbank_response("{}").is_err());
