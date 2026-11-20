@@ -18,7 +18,7 @@ use vermieterme_db::row::new_id;
 
 use super::detached::detached;
 use super::file_type::{FileType, HEAD_LEN};
-use super::storage::{FileGuard, account_dir, io_failure};
+use super::storage::{FileGuard, account_dir, io_failure, tighten_dir};
 use super::{DocumentJson, MAX_FILE_BYTES, changed_meanwhile, check_assignment};
 use crate::auth::AccountCtx;
 use crate::error::validate::Validator;
@@ -171,6 +171,7 @@ async fn write_file(dir: &std::path::Path, mut field: Field<'_>) -> ApiResult<Up
         .open(guard.path())
         .await
         .map_err(|e| io_failure(&e, "Upload-Datei konnte nicht angelegt werden"))?;
+    tighten_dir(dir, guard.path()).await;
     let (mut head, mut size, mut file_type) = (Vec::with_capacity(HEAD_LEN), 0usize, None);
     while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
         size += chunk.len();

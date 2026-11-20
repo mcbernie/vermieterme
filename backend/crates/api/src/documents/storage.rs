@@ -60,6 +60,32 @@ pub async fn remove_files(upload_dir: &str, account_id: &str, file_names: &[Stri
     }
 }
 
+/// Sets an existing account directory to 0700 (#123): `DirBuilder::mode` only applies
+/// when it creates the folder, one made by hand or by an import keeps its rights. Only
+/// if the directory belongs to the server's user, told by `own_file` (just created by
+/// the server inside it); failures are logged with their kind only, the upload goes on.
+pub async fn tighten_dir(dir: &Path, own_file: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let (Ok(meta), Ok(own)) = (
+            tokio::fs::metadata(dir).await,
+            tokio::fs::metadata(own_file).await,
+        ) else {
+            return;
+        };
+        if meta.uid() != own.uid() || meta.mode() & 0o777 == 0o700 {
+            return;
+        }
+        let rights = std::fs::Permissions::from_mode(0o700);
+        if let Err(error) = tokio::fs::set_permissions(dir, rights).await {
+            tracing::warn!(kind = ?error.kind(), "Rechte des Upload-Verzeichnisses nicht gesetzt");
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (dir, own_file);
+}
+
 /// Age after which a temporary upload file counts as left behind by a crash (an upload
 /// itself takes seconds; the request timeout ends it long before).
 pub const STALE_PART_AGE: Duration = Duration::from_secs(3600);
@@ -177,7 +203,7 @@ impl Drop for FileGuard {
 mod tests {
     use std::time::{Duration, SystemTime};
 
-    use super::{file_path, is_safe_name, remove_stale_parts};
+    use super::{file_path, is_safe_name, remove_stale_parts, tighten_dir};
 
     #[test]
     fn safe_names() {
@@ -226,5 +252,20 @@ mod tests {
             0
         );
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn existing_directory_is_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vm-dir-{}", vermieterme_db::row::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let own = dir.join(".x.part");
+        std::fs::File::create(&own).unwrap();
+        tighten_dir(&dir, &own).await;
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

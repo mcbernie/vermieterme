@@ -91,8 +91,8 @@ pub async fn file_response(
 }
 
 /// `inline` or `attachment` with `filename="…"` (ASCII only: other characters, quotes,
-/// backslashes and `%` become `_`; RFC 6266 appendix D, some clients decode `%`) and `filename*=UTF-8''…` (percent-encoded), RFC 6266
-/// section 4.3 / RFC 5987.
+/// backslashes and `%` become `_`; RFC 6266 appendix D, some clients decode `%`) and
+/// `filename*=UTF-8''…` (percent-encoded), RFC 6266 section 4.3 / RFC 5987.
 pub fn content_disposition(kind: &str, name: &str) -> String {
     let fallback: String = name
         .chars()
