@@ -82,7 +82,8 @@ pub struct UpdateBody {
 }
 
 /// Locks/unlocks a user or changes the role. Not for the own user (400); the last
-/// active admin cannot be locked or demoted (409).
+/// active admin cannot be locked or demoted (409). A lock also ends the sessions (db
+/// layer) and makes open invitation and reset links unusable.
 pub async fn update(
     State(state): State<AppState>,
     ctx: AdminCtx,
@@ -105,24 +106,17 @@ pub async fn update(
         role,
         locked: body.locked,
     };
-    let action = match (role, body.locked) {
-        (Some(_), _) => "user.role",
-        (None, Some(true)) => "user.lock",
-        (None, Some(false)) => "user.unlock",
-        (None, None) => "user.update",
-    };
+    let actions = audit_actions(role.is_some(), body.locked);
     let mut conn = state.conn().await?;
     let updated = in_transaction(&mut conn, async |tx| {
         let updated = user::update_for_admin(tx, &ctx.scope, &id, &patch).await?;
-        record(
-            tx,
-            &ctx,
-            updated.account_id.as_deref(),
-            action,
-            "user",
-            &updated.id,
-        )
-        .await?;
+        if patch.locked == Some(true) {
+            links::revoke(tx, &updated.id).await?;
+        }
+        for action in &actions {
+            let account = updated.account_id.as_deref();
+            record(tx, &ctx, account, action, "user", &updated.id).await?;
+        }
         Ok(updated)
     })
     .await
@@ -137,6 +131,24 @@ pub async fn update(
         other => ApiError::from(other),
     })?;
     Ok(axum::Json(updated.into()))
+}
+
+/// Audit actions of an update: one per changed property (role, lock), so a combined
+/// change leaves both in the log; an empty change is still recorded as `user.update`.
+fn audit_actions(role_changed: bool, locked: Option<bool>) -> Vec<&'static str> {
+    let mut actions = Vec::new();
+    if role_changed {
+        actions.push("user.role");
+    }
+    match locked {
+        Some(true) => actions.push("user.lock"),
+        Some(false) => actions.push("user.unlock"),
+        None => {}
+    }
+    if actions.is_empty() {
+        actions.push("user.update");
+    }
+    actions
 }
 
 /// Issues a password reset link for any user.

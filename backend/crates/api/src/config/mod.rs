@@ -79,7 +79,17 @@ pub struct Config {
     pub session_max: Duration,
     /// `INVITE_CODE_TTL_DAYS`.
     pub invite_code_ttl: Duration,
-    /// `TRUSTED_PROXIES`.
+    /// `TRUSTED_PROXIES`: networks of reverse proxies whose `X-Forwarded-For` and
+    /// `X-Forwarded-Host` are believed. Operation notes (for `docs/operations.md`):
+    /// - Behind a reverse proxy, list its address here. Without it every client appears
+    ///   with the proxy's address: they share one rate-limit key, so 20 failed logins
+    ///   anywhere lock the login for everyone for 15 minutes.
+    /// - Never list networks that clients can send from: they could then choose their
+    ///   own address (rate-limit key) and host for the CSRF origin check.
+    /// - A proxy that rewrites `Host` must send `X-Forwarded-Host` (and be listed), or
+    ///   mutating requests fail the origin check with 403.
+    /// - IPv4-mapped entries (`::ffff:10.0.0.0/104`) are stored as IPv4; prefixes beyond
+    ///   the address length stop the start.
     pub trusted_proxies: Vec<Cidr>,
     /// `PDF_RENDERER_CMD`.
     pub pdf_renderer_cmd: String,

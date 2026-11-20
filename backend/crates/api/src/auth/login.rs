@@ -102,8 +102,14 @@ async fn attempt(
     let started = session::start(&mut conn, &state.config, headers, &record.user.id)
         .await?
         .ok_or_else(|| ApiError::unauthenticated(LOGIN_FAILED))?;
-    if rehash {
-        upgrade_hash(state, &mut conn, &record.user.id, password).await?;
+    // The session exists already: a failed upgrade must not turn the login into an
+    // error (it is retried at the next sign-in).
+    if rehash
+        && upgrade_hash(state, &mut conn, &record.user.id, password)
+            .await
+            .is_err()
+    {
+        tracing::warn!("Passwort-Hash konnte nach der Anmeldung nicht erneuert werden");
     }
     let document = session::describe(&mut conn, &started.active.user, None).await?;
     Ok(session::signed_in(&started, document, &state.config))

@@ -60,6 +60,18 @@ pub async fn issue(
     })
 }
 
+/// Makes all open links of `user_id` unusable (password change, lock). `issue` removes
+/// the unused links of a purpose and stores a new one; the new one expires at once and
+/// its secret is dropped, so nothing of the purpose stays redeemable. Run it inside the
+/// transaction of the change.
+pub async fn revoke(conn: &mut AnyConnection, user_id: &str) -> DbResult<()> {
+    let now = now_millis();
+    for purpose in [TokenPurpose::Invite, TokenPurpose::Reset] {
+        user_token::issue(conn, user_id, purpose, &SecretToken::generate(), now, now).await?;
+    }
+    Ok(())
+}
+
 /// Request of `POST /api/auth/accept-invite`.
 #[derive(Debug, Deserialize)]
 pub struct AcceptInviteBody {
@@ -87,13 +99,15 @@ pub async fn accept_invite(
             token: &body.token,
             password: body.password,
         };
-        let user_id = redeem(&state, &mut conn, link, async |tx, scope| {
-            user::set_own_name(tx, scope, &name).await
+        // The session starts inside the transaction: if it is refused (user or account
+        // locked), everything rolls back and the invitation stays unused.
+        let started = redeem(&state, &mut conn, link, async |tx, scope| {
+            user::set_own_name(tx, scope, &name).await?;
+            session::start(tx, &state.config, &headers, scope.user_id())
+                .await?
+                .ok_or(DbError::NotFound)
         })
         .await?;
-        let started = session::start(&mut conn, &state.config, &headers, &user_id)
-            .await?
-            .ok_or_else(|| ApiError::unauthenticated(LINK_INVALID))?;
         let document = session::describe(&mut conn, &started.active.user, None).await?;
         Ok(session::signed_in(&started, document, &state.config))
     })
@@ -161,18 +175,18 @@ struct Link<'a> {
     password: String,
 }
 
-/// Redeems `link` in one transaction: consumes the token, hashes and stores the new
-/// password, then runs `apply` for the user (its value is dropped). The hash is computed
-/// only for a valid token (a made-up token costs no argon2 work). Its permit is taken
-/// before the transaction, so no database lock is held while waiting. Any failure rolls
-/// back, so an internal error does not burn the token. Returns the user id; an invalid
-/// link -> 401.
+/// Redeems `link` in one transaction: consumes the token, refuses a locked user, hashes
+/// and stores the new password, then runs `apply` for the user and returns its value. The
+/// hash is computed only for a valid token (a made-up token costs no argon2 work). Its
+/// permit is taken before the transaction, so no database lock is held while waiting.
+/// Any failure rolls back, so an internal error does not burn the token. An invalid
+/// link, a locked user or `NotFound` from `apply` -> 401.
 async fn redeem<T>(
     state: &AppState,
     conn: &mut AnyConnection,
     link: Link<'_>,
     apply: impl AsyncFnOnce(&mut AnyConnection, &UserScope) -> DbResult<T>,
-) -> ApiResult<String> {
+) -> ApiResult<T> {
     let permit = state.hasher.permit().await?;
     let token = SecretToken::from_client(link.token.trim());
     let mut hash_failure: Option<ApiError> = None;
@@ -182,6 +196,9 @@ async fn redeem<T>(
             .await?
             .ok_or(DbError::NotFound)?;
         let scope = link_scope(&user_id);
+        if user::get_self(tx, &scope).await?.locked {
+            return Err(DbError::NotFound);
+        }
         let hash = match permit.hash(link.password).await {
             Ok(hash) => hash,
             Err(error) => {
@@ -190,12 +207,11 @@ async fn redeem<T>(
             }
         };
         user::set_password_hash(tx, &scope, &hash).await?;
-        apply(tx, &scope).await?;
-        Ok(user_id)
+        apply(tx, &scope).await
     })
     .await;
     match result {
-        Ok(user_id) => Ok(user_id),
+        Ok(value) => Ok(value),
         Err(DbError::NotFound) => {
             Err(hash_failure.unwrap_or_else(|| ApiError::unauthenticated(LINK_INVALID)))
         }

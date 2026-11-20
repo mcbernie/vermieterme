@@ -135,7 +135,7 @@ pub struct AdminCtx {
     pub scope: AdminScope,
     /// The admin.
     pub user: User,
-    /// Id of the current session (switching changes it).
+    /// Id of the current session (switching keeps it; only the acting account changes).
     pub session_id: String,
     /// Account currently switched into.
     pub acting_account_id: Option<String>,

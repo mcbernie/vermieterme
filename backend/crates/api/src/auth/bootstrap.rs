@@ -1,6 +1,13 @@
 //! Admin bootstrap at start (plan "Auth", #69): if no admin exists and `ADMIN_EMAIL` and
 //! `ADMIN_PASSWORD` are set, the first admin is created. Afterwards the variables are
 //! ignored; the environment password is never checked at sign-in (only the stored hash).
+//!
+//! If `ADMIN_EMAIL` belongs to an existing user with a password, that user is promoted
+//! (decision 21, migrated data). An *invited* user without password is never promoted:
+//! whoever holds the invitation link (e.g. the inviting member) would then choose the
+//! admin password. Setting `ADMIN_PASSWORD` on that user instead would silently take over
+//! an account someone else was invited to. So the start stops with a clear message and
+//! the operator decides (other `ADMIN_EMAIL`, or delete the invited user first).
 
 use vermieterme_db::repo::account;
 use vermieterme_db::repo::user::{self, NewUser, Role, UserPatch};
@@ -33,6 +40,12 @@ pub enum BootstrapError {
     /// Hashing the password failed.
     #[error("Passwort konnte nicht gehasht werden")]
     Hash,
+    /// `ADMIN_EMAIL` belongs to an invited user who has not set a password yet.
+    #[error(
+        "ADMIN_EMAIL gehört zu einem eingeladenen Benutzer ohne Passwort; anderen ADMIN_EMAIL \
+         wählen oder den Benutzer zuerst löschen"
+    )]
+    InvitedUser,
     /// Database error.
     #[error(transparent)]
     Db(#[from] DbError),
@@ -63,15 +76,18 @@ pub async fn run(db: &Db, config: &Config) -> Result<Outcome, BootstrapError> {
     // Re-checked inside the transaction against a concurrent start.
     let outcome = in_transaction(&mut conn, async |tx| {
         if user::admin_exists(tx).await? {
-            return Ok(Outcome::AdminExists);
+            return Ok(Some(Outcome::AdminExists));
         }
         if let Some(existing) = user::find_login(tx, &email).await? {
+            if existing.password_hash.is_none() {
+                return Ok(None);
+            }
             let patch = UserPatch {
                 role: Some(Role::Admin),
                 ..UserPatch::default()
             };
             user::update_for_admin(tx, &system, &existing.user.id, &patch).await?;
-            return Ok(Outcome::Promoted);
+            return Ok(Some(Outcome::Promoted));
         }
         let first = account::first(tx, &system).await?;
         let new = NewUser {
@@ -81,8 +97,8 @@ pub async fn run(db: &Db, config: &Config) -> Result<Outcome, BootstrapError> {
             password_hash: Some(hash),
         };
         user::create_for_admin(tx, &system, first.as_ref().map(|a| a.id.as_str()), &new).await?;
-        Ok(Outcome::Created)
+        Ok(Some(Outcome::Created))
     })
     .await?;
-    Ok(outcome)
+    outcome.ok_or(BootstrapError::InvitedUser)
 }

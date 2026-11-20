@@ -1,6 +1,11 @@
 //! `POST /api/admin/switch` (work inside a customer) and `DELETE /api/admin/switch`
 //! (back to the own account). Both are audited; the session document then reports
 //! `impersonating`, so the interface shows its notice bar.
+//!
+//! An admin may switch into a **locked** account on purpose: the lock keeps the
+//! customer's members out, while the admin still has to look after the data (e.g. before
+//! unlocking or deleting it). The switch keeps the session id; only the acting account
+//! of the session changes.
 
 use axum::extract::State;
 use serde::Deserialize;

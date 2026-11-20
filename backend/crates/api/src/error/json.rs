@@ -3,6 +3,7 @@
 //! timestamp format of the web API.
 
 use axum::extract::{FromRequest, FromRequestParts, Query, Request};
+use axum::http::StatusCode;
 use axum::http::request::Parts;
 use serde::de::DeserializeOwned;
 use time::OffsetDateTime;
@@ -10,7 +11,8 @@ use time::macros::format_description;
 
 use super::ApiError;
 
-/// JSON request body; a malformed body or wrong content type -> 400 `validation`.
+/// JSON request body; a malformed body or wrong content type -> 400 `validation`, a
+/// body over the size limit -> 413 `too_large`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ApiJson<T>(pub T);
 
@@ -27,7 +29,13 @@ where
         axum::Json::<T>::from_request(req, state)
             .await
             .map(|axum::Json(value)| Self(value))
-            .map_err(|_| ApiError::bad_request("Ungültige Anfrage (JSON erwartet)"))
+            .map_err(|rejection| {
+                if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
+                    ApiError::too_large()
+                } else {
+                    ApiError::bad_request("Ungültige Anfrage (JSON erwartet)")
+                }
+            })
     }
 }
 
@@ -64,7 +72,31 @@ pub fn timestamp(millis: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::timestamp;
+    use super::{ApiJson, timestamp};
+    use axum::body::Body;
+    use axum::extract::{FromRequest, Request};
+    use axum::http::{StatusCode, header};
+
+    /// Rejection of `body` posted as JSON.
+    async fn reject(body: Vec<u8>) -> super::ApiError {
+        let req = Request::builder()
+            .method("POST")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        ApiJson::<serde_json::Value>::from_request(req, &())
+            .await
+            .unwrap_err()
+    }
+
+    #[tokio::test]
+    async fn oversized_body_is_413_and_malformed_is_400() {
+        let big = reject(vec![b' '; 3 * 1024 * 1024]).await;
+        assert_eq!(big.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(big.code(), crate::error::ErrorCode::TooLarge);
+        let bad = reject(b"{".to_vec()).await;
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+    }
 
     #[test]
     fn timestamps_have_milliseconds_and_z() {

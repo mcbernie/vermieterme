@@ -29,8 +29,10 @@ const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsa
      img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; \
      base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
-/// Wraps the router in the global layers (outermost last).
+/// Adds the API fallbacks ([`crate::error::fallback`]) and wraps the router in the global
+/// layers (outermost last).
 pub fn apply(app: AppRouter, state: &AppState) -> AppRouter {
+    let app = crate::error::fallback::apply(app);
     let headers = [
         (header::CONTENT_SECURITY_POLICY, CSP),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
@@ -93,6 +95,11 @@ fn needs_guard(method: &Method, path: &str) -> bool {
 
 /// Header `X-CSRF-Guard: 1` present and `Origin` absent or equal to the own host
 /// (`Host`, or `X-Forwarded-Host` when the peer is a trusted proxy).
+///
+/// Only `Host` is read, not the HTTP/2 `:authority`: the server speaks HTTP/1.1 behind
+/// the reverse proxy (no HTTP/2 listener), where hyper fills `Host`. Operation: a proxy
+/// that rewrites `Host` must either keep it or send `X-Forwarded-Host` and be listed in
+/// `TRUSTED_PROXIES`; otherwise every mutating request fails with 403 `csrf`.
 fn guard_ok(headers: &HeaderMap, behind_proxy: bool) -> bool {
     if headers
         .get(CSRF_HEADER)

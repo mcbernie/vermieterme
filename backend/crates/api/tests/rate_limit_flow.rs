@@ -1,10 +1,13 @@
-//! Rate limits over the real router: parallel attempts, client address behind proxies.
+//! Rate limits over the real router: parallel attempts, client address behind proxies;
+//! plus the error shape of unknown paths and methods.
 //! The limiter lives in memory, so SQLite is enough here.
 
 // Same convention as the other test binaries: helpers unwrap.
 #![allow(clippy::unwrap_used)]
 
 mod support;
+
+use std::sync::Arc;
 
 use serde_json::json;
 use support::{TestApp, seed_account, seed_user};
@@ -17,7 +20,7 @@ use vermieterme_db::testing::TestDb;
 async fn parallel_logins_respect_the_limit() {
     let test_db = TestDb::sqlite().await;
     let db = test_db.db();
-    let app = std::sync::Arc::new(TestApp::start(db).await);
+    let app = Arc::new(TestApp::start(db).await);
     let account = seed_account(db, "Kunde").await;
     seed_user(db, Some(&account.id), "p@example.org", Role::Member).await;
     let wrong = json!({"email": "p@example.org", "password": "falsch-falsch"});
@@ -47,4 +50,84 @@ async fn huge_email_is_refused_generically() {
     let resp = app.call("POST", "/api/auth/login", None, body).await;
     assert_eq!(resp.status, 401);
     assert_eq!(resp.body["error"], "Anmeldung fehlgeschlagen");
+}
+
+/// Starts `n` failing logins at once, each for its own e-mail (so only the address limit
+/// applies), optionally with an `X-Forwarded-For` header; returns their statuses.
+async fn fail_logins(app: &Arc<TestApp>, n: usize, forwarded: Option<&str>) -> Vec<u16> {
+    let tasks: Vec<_> = (0..n)
+        .map(|i| {
+            let app = app.clone();
+            let forwarded = forwarded.map(str::to_owned);
+            tokio::spawn(async move {
+                let body =
+                    json!({"email": format!("x{i}@example.org"), "password": "falsch-falsch"});
+                let extra: Vec<(&str, &str)> = forwarded
+                    .as_deref()
+                    .map(|f| vec![("x-forwarded-for", f)])
+                    .unwrap_or_default();
+                app.send("POST", "/api/auth/login", None, Some(body), &extra)
+                    .await
+                    .status
+            })
+        })
+        .collect();
+    let mut statuses = Vec::new();
+    for task in tasks {
+        statuses.push(task.await.unwrap());
+    }
+    statuses
+}
+
+/// Without `TRUSTED_PROXIES` the header is ignored: all clients share the peer address,
+/// so the 21st failure is refused whatever the header says.
+#[tokio::test]
+async fn forwarded_for_is_ignored_without_trusted_proxies() {
+    let test_db = TestDb::sqlite().await;
+    let app = Arc::new(TestApp::start(test_db.db()).await);
+    let statuses = fail_logins(&app, 20, Some("198.51.100.1")).await;
+    assert!(statuses.iter().all(|s| *s == 401), "{statuses:?}");
+    let next = fail_logins(&app, 1, Some("198.51.100.2")).await;
+    assert_eq!(next, [429]);
+}
+
+/// Behind a trusted proxy each forwarded client has its own budget.
+#[tokio::test]
+async fn forwarded_for_counts_per_client_behind_trusted_proxy() {
+    let test_db = TestDb::sqlite().await;
+    let config = support::config(&[("TRUSTED_PROXIES", "127.0.0.1")]);
+    let app = Arc::new(TestApp::start_with(test_db.db(), config).await);
+    let statuses = fail_logins(&app, 20, Some("198.51.100.1")).await;
+    assert!(statuses.iter().all(|s| *s == 401), "{statuses:?}");
+    assert_eq!(fail_logins(&app, 1, Some("198.51.100.1")).await, [429]);
+    assert_eq!(fail_logins(&app, 1, Some("198.51.100.2")).await, [401]);
+    // Same /64 shares the budget, another /64 does not.
+    let v6 = fail_logins(&app, 20, Some("2001:db8:1:2::1")).await;
+    assert!(v6.iter().all(|s| *s == 401), "{v6:?}");
+    assert_eq!(
+        fail_logins(&app, 1, Some("2001:db8:1:2::ffff")).await,
+        [429]
+    );
+    assert_eq!(fail_logins(&app, 1, Some("2001:db8:1:3::1")).await, [401]);
+}
+
+/// Unknown API paths and wrong methods answer in the contract's error shape.
+#[tokio::test]
+async fn unknown_paths_and_methods_use_the_error_shape() {
+    let test_db = TestDb::sqlite().await;
+    let app = TestApp::start(test_db.db()).await;
+    let resp = app.get("/api/gibt-es-nicht", None).await;
+    assert_eq!(resp.status, 404);
+    assert_eq!(
+        resp.body,
+        json!({"error": "Nicht gefunden", "code": "not_found"})
+    );
+    let resp = app.get("/api/auth/login", None).await;
+    assert_eq!(resp.status, 405);
+    assert_eq!(resp.body["code"], "method_not_allowed");
+    let resp = app
+        .call("DELETE", "/api/health", None, serde_json::Value::Null)
+        .await;
+    assert_eq!(resp.status, 405);
+    assert_eq!(resp.header("cache-control"), Some("no-store"));
 }

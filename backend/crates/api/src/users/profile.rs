@@ -6,9 +6,9 @@ use vermieterme_db::in_transaction;
 use vermieterme_db::repo::session;
 use vermieterme_db::repo::user::{self, User};
 
-use crate::auth::CurrentUser;
 use crate::auth::password::Verification;
 use crate::auth::rate_limit::PASSWORD_CHANGE;
+use crate::auth::{CurrentUser, links};
 use crate::error::json::ApiJson;
 use crate::error::validate::{NAME_MAX, Validator};
 use crate::error::{ApiError, ApiResult};
@@ -54,7 +54,7 @@ pub async fn get_profile(
 
 /// Changes name and/or password. A password change needs the current password (checked
 /// against the stored hash only, never against `ADMIN_PASSWORD`, #69) and ends all other
-/// sessions of the user.
+/// sessions of the user and all open reset links.
 pub async fn update_profile(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -85,6 +85,7 @@ pub async fn update_profile(
         if let Some(hash) = &new_hash {
             user::set_password_hash(tx, &scope, hash).await?;
             session::delete_for_user(tx, scope.user_id(), Some(&current.session_id)).await?;
+            links::revoke(tx, scope.user_id()).await?;
         }
         user::get_self(tx, &scope).await
     })

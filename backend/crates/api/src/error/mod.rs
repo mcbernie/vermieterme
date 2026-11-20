@@ -7,9 +7,10 @@
 //!
 //! Submodules: [`json`] (request extractors with this error shape, timestamp format),
 //! [`validate`] (trimming and length checks against the schema limits), [`db_log`]
-//! (what of a database error may be logged).
+//! (what of a database error may be logged), [`fallback`] (unknown paths and methods).
 
 pub mod db_log;
+pub mod fallback;
 pub mod json;
 pub mod validate;
 
@@ -35,8 +36,12 @@ pub enum ErrorCode {
     Csrf,
     /// 404: missing or foreign.
     NotFound,
+    /// 405: the path exists, the method does not (not yet in the contract table).
+    MethodNotAllowed,
     /// 409: uniqueness or state conflict.
     Conflict,
+    /// 413: request body too large.
+    TooLarge,
     /// 429: too many attempts.
     RateLimited,
     /// 500: internal error.
@@ -124,6 +129,24 @@ impl ApiError {
     /// 404 `not_found` with a specific message.
     pub fn not_found(message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(StatusCode::NOT_FOUND, ErrorCode::NotFound, message)
+    }
+
+    /// 405 `method_not_allowed` (generic text).
+    pub fn method_not_allowed() -> Self {
+        Self::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            ErrorCode::MethodNotAllowed,
+            "Methode nicht erlaubt",
+        )
+    }
+
+    /// 413 `too_large` (generic text).
+    pub fn too_large() -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            ErrorCode::TooLarge,
+            "Anfrage zu groß",
+        )
     }
 
     /// 409 `conflict`.
