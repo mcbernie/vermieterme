@@ -86,9 +86,11 @@ pub async fn tighten_dir(dir: &Path, own_file: &Path) {
     let _ = (dir, own_file);
 }
 
-/// Age after which a temporary upload file counts as left behind by a crash (an upload
-/// itself takes seconds; the request timeout ends it long before).
+/// Age after which a temporary upload file counts as left behind by a crash: the time
+/// limit of the upload route ([`crate::config::UPLOAD_TIMEOUT`], 5 minutes, decision 45)
+/// ends every running upload long before.
 pub const STALE_PART_AGE: Duration = Duration::from_secs(3600);
+const _: () = assert!(STALE_PART_AGE.as_secs() > crate::config::UPLOAD_TIMEOUT.as_secs());
 
 /// Removes temporary upload files (`.{uuid}.part`, see `upload`) older than `max_age`
 /// from the account directories below `upload_dir`: a crash during an upload leaves

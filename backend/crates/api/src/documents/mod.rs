@@ -178,3 +178,41 @@ pub(crate) fn changed_meanwhile(error: ApiError) -> ApiError {
         error
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::body::to_bytes;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse as _;
+    use serde_json::{Value, json};
+    use vermieterme_db::DbError;
+
+    use super::changed_meanwhile;
+    use crate::error::ApiError;
+
+    /// Status and JSON body of the response an error becomes.
+    async fn answer(error: ApiError) -> (StatusCode, Value) {
+        let response = error.into_response();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), 1 << 16).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    /// The conflict of a concurrent move (unit and tenant edit, upload, delete) answers
+    /// 409 with the retry text, not the uniqueness text (#126); other errors pass.
+    #[tokio::test]
+    async fn conflicts_ask_to_retry() {
+        let (status, body) = answer(changed_meanwhile(DbError::Conflict.into())).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(
+            body,
+            json!({
+                "error": "Die Zuordnung wurde gleichzeitig geändert. Bitte erneut versuchen.",
+                "code": "conflict"
+            })
+        );
+        let (status, body) = answer(changed_meanwhile(DbError::NotFound.into())).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "Nicht gefunden");
+    }
+}

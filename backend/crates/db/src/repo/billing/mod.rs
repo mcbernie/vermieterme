@@ -27,8 +27,9 @@
 //!    the one unit (moving it, and before inserting a prepayment or a unit amount,
 //!    decision 37); for a tenant move both units (sorted by id), then the **tenant**
 //!    row; for a document of a tenant its unit and tenant row in one statement. A
-//!    tenant edit that keeps the unit takes no lock but binds its `UPDATE` to the unit
-//!    it read (a concurrent move -> conflict, #122);
+//!    tenant edit that keeps the unit takes no lock before its `UPDATE` (which locks
+//!    only the tenant row) and binds that `UPDATE` to the unit it read (a concurrent
+//!    move -> conflict, #122);
 //! 3. **billing period** – the changed one or the copy source;
 //! 4. **cost category** – deleting a category locks it too, so a parallel cost save
 //!    gives 409 or 404, never a foreign-key error; moving a unit locks the categories
