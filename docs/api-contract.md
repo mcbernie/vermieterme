@@ -185,7 +185,7 @@ beim Löschen 204 (heute `{success:true}` mit 200). Antworten liefern das vollst
 
 | Methode Pfad | Request | Response | Fehler / Abweichung |
 |---|---|---|---|
-| GET /api/billing-periods?propertyId= | – | `[BillingPeriodSummary]` mit `costCount`, `unreviewedCount` | – |
+| GET /api/billing-periods?propertyId= | – | `[BillingPeriodSummary]`: `{id, propertyId, startDate, endDate, billingDate, sentDate, paidDate, copiedFromId, property{id,street,zip,city}, costCount, unreviewedCount}` | ohne Summen (die liefert das Detail); Anlegen/Ändern antworten mit `BillingPeriodSummary`, nicht mit dem Detail, damit ungültige Altanteile eine erfolgreiche Änderung nicht als 422 melden |
 | POST /api/billing-periods | `{propertyId, startDate, endDate, billingDate?, copyFromId?}` | 201 Detail | 400 Pflicht/Ende ≤ Beginn/Objekt ohne Einheiten; 404; 409 `overlap`. Kopie übernimmt `enabled` und `distributionKeyOverride` (heute nicht, #69), setzt `reviewed=false`; atomar in einer Transaktion |
 | GET /api/billing-periods/{id} | – | Detail: Zeitraum, `property{…, units[{…, tenants[]}]}`, `costs[]`, `prepayments[]`, `totalsByUnit[{unitId, totalUnitCostsCents, totalPrepaymentCents, differenceCents, months}]` | Summen serverseitig (Domain). Ungültige Anteile einer Einheit bei aktiver MEA-Position → 422 `invalid_shares`, Meldung nennt die Einheit (#85) |
 | PUT /api/billing-periods/{id} | `{startDate?, endDate?, billingDate?, sentDate?, paidDate?}` (`null` = leeren) | Detail | 409 `overlap` (heute keine Prüfung); `propertyId` nicht mehr änderbar |

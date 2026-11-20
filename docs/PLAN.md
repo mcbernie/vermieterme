@@ -216,6 +216,9 @@ per Test gegen den Code geprüft).
 38. **Listen der Mieter und Mietänderungen** liefern wie bisher `unit{id,name,floor,shares,property{id,street,zip,city}}`
     eingebettet, damit die Oberfläche unverändert bleibt (#108). VPI-Vorschläge rechnen mit dem UTC-Datum
     (Abweichung höchstens ein Tag, für Monatswerte ohne Belang).
+39. **Einheitenbetrag ohne Gesamtbetrag:** Bei `per_notice`/`per_attachment` zählt eine aktive Position mit Betrag
+    der Einheit auch ohne Gesamtbetrag (z. B. Grundsteuer je Wohnung, #80); bei `mea`/`per_unit` braucht sie den
+    Gesamtbetrag.
 
 ## Arbeitspakete
 
