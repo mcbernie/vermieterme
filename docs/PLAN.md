@@ -207,6 +207,15 @@ per Test gegen den Code geprüft).
     Exports (P12) setzt einen eigenen CSP-Header mit Hashes der Inline-Skripte.
 35. **Fehlerprotokoll:** Datenbankfehler werden nur mit Fehlerart und SQLSTATE/Code geloggt, nie mit der
     Treibermeldung (sie kann Feldwerte enthalten, z. B. bei doppelten Schlüsseln).
+36. **Mieter umziehen:** Wechselt ein Mieter die Einheit, werden seine Mieter-App-Zugänge widerrufen
+    (`app_tokens_revoked_at`, P4); zusätzlich lehnt die Mieter-App-API Tokens ab, deren `unitId` nicht mehr zur
+    Einheit des Mieters passt (P7). Grund: Das Token trägt die Einheit, nach Neuvermietung gehören deren Daten
+    einem anderen Mieter (#107).
+37. **Einheit umhängen:** Eine Einheit mit Vorauszahlungen oder Einheitenbeträgen in Abrechnungen kann nicht in ein
+    anderes Objekt verschoben werden (409), damit abgeschlossene Abrechnungen unverändert bleiben.
+38. **Listen der Mieter und Mietänderungen** liefern wie bisher `unit{id,name,floor,shares,property{id,street,zip,city}}`
+    eingebettet, damit die Oberfläche unverändert bleibt (#108). VPI-Vorschläge rechnen mit dem UTC-Datum
+    (Abweichung höchstens ein Tag, für Monatswerte ohne Belang).
 
 ## Arbeitspakete
 
