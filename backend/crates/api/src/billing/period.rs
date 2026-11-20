@@ -12,7 +12,7 @@ use vermieterme_db::repo::billing::{
     BillingPeriod, NewPeriod, PeriodPatch, PeriodSummary, Rejection, period, summary,
 };
 use vermieterme_db::repo::masterdata::property::{self, Property};
-use vermieterme_db::{AccountScope, AnyConnection, DbError};
+use vermieterme_db::{AccountScope, AnyConnection, DbError, DbResult};
 
 use super::audited::audited_read_committed;
 use super::detail::{Detail, load};
@@ -48,20 +48,46 @@ impl SummaryJson {
         }
     }
 
-    /// Loads the summary of one period (answer of create and change).
+    /// Loads the summary of one period (answer of create and change), inside the
+    /// transaction of the change so a parallel delete cannot turn it into a 404.
     async fn load(
         conn: &mut AnyConnection,
         scope: &AccountScope,
         found: &BillingPeriod,
-    ) -> ApiResult<Self> {
+    ) -> DbResult<Self> {
         let item = summary::get(conn, scope, &found.id).await?;
-        let owner = match property::get(conn, scope, &found.property_id).await {
-            Ok(owner) => Some(owner),
-            Err(DbError::NotFound) => None,
-            Err(other) => return Err(other.into()),
-        };
+        let owner = optional(property::get(conn, scope, &found.property_id).await)?;
         Ok(Self::new(item, owner))
     }
+}
+
+/// `Ok(None)` for a missing row, other errors unchanged.
+fn optional<T>(found: DbResult<T>) -> DbResult<Option<T>> {
+    match found {
+        Ok(value) => Ok(Some(value)),
+        Err(DbError::NotFound) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
+/// The properties to embed in the list by id: only the filtered one if a filter is set
+/// (none if it is missing or foreign), otherwise all of the account.
+async fn owners(
+    conn: &mut AnyConnection,
+    scope: &AccountScope,
+    property_id: Option<&str>,
+) -> DbResult<HashMap<String, Property>> {
+    let found = match property_id {
+        Some(id) => optional(property::get(conn, scope, id).await)?
+            .into_iter()
+            .collect(),
+        None => property::list(conn, scope)
+            .await?
+            .into_iter()
+            .map(|s| s.property)
+            .collect::<Vec<_>>(),
+    };
+    Ok(found.into_iter().map(|p| (p.id.clone(), p)).collect())
 }
 
 /// Query of the list.
@@ -165,11 +191,7 @@ pub async fn list(
     let mut conn = state.conn().await?;
     let property_id = filter(query.property_id.as_deref());
     let items = summary::list(&mut conn, &ctx.scope, property_id).await?;
-    let properties: HashMap<String, Property> = property::list(&mut conn, &ctx.scope)
-        .await?
-        .into_iter()
-        .map(|s| (s.property.id.clone(), s.property))
-        .collect();
+    let properties = owners(&mut conn, &ctx.scope, property_id).await?;
     let out = items
         .into_iter()
         .map(|item| {
@@ -188,19 +210,19 @@ pub async fn create(
     ApiJson(body): ApiJson<CreateBody>,
 ) -> ApiResult<Response> {
     let input = body.validate()?;
-    let made = audited_read_committed(
+    let (_, made) = audited_read_committed(
         &state,
         &ctx,
         ("billing_period.create", "billing_period"),
         crate::masterdata::property::NOT_FOUND,
-        |p: &BillingPeriod| p.id.clone(),
-        async |tx| period::create(tx, &ctx.scope, &input).await,
+        |(id, _): &(String, SummaryJson)| id.clone(),
+        async |tx| {
+            let made = period::create(tx, &ctx.scope, &input).await?;
+            with_summary(tx, &ctx.scope, made).await
+        },
     )
     .await?;
-    let mut conn = state.conn().await?;
-    Ok(created(
-        SummaryJson::load(&mut conn, &ctx.scope, &made).await?,
-    ))
+    Ok(created(made))
 }
 
 /// One period with property, units, tenants, positions and the totals per unit.
@@ -224,19 +246,34 @@ pub async fn update(
     ApiJson(body): ApiJson<UpdateBody>,
 ) -> ApiResult<axum::Json<SummaryJson>> {
     let patch = body.validate()?;
-    let changed = audited_read_committed(
+    let (_, changed) = audited_read_committed(
         &state,
         &ctx,
         ("billing_period.update", "billing_period"),
         NOT_FOUND,
-        |p: &BillingPeriod| p.id.clone(),
-        async |tx| period::update(tx, &ctx.scope, &id, &patch).await,
+        |(id, _): &(String, SummaryJson)| id.clone(),
+        async |tx| {
+            let changed = period::update(tx, &ctx.scope, &id, &patch).await?;
+            with_summary(tx, &ctx.scope, changed).await
+        },
     )
     .await?;
-    let mut conn = state.conn().await?;
-    SummaryJson::load(&mut conn, &ctx.scope, &changed)
-        .await
-        .map(axum::Json)
+    Ok(axum::Json(changed))
+}
+
+/// The id and summary of a period just written, loaded in the same transaction; a
+/// refusal passes through unchanged.
+async fn with_summary(
+    tx: &mut AnyConnection,
+    scope: &AccountScope,
+    written: Result<BillingPeriod, Rejection>,
+) -> DbResult<Result<(String, SummaryJson), Rejection>> {
+    let found = match written {
+        Ok(found) => found,
+        Err(rejection) => return Ok(Err(rejection)),
+    };
+    let summary = SummaryJson::load(tx, scope, &found).await?;
+    Ok(Ok((found.id, summary)))
 }
 
 /// Deletes a period with its positions and documents.

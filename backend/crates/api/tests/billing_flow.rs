@@ -60,6 +60,13 @@ async fn periods(db: &Db) {
         .get(&format!("{base}?propertyId={empty}"), Some(&w.a))
         .await;
     assert_eq!(filtered.body, json!([]));
+    // With the filter only that property is loaded, and still embedded.
+    let own = w
+        .app
+        .get(&format!("{base}?propertyId={}", b.property), Some(&w.a))
+        .await;
+    assert_eq!(own.body[0]["property"]["id"], b.property.as_str());
+    assert_eq!(own.body[0]["property"]["street"], "Musterweg 1");
     assert_eq!(w.app.get(base, Some(&w.b)).await.body, json!([]));
 
     let detail = w.app.get(&b.path(""), Some(&w.a)).await;
