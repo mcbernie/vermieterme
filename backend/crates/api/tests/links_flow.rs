@@ -6,6 +6,8 @@
 
 mod support;
 
+use std::sync::Arc;
+
 use serde_json::{Value, json};
 use support::{PASSWORD, TestApp, config, seed_account, seed_user};
 use vermieterme_api::auth::bootstrap::{self, Outcome};
@@ -149,6 +151,43 @@ async fn overload_does_not_burn_the_link() {
         .await;
     assert_eq!(resp.status, 204);
 }
+
+/// Two redemptions of one link pass the check and hash one after the other (outside
+/// any transaction); only the first consumes the token, the second gets the generic 401.
+async fn parallel_redemption(db: &Db) {
+    let cfg = config(&[("PASSWORD_HASH_CONCURRENCY", "1")]);
+    let app = Arc::new(TestApp::start_with(db, cfg).await);
+    let account = seed_account(db, "Kunde").await;
+    seed_user(db, Some(&account.id), "a@example.org", Role::Member).await;
+    let target = seed_user(db, Some(&account.id), "b@example.org", Role::Member).await;
+    let cookie = app.login("a@example.org", PASSWORD).await;
+    let path = format!("/api/users/{}/reset-link", target.id);
+    let resp = app.call("POST", &path, Some(&cookie), Value::Null).await;
+    let token = token_of(&resp.body["resetUrl"]);
+
+    let held = app.hasher.permit().await.unwrap();
+    let tasks: Vec<_> = ["neues-passwort-1", "neues-passwort-2"]
+        .into_iter()
+        .map(|password| {
+            let app = app.clone();
+            let body = json!({"token": token, "password": password});
+            tokio::spawn(async move {
+                app.call("POST", "/api/auth/reset-password", None, body)
+                    .await
+            })
+        })
+        .collect();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    drop(held);
+    let mut statuses = Vec::new();
+    for task in tasks {
+        statuses.push(task.await.unwrap().status);
+    }
+    statuses.sort_unstable();
+    assert_eq!(statuses, [204, 401]);
+    assert_eq!(app.hasher.computed(), 3, "login plus both redemptions");
+}
+dual_test!(parallel_redemption_succeeds_once, parallel_redemption);
 
 /// The bootstrap creates the first admin once; after a password change the environment
 /// password no longer signs in (#69).
