@@ -19,7 +19,8 @@ use crate::routes::AppState;
 
 /// At most ten retrievals per minute for the whole system: the Bundesbank is shared by
 /// all customers, and the values are stored globally anyway. A retrieval books itself as
-/// one "failure" at once; the eleventh locks the key for the window.
+/// one "failure" at once; the tenth retrieval locks the key for the lockout, the eleventh
+/// is refused.
 const GLOBAL_LIMIT: Policy = Policy {
     prefix: "vpi-fetch",
     max_failures: 10,

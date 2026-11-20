@@ -214,20 +214,35 @@ pub async fn update(
 }
 
 /// Reads a unit and, on MySQL, locks its row until the end of the transaction (SQLite has
-/// the write lock from `BEGIN IMMEDIATE`). Needed before [`in_billings`]: without the lock
-/// a concurrent insert into `prepayment`/`cost_unit_amount` could commit between check and
-/// `UPDATE`. Billing code (P5) must lock the same unit row (`SELECT ... FOR UPDATE`) before
-/// inserting prepayments or per-unit cost amounts, so both sides serialize on it.
-async fn lock(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<Unit> {
-    if Dialect::of(conn)? == Dialect::MySql {
-        sqlx::query("SELECT id FROM unit WHERE account_id = ? AND id = ? FOR UPDATE")
-            .bind(scope.account_id())
-            .bind(id)
-            .fetch_optional(&mut *conn)
-            .await?
-            .ok_or(DbError::NotFound)?;
-    }
-    get(conn, scope, id).await
+/// the write lock from `BEGIN IMMEDIATE`), in one statement. Needed before [`in_billings`]:
+/// without the lock a concurrent insert into `prepayment`/`cost_unit_amount` could commit
+/// between check and `UPDATE`. Billing code (P5) locks the same unit row through this
+/// function before inserting prepayments or per-unit cost amounts, so both sides
+/// serialize on it (decision 37).
+pub(crate) async fn lock(
+    conn: &mut AnyConnection,
+    scope: &AccountScope,
+    id: &str,
+) -> DbResult<Unit> {
+    let sql = Dialect::of(conn)?.pick(
+        concat!(
+            "SELECT ",
+            columns!(),
+            " FROM unit WHERE account_id = ? AND id = ?"
+        ),
+        concat!(
+            "SELECT ",
+            columns!(),
+            " FROM unit WHERE account_id = ? AND id = ? FOR UPDATE"
+        ),
+    );
+    let row = sqlx::query(sql)
+        .bind(scope.account_id())
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    from_row(&row)
 }
 
 /// Whether billings reference the unit (prepayments or per-unit cost amounts).
