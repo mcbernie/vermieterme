@@ -149,7 +149,7 @@ Alle: Berechtigung `Admin`; jede Änderung erzeugt einen Audit-Eintrag.
 | POST /api/admin/users/{id}/reset-link | – | 201 `{resetUrl, expiresAt}` (einmalig angezeigt) | 404 |
 | POST /api/admin/switch | `{accountId}` | 200 Session (`impersonating: true`) | 404 |
 | DELETE /api/admin/switch | – | 200 Session | – |
-| GET /api/admin/audit-log?accountId=&before= | – | `[{id,at,userId,userEmail,accountId,action,entity,entityId}]` (max. 100) | – |
+| GET /api/admin/audit-log?accountId=&cursor= | – | `{items:[{id,at,userId,userEmail|null,accountId,action,entity,entityId}], nextCursor|null}` (max. 100, neueste zuerst) | `cursor` ist undurchsichtig (Base64url aus `at` und `id`), ungültig → 400; `userEmail` ist `null`, wenn der Benutzer gelöscht ist |
 
 Audit-Einträge enthalten keine personenbezogenen Feldwerte (IBAN, Adressen), nur Aktion, Entität, ID.
 
