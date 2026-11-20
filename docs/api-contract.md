@@ -88,7 +88,10 @@ costs[{id, category, distributionKey, totalAmount, unitAmount}],
 prepayments[{id, monthlyAmount}], totals{totalCosts, totalUnitCosts, totalPrepayment, difference},
 documents[{id, originalName, mimeType, size, category, createdAt}]`.
 `distributionKey` als heutiger Anzeigetext (`MEA`, `laut Bescheid`, `siehe Anlage`; neu ggf. `nach Einheiten`, #2).
-`unitAmount`: gespeichert, sonst bei MEA berechnet, sonst `0` (`:47-57`).
+`unitAmount` (Euro): bei `MEA` und `nach Einheiten` immer aus `totalAmount` berechnet (je Position auf Cent gerundet);
+bei `laut Bescheid`/`siehe Anlage` der gespeicherte Betrag **dieser Einheit**, sonst `0` (Plan, Entscheidungen 5 und 29).
+**Abweichung (#81, #80):** heute gewinnt ein gespeicherter Betrag auch bei MEA, und er gilt für alle Einheiten gleich
+(`:47-57`).
 Fehler: 404 `Abrechnungszeitraum nicht gefunden` (`:34-36`).
 **Abweichung (Sicherheitsfix, #68):** `documents` enthält nur Dokumente ohne Mieterzuordnung oder des eigenen
 Mieters (heute alle Dokumente des Zeitraums, auch die anderer Mieter, `:30,68-75`). Die Felder `billingPeriodId`/
@@ -169,7 +172,7 @@ beim Löschen 204 (heute `{success:true}` mit 200). Antworten liefern das vollst
 | Ressource | Endpunkte | Felder (Request = Response ohne `id`, `createdAt`, `updatedAt`) | Abweichungen |
 |---|---|---|---|
 | Objekte | GET/POST `/api/properties`, GET/PUT/DELETE `/api/properties/{id}` | `street, zip, city, totalShares (int ≥ 1)`; Liste mit `unitCount`, Detail mit `units[]` inkl. `tenants[]` | Liste: `unitCount` statt `_count.units`; 404 deutsch |
-| Einheiten | GET `/api/units?propertyId=`, POST, PUT/DELETE `/api/units/{id}` | `propertyId, name, floor, shares (int ≥ 0), kind ("apartment"|"garage"|"carport"|"other")` | `kind` neu (#2) |
+| Einheiten | GET `/api/units?propertyId=`, POST, PUT/DELETE `/api/units/{id}` | `propertyId, name, floor, shares (int ≥ 0, ≤ `totalShares` des Objekts), kind ("apartment"|"garage"|"carport"|"other")` | `kind` neu (#2); `shares > totalShares` → 400 (heute ungeprüft, #85); ebenso lehnt das Objekt ein `totalShares` unter der größten Einheit ab |
 | Mieter | GET `/api/tenants?unitId=`, POST, PUT/DELETE `/api/tenants/{id}` | `unitId, salutation, firstName, lastName, salutation2?, firstName2?, lastName2?, phone?, email?, bankName?, iban?, accountHolder?, moveInDate, moveOutDate?, leaseType ("standard"|"index"|"staffel"), indexBaseYear?, indexReferenceValueTenths?, indexReferenceDate?, indexMinMonths` | IBAN serverseitig geprüft; VPI-Bezug in Zehnteln |
 | Mieter-App-Zugang | GET/POST/DELETE `/api/tenants/{id}/access-token` | GET `{hasToken, expiresAt, usedAt}`; POST 201 `{code, expiresAt}`; DELETE 204 | **Code nur einmal im POST** (heute GET liefert Klartext); DELETE widerruft zusätzlich alle App-Tokens des Mieters (#70) |
 | Mietänderungen | GET `/api/rent-changes?unitId=`, POST, PUT/DELETE `/api/rent-changes/{id}` | `unitId, type ("rent"|"prepayment"), amountCents, effectiveDate, reason?` | `type` geprüft; Cent |
@@ -183,12 +186,13 @@ beim Löschen 204 (heute `{success:true}` mit 200). Antworten liefern das vollst
 |---|---|---|---|
 | GET /api/billing-periods?propertyId= | – | `[BillingPeriodSummary]` mit `costCount`, `unreviewedCount` | – |
 | POST /api/billing-periods | `{propertyId, startDate, endDate, billingDate?, copyFromId?}` | 201 Detail | 400 Pflicht/Ende ≤ Beginn/Objekt ohne Einheiten; 404; 409 `overlap`. Kopie übernimmt `enabled` und `distributionKeyOverride` (heute nicht, #69), setzt `reviewed=false`; atomar in einer Transaktion |
-| GET /api/billing-periods/{id} | – | Detail: Zeitraum, `property{…, units[{…, tenants[]}]}`, `costs[]`, `prepayments[]`, `totalsByUnit[{unitId, totalUnitCostsCents, totalPrepaymentCents, differenceCents, months}]` | Summen serverseitig (Domain) |
+| GET /api/billing-periods/{id} | – | Detail: Zeitraum, `property{…, units[{…, tenants[]}]}`, `costs[]`, `prepayments[]`, `totalsByUnit[{unitId, totalUnitCostsCents, totalPrepaymentCents, differenceCents, months}]` | Summen serverseitig (Domain). Ungültige Anteile einer Einheit bei aktiver MEA-Position → 422 `invalid_shares`, Meldung nennt die Einheit (#85) |
 | PUT /api/billing-periods/{id} | `{startDate?, endDate?, billingDate?, sentDate?, paidDate?}` (`null` = leeren) | Detail | 409 `overlap` (heute keine Prüfung); `propertyId` nicht mehr änderbar |
 | DELETE /api/billing-periods/{id} | – | 204 | löscht zugehörige Upload-Dateien mit |
-| GET /api/billing-periods/{id}/costs | – | `[Cost]` | – |
-| PATCH /api/billing-periods/{id}/costs/{costCategoryId} | `{totalAmountCents?, unitAmountCents?, enabled?, distributionKeyOverride?, reviewed?, version?}` | 200 Cost (neu angelegt: 201) | ersetzt `POST …/costs` (Upsert). Nur gesendete Felder ändern sich, ein `UPDATE` (#25). `null` leert (`totalAmountCents: null` → Position ohne Betrag, #25). `reviewed` wird nur `false`, wenn sich ein Betrag wirklich ändert (#67). `version` gesendet und veraltet → 409 `version_conflict` mit aktuellem Stand in `current` (#67) |
+| GET /api/billing-periods/{id}/costs | – | `[Cost]`; `Cost.unitAmounts[{unitId, amountCents}]` (nur gesetzte) | Beträge je Einheit neu (#80) |
+| PATCH /api/billing-periods/{id}/costs/{costCategoryId} | `{totalAmountCents?, enabled?, distributionKeyOverride?, reviewed?, version?}` | 200 Cost (neu angelegt: 201) | ersetzt `POST …/costs` (Upsert). Nur gesendete Felder ändern sich, ein `UPDATE` (#25). `null` leert (`totalAmountCents: null` → Position ohne Betrag, #25). `reviewed` wird nur `false`, wenn sich ein Betrag wirklich ändert (#67). `version` gesendet und veraltet → 409 `version_conflict` mit aktuellem Stand in `current` (#67) |
 | GET /api/billing-periods/{id}/prepayments | – | `[Prepayment]` | – |
+| PATCH /api/billing-periods/{id}/costs/{costCategoryId}/units/{unitId} | `{amountCents (int\|null), version?}` | 200 Cost | Betrag dieser Einheit für `per_notice`/`per_attachment` (#80); `null` leert; fremde Einheit → 404; Version wie Kosten (#67). `unitAmountCents` im Kosten-`PATCH` entfällt |
 | PATCH /api/billing-periods/{id}/prepayments/{unitId} | `{monthlyAmountCents?, reviewed?, version?}` | 200/201 Prepayment | wie Kosten (#25, #67) |
 | GET /api/billing-periods/{id}/pdf?unitId= | – | `application/pdf`, Name wie heute | `unitId` optional; ohne: erste Einheit mit Mieter im Zeitraum (wie heute). 400 `Kein aktiver Mieter im Zeitraum`, 400 `Vermieterinformationen nicht konfiguriert` (heute englisch) |
 
