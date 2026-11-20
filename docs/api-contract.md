@@ -238,4 +238,8 @@ totalAmountCents|null, unitAmounts[{unitId, amountCents}], enabled, reviewed, ve
 | Mieter-App, Profil | IBAN/E-Mail serverseitig geprüft | – |
 | Web, alle | Cent-Felder, Datumsstrings, 204 beim Löschen, 404 statt 500, deutsche Fehlertexte, Scope je Kunde | #44, #69, #70 |
 | Web, Kosten/Vorauszahlungen | `PATCH` je Position statt `POST`-Upsert, Version, 409 | #25, #67 |
+| Web, Mieter/Mietänderungen | `unit{id,name,floor,shares,property{id,street,zip,city}}` eingebettet (Liste, Anlegen, Ändern) | #108 |
+| Web, Mieter ändern | Einheitenwechsel widerruft die Mieter-App-Zugänge | #107 |
+| Web, Einheit ändern | Umhängen in ein anderes Objekt bei Abrechnungsdaten → 409 `conflict` | Plan 37 |
+| Web, VPI-Abruf | höchstens 1 Abruf je Minute systemweit → 429; Fehler beim Abruf → 502 `upstream` | #110 |
 | Web, Auth | eigene Endpunkte statt NextAuth, kein Apple-Login, CSRF-Header | #70 |
