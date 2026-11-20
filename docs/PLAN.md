@@ -219,6 +219,9 @@ per Test gegen den Code geprüft).
 39. **Einheitenbetrag ohne Gesamtbetrag:** Bei `per_notice`/`per_attachment` zählt eine aktive Position mit Betrag
     der Einheit auch ohne Gesamtbetrag (z. B. Grundsteuer je Wohnung, #80); bei `mea`/`per_unit` braucht sie den
     Gesamtbetrag.
+40. **Überlappung von Zeiträumen:** Datumsangaben sind inklusiv; ein gemeinsamer Grenztag gilt als Überlappung
+    (sonst zählte der Grenzmonat nach Entscheidung 17 in beiden Zeiträumen). Geprüft beim Anlegen und Ändern; der
+    Import (P9) übernimmt Altbestand unverändert und meldet solche Fälle im Prüfprotokoll.
 
 ## Arbeitspakete
 
