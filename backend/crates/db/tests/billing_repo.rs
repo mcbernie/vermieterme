@@ -176,6 +176,30 @@ async fn costs(db: &Db) {
         cost::list(&mut c, &other.scope, pid).await,
         Err(DbError::NotFound)
     ));
+
+    // The list of one property counts only its own positions (#117).
+    let second = property(db, &s.scope).await;
+    billing_support::unit(db, &s.scope, &second, 10).await;
+    let input = new_period(&second, "2024-01-01", "2024-12-31");
+    let elsewhere = period::create(&mut c, &s.scope, &input)
+        .await
+        .unwrap()
+        .unwrap();
+    let eid = elsewhere.id.as_str();
+    cost::save(&mut c, &s.scope, eid, cat, &total(Some(1)))
+        .await
+        .unwrap()
+        .unwrap();
+    let mine = summary::list(&mut c, &s.scope, Some(&s.property_id))
+        .await
+        .unwrap();
+    assert_eq!(mine.len(), 1);
+    assert_eq!((mine[0].period.id.as_str(), mine[0].cost_count), (pid, 1));
+    let all = summary::list(&mut c, &s.scope, None).await.unwrap();
+    let theirs = all.iter().find(|p| p.period.id == eid).unwrap();
+    assert_eq!(theirs.cost_count, 1);
+    let same = all.iter().find(|p| p.period.id == pid).unwrap();
+    assert_eq!(same, &mine[0]);
 }
 dual_test!(cost_rules, costs);
 

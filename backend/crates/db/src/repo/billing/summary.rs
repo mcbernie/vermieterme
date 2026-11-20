@@ -51,7 +51,8 @@ pub async fn list(
         .iter()
         .map(from_row)
         .collect::<DbResult<Vec<_>>>()?;
-    let mut flags = review_flags(conn, scope, None).await?;
+    let which = property_id.map_or(Flags::Account, Flags::Property);
+    let mut flags = review_flags(conn, scope, which).await?;
     Ok(periods
         .into_iter()
         .map(|period| {
@@ -69,7 +70,7 @@ pub async fn get(
     period_id: &str,
 ) -> DbResult<PeriodSummary> {
     let period = super::period::get(conn, scope, period_id).await?;
-    let mut flags = review_flags(conn, scope, Some(period_id)).await?;
+    let mut flags = review_flags(conn, scope, Flags::Period(period_id)).await?;
     let (costs, prepayments) = flags.remove(period_id).unwrap_or_default();
     Ok(summarize(period, &costs, prepayments))
 }
@@ -84,26 +85,57 @@ fn summarize(period: BillingPeriod, costs: &[CostReview], prepayments: Vec<bool>
     }
 }
 
-/// Review flags of the costs and prepayments of the account (or of one period), by
-/// period id.
+/// The three queries of [`rows`] for the review flags of `table` (alias `x`); `extra`
+/// names further columns before `reviewed`.
+macro_rules! flag_queries {
+    ($table:literal, $extra:literal) => {
+        [
+            concat!(
+                "SELECT x.billing_period_id, ",
+                $extra,
+                "x.reviewed FROM ",
+                $table,
+                " x WHERE x.account_id = ?"
+            ),
+            concat!(
+                "SELECT x.billing_period_id, ",
+                $extra,
+                "x.reviewed FROM ",
+                $table,
+                " x JOIN billing_period p ON p.account_id = x.account_id \
+                 AND p.id = x.billing_period_id WHERE x.account_id = ? AND p.property_id = ?"
+            ),
+            concat!(
+                "SELECT x.billing_period_id, ",
+                $extra,
+                "x.reviewed FROM ",
+                $table,
+                " x WHERE x.account_id = ? AND x.billing_period_id = ?"
+            ),
+        ]
+    };
+}
+
+/// Which periods [`review_flags`] reads.
+#[derive(Clone, Copy)]
+enum Flags<'a> {
+    /// All periods of the account.
+    Account,
+    /// The periods of one property.
+    Property(&'a str),
+    /// One period.
+    Period(&'a str),
+}
+
+/// Review flags of the costs and prepayments of the account, of one property or of one
+/// period, by period id.
 async fn review_flags(
     conn: &mut AnyConnection,
     scope: &AccountScope,
-    period_id: Option<&str>,
+    which: Flags<'_>,
 ) -> DbResult<HashMap<String, (Vec<CostReview>, Vec<bool>)>> {
     let mut flags: HashMap<String, (Vec<CostReview>, Vec<bool>)> = HashMap::new();
-    let costs = rows(
-        conn,
-        scope,
-        period_id,
-        [
-            "SELECT billing_period_id, enabled, reviewed FROM cost WHERE account_id = ?",
-            "SELECT billing_period_id, enabled, reviewed FROM cost WHERE account_id = ? \
-             AND billing_period_id = ?",
-        ],
-    )
-    .await?;
-    for row in &costs {
+    for row in &rows(conn, scope, which, flag_queries!("cost", "x.enabled, ")).await? {
         let review = CostReview {
             enabled: flag(row, "enabled")?,
             reviewed: flag(row, "reviewed")?,
@@ -111,35 +143,25 @@ async fn review_flags(
         let entry = flags.entry(row.try_get("billing_period_id")?).or_default();
         entry.0.push(review);
     }
-    let prepayments = rows(
-        conn,
-        scope,
-        period_id,
-        [
-            "SELECT billing_period_id, reviewed FROM prepayment WHERE account_id = ?",
-            "SELECT billing_period_id, reviewed FROM prepayment WHERE account_id = ? \
-             AND billing_period_id = ?",
-        ],
-    )
-    .await?;
-    for row in &prepayments {
+    for row in &rows(conn, scope, which, flag_queries!("prepayment", "")).await? {
         let entry = flags.entry(row.try_get("billing_period_id")?).or_default();
         entry.1.push(flag(row, "reviewed")?);
     }
     Ok(flags)
 }
 
-/// Runs `[all, one]`: the first query for the whole account, the second (with an extra
-/// period id parameter) for one period.
+/// Runs `[account, property, period]` for `which`; the last two take the property or
+/// period id as second parameter.
 async fn rows(
     conn: &mut AnyConnection,
     scope: &AccountScope,
-    period_id: Option<&str>,
-    [all, one]: [&'static str; 2],
+    which: Flags<'_>,
+    [account, property, period]: [&'static str; 3],
 ) -> DbResult<Vec<AnyRow>> {
-    let query = match period_id {
-        Some(id) => sqlx::query(one).bind(scope.account_id()).bind(id),
-        None => sqlx::query(all).bind(scope.account_id()),
+    let query = match which {
+        Flags::Account => sqlx::query(account).bind(scope.account_id()),
+        Flags::Property(id) => sqlx::query(property).bind(scope.account_id()).bind(id),
+        Flags::Period(id) => sqlx::query(period).bind(scope.account_id()).bind(id),
     };
     Ok(query.fetch_all(&mut *conn).await?)
 }

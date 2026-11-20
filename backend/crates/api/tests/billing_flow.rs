@@ -223,10 +223,6 @@ async fn totals_and_copy(db: &Db) {
         .unwrap();
     let resp = w.app.get(&b.path(""), Some(&w.a)).await;
     assert_eq!(resp.status, 422);
-    // A change still succeeds: it answers with the summary, not the detail.
-    let sent = json!({"sentDate": "2025-02-01"});
-    let changed = w.expect(200, "PUT", &b.path(""), &w.a, sent).await;
-    assert_eq!(changed.body["sentDate"], "2025-02-01");
     assert_eq!(resp.body["code"], "invalid_shares");
     assert!(
         resp.body["error"]
@@ -234,6 +230,10 @@ async fn totals_and_copy(db: &Db) {
             .unwrap()
             .contains("Dachgeschoss")
     );
+    // A change still succeeds: it answers with the summary, not the detail.
+    let sent = json!({"sentDate": "2025-02-01"});
+    let changed = w.expect(200, "PUT", &b.path(""), &w.a, sent).await;
+    assert_eq!(changed.body["sentDate"], "2025-02-01");
     let off_mea = json!({"enabled": false});
     w.expect(
         200,

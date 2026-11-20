@@ -5,8 +5,9 @@
 
 mod billing_support;
 
-use billing_support::{category, property, setup, unit};
+use billing_support::{category, property, setup, unit, unit_input};
 use vermieterme_db::repo::billing::{Cost, CostPatch, Rejection, UnitAmountSaved, cost};
+use vermieterme_db::repo::masterdata::{self, unit as unit_repo};
 use vermieterme_db::{Db, DbError, dual_test};
 use vermieterme_domain::DistributionKey;
 
@@ -94,3 +95,38 @@ fn written(saved: UnitAmountSaved) -> Cost {
     }
 }
 dual_test!(unit_amount_rules, unit_amounts);
+
+/// Unit amounts block moving their unit only while the key in effect uses them (#117):
+/// after an override to `mea` the stored amount stays but no longer counts.
+async fn ignored_amounts_do_not_block(db: &Db) {
+    let s = setup(db, "A").await;
+    let mut c = db.pool().acquire().await.unwrap();
+    let cat = category(db, &s.scope, "Wasser", "per_notice").await;
+    let pid = s.period.id.as_str();
+    let key = (pid, cat.as_str(), s.units[0].as_str());
+    cost::set_unit_amount(&mut c, &s.scope, key, Some(500), None)
+        .await
+        .unwrap()
+        .unwrap();
+    let target = property(db, &s.scope).await;
+    let moved = unit_input(&target, 0);
+    let refused = unit_repo::update(&mut c, &s.scope, &s.units[0], &moved).await;
+    assert_eq!(
+        refused.unwrap().unwrap_err(),
+        masterdata::Rejection::UnitInBillings
+    );
+
+    let to_mea = CostPatch {
+        override_key: Some(Some(DistributionKey::Mea)),
+        ..CostPatch::default()
+    };
+    cost::save(&mut c, &s.scope, pid, &cat, &to_mea)
+        .await
+        .unwrap()
+        .unwrap();
+    let done = unit_repo::update(&mut c, &s.scope, &s.units[0], &moved).await;
+    assert_eq!(done.unwrap().unwrap().property_id, target);
+    let kept = cost::list(&mut c, &s.scope, pid).await.unwrap();
+    assert_eq!(kept[0].unit_amount(&s.units[0]), Some(500));
+}
+dual_test!(ignored_unit_amounts, ignored_amounts_do_not_block);
