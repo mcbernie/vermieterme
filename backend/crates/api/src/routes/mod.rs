@@ -74,7 +74,7 @@ pub fn router(state: AppState) -> Router {
     let app = app.merge(crate::users::router()); // P3
     let app = app.merge(crate::health::router()); // P3
     let app = app.merge(crate::masterdata::router()); // P4
-    // let app = app.merge(crate::billing::router());       // P5
+    let app = app.merge(crate::billing::router()); // P5
     // let app = app.merge(crate::documents::router());     // P6
     // let app = app.merge(crate::tenant_app::router());    // P7
     // let app = app.merge(crate::pdf::router());           // P8
