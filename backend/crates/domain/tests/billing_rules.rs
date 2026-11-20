@@ -206,3 +206,23 @@ fn unit_basis_rejects_inconsistent_values() {
         Some(Cents::ZERO)
     );
 }
+
+#[test]
+fn legacy_labels_ignore_case_and_surrounding_whitespace() {
+    assert_eq!(DistributionKey::from_label("mea"), Ok(Mea));
+    assert_eq!(
+        DistributionKey::from_label("  Laut Bescheid "),
+        Ok(PerNotice)
+    );
+    assert_eq!(
+        DistributionKey::from_label("SIEHE ANLAGE"),
+        Ok(PerAttachment)
+    );
+    assert_eq!(
+        DistributionKey::from_label("\tnach einheiten\n"),
+        Ok(PerUnit)
+    );
+    assert!(DistributionKey::from_label("lautBescheid").is_err());
+    assert!(DistributionKey::from_label("nach Anlage").is_err());
+    assert!(DistributionKey::from_label("").is_err());
+}

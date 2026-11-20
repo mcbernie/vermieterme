@@ -67,11 +67,14 @@ impl DistributionKey {
     }
 
     /// Reads a key from the display text stored by the old application (legacy import,
-    /// backup format 1).
+    /// backup format 1). The old data is free text, so surrounding whitespace and
+    /// letter case are ignored (the tenant app also compares lower-cased); any other
+    /// text is an error.
     pub fn from_label(label: &str) -> Result<Self, UnknownKey> {
+        let label = label.trim().to_lowercase();
         Self::ALL
             .into_iter()
-            .find(|k| k.label() == label)
+            .find(|k| k.label().to_lowercase() == label)
             .ok_or(UnknownKey)
     }
 }
