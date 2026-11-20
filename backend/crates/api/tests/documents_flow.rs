@@ -212,6 +212,21 @@ async fn assignments_and_audit(db: &Db) {
     .await;
     assert_eq!(ok.status, 201);
     assert_eq!(ok.json()["billingPeriodId"], json!(period));
+    // Period and tenant of different properties: 400, nothing stored (decision 43).
+    let other_unit = w.unit(&w.a, &w.property(&w.a).await, 10).await;
+    let elsewhere = w.tenant(&w.a, &other_unit, json!({})).await;
+    let mixed = [
+        ("file", Some("a.pdf"), PDF),
+        ("billingPeriodId", None, period.as_bytes()),
+        ("tenantId", None, elsewhere.as_bytes()),
+    ];
+    let resp = upload(w, &w.a, &mixed).await;
+    assert_eq!(resp.status, 400);
+    assert_eq!(
+        resp.json()["fields"]["tenantId"],
+        "Mieter und Abrechnungszeitraum gehören zu verschiedenen Objekten"
+    );
+    assert_eq!(entries(&d.dir.join(&w.account_a)).len(), 1);
     assert_eq!(audit_count(db, "document.create").await, 0);
 
     w.admin_enters_a().await;

@@ -19,7 +19,7 @@ use axum::routing::get;
 use serde::{Deserialize, Serialize};
 use vermieterme_db::repo::billing::period;
 use vermieterme_db::repo::documents::{self, Document};
-use vermieterme_db::repo::masterdata::tenant;
+use vermieterme_db::repo::masterdata::{tenant, unit};
 
 use crate::auth::AccountCtx;
 use crate::error::json::{ApiQuery, timestamp};
@@ -92,22 +92,36 @@ pub struct DocumentQuery {
 
 /// Checks that a billing period and a tenant (each optional) exist in the account, so
 /// the 404 names the right object (the repository re-checks inside its transaction).
+/// With `same_property` (upload), both must belong to the same property, else 400
+/// (decision 43).
 pub(crate) async fn check_assignment(
     state: &AppState,
     ctx: &AccountCtx,
     billing_period_id: Option<&str>,
     tenant_id: Option<&str>,
+    same_property: bool,
 ) -> ApiResult<()> {
     let mut conn = state.conn().await?;
+    let mut period_property = None;
     if let Some(id) = billing_period_id {
-        period::get(&mut conn, &ctx.scope, id)
+        let found = period::get(&mut conn, &ctx.scope, id)
             .await
             .map_err(not_found_as(crate::billing::NOT_FOUND))?;
+        period_property = Some(found.property_id);
     }
     if let Some(id) = tenant_id {
-        tenant::get(&mut conn, &ctx.scope, id)
+        let found = tenant::get(&mut conn, &ctx.scope, id)
             .await
             .map_err(not_found_as(TENANT_NOT_FOUND))?;
+        if let (true, Some(expected)) = (same_property, &period_property) {
+            let unit = unit::get(&mut conn, &ctx.scope, &found.data.unit_id).await?;
+            if &unit.property_id != expected {
+                return Err(ApiError::field(
+                    "tenantId",
+                    "Mieter und Abrechnungszeitraum gehören zu verschiedenen Objekten",
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -121,7 +135,7 @@ pub async fn list(
 ) -> ApiResult<axum::Json<Vec<DocumentJson>>> {
     let billing_period_id = filter(query.billing_period_id.as_deref());
     let tenant_id = filter(query.tenant_id.as_deref());
-    check_assignment(&state, &ctx, billing_period_id, tenant_id).await?;
+    check_assignment(&state, &ctx, billing_period_id, tenant_id, false).await?;
     let mut conn = state.conn().await?;
     let found = documents::list(&mut conn, &ctx.scope, billing_period_id, tenant_id).await?;
     Ok(axum::Json(

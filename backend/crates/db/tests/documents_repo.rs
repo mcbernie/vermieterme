@@ -277,3 +277,21 @@ async fn tenant_visibility(db: &Db) {
 }
 
 dual_test!(tenant_visibility_cases, tenant_visibility);
+
+/// Period and tenant of different properties are refused, nothing stored (decision 43).
+async fn mixed_properties(db: &Db) {
+    let s = setup(db, "A").await;
+    let elsewhere = unit(db, &s.scope, &property(db, &s.scope).await, 10).await;
+    let t = tenant(db, &s.scope, &elsewhere).await;
+    let made = doc(db, &s.scope, "x.pdf", Some(&s.period.id), Some(&t)).await;
+    assert!(matches!(made, Err(DbError::Constraint)), "{made:?}");
+    let mut c = db.pool().acquire().await.unwrap();
+    assert!(
+        documents::list(&mut c, &s.scope, None, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+dual_test!(mixed_properties_cases, mixed_properties);

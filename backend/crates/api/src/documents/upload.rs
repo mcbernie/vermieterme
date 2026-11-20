@@ -84,6 +84,7 @@ pub async fn create(
         &ctx,
         new.billing_period_id.as_deref(),
         new.tenant_id.as_deref(),
+        true,
     )
     .await?;
     // Insert, commit and `keep` run detached from the request (#121), so a disconnect

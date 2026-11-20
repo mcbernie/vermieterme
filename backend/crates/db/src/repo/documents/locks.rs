@@ -87,8 +87,11 @@ pub async fn files_of(
         .collect()
 }
 
-/// Locks the properties of a new document's billing period and tenant (sorted by id),
+/// Locks the property of a new document's billing period and tenant,
 /// then the tenant's unit and row, and checks that both still exist in the account.
+/// Period and tenant of different properties are [`DbError::Constraint`] (decision 43;
+/// the HTTP layer refuses this earlier with its own text, this covers a tenant moved
+/// meanwhile).
 pub(super) async fn lock_assignment(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -104,6 +107,9 @@ pub(super) async fn lock_assignment(
     }
     properties.sort();
     properties.dedup();
+    if properties.len() > 1 {
+        return Err(DbError::Constraint);
+    }
     for property_id in &properties {
         property::lock(conn, scope, property_id).await?;
     }
