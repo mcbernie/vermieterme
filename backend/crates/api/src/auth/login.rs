@@ -1,0 +1,116 @@
+//! `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/session`.
+
+use axum::extract::State;
+use axum::http::HeaderMap;
+use axum::response::Response;
+use serde::Deserialize;
+use vermieterme_db::repo::user::{self, normalize_email};
+use vermieterme_db::{AnyConnection, UserScope};
+
+use super::client_ip::ClientIp;
+use super::extract::CurrentUser;
+use super::password::{self, Verification};
+use super::rate_limit::{LOGIN_EMAIL, LOGIN_IP};
+use super::session::{self, SessionJson};
+use super::timing::Deadline;
+use crate::error::json::ApiJson;
+use crate::error::validate::PASSWORD_MAX;
+use crate::error::{ApiError, ApiResult};
+use crate::routes::AppState;
+
+/// The one answer to every failed login (contract: generic).
+const LOGIN_FAILED: &str = "Anmeldung fehlgeschlagen";
+
+/// Request of `POST /api/auth/login`.
+#[derive(Debug, Deserialize)]
+pub struct LoginBody {
+    email: String,
+    password: String,
+}
+
+/// Signs in with e-mail and password (public). Every outcome takes at least
+/// [`super::timing::MIN_RESPONSE`]; failures are counted per address and per e-mail.
+pub async fn login(
+    State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
+    ApiJson(body): ApiJson<LoginBody>,
+) -> ApiResult<Response> {
+    let deadline = Deadline::start();
+    let ip = ip.to_string();
+    let email = normalize_email(&body.email);
+    let limiter = &state.limiter;
+    let result = match limiter
+        .check(&LOGIN_IP, &ip)
+        .and(limiter.check(&LOGIN_EMAIL, &email))
+    {
+        Err(wait) => Err(ApiError::rate_limited(wait)),
+        Ok(()) => attempt(&state, &headers, &email, body.password).await,
+    };
+    match &result {
+        Ok(_) => limiter.clear(&LOGIN_EMAIL, &email),
+        Err(e) if e.status() == axum::http::StatusCode::UNAUTHORIZED => {
+            limiter.fail(&LOGIN_IP, &ip);
+            limiter.fail(&LOGIN_EMAIL, &email);
+        }
+        Err(_) => {}
+    }
+    deadline.finish(result).await
+}
+
+/// Verifies the credentials and starts the session; any mismatch -> generic 401.
+async fn attempt(
+    state: &AppState,
+    headers: &HeaderMap,
+    email: &str,
+    password: String,
+) -> ApiResult<Response> {
+    if password.chars().count() > PASSWORD_MAX {
+        return Err(ApiError::unauthenticated(LOGIN_FAILED));
+    }
+    let mut conn = state.conn().await?;
+    let record = user::find_login(&mut conn, email).await?;
+    let stored = record.as_ref().and_then(|r| r.password_hash.clone());
+    let verification = password::verify(password.clone(), stored).await?;
+    let (Some(record), Verification::Valid { rehash }) = (record, verification) else {
+        return Err(ApiError::unauthenticated(LOGIN_FAILED));
+    };
+    let started = session::start(&mut conn, &state.config, headers, &record.user.id)
+        .await?
+        .ok_or_else(|| ApiError::unauthenticated(LOGIN_FAILED))?;
+    if rehash {
+        upgrade_hash(&mut conn, &record.user.id, password).await?;
+    }
+    let document = session::describe(&mut conn, &started.active.user, None).await?;
+    Ok(session::signed_in(&started, document, &state.config))
+}
+
+/// Replaces a legacy (bcrypt) or outdated hash by argon2id after a successful sign-in.
+#[allow(clippy::disallowed_methods)] // The user just proved the password; own row only.
+async fn upgrade_hash(conn: &mut AnyConnection, user_id: &str, password: String) -> ApiResult<()> {
+    let hash = password::hash(password).await?;
+    user::set_password_hash(conn, &UserScope::from_session(user_id), &hash).await?;
+    Ok(())
+}
+
+/// Ends the current session and deletes the cookie; always `204` (also without session).
+pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Response> {
+    let mut conn = state.conn().await?;
+    session::end_presented(&mut conn, &state.config, &headers).await?;
+    Ok(session::signed_out(&state.config))
+}
+
+/// The session document of the signed-in user (`401` without session).
+pub async fn current(
+    State(state): State<AppState>,
+    current: CurrentUser,
+) -> ApiResult<axum::Json<SessionJson>> {
+    let mut conn = state.conn().await?;
+    let document = session::describe(
+        &mut conn,
+        &current.user,
+        current.acting_account_id.as_deref(),
+    )
+    .await?;
+    Ok(axum::Json(document))
+}

@@ -7,12 +7,13 @@
 
 pub mod routes;
 
-pub mod config; // P3
-pub mod error; // P3
-// pub mod auth;          // P3
+// P3 (kept in alphabetical order: rustfmt sorts adjacent module declarations)
 // pub mod admin;         // P3
+pub mod auth;
+pub mod config;
+pub mod error;
+pub mod health;
 // pub mod users;         // P3
-// pub mod health;        // P3
 // pub mod masterdata;    // P4
 // pub mod billing;       // P5
 // pub mod documents;     // P6
