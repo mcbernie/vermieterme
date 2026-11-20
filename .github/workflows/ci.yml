@@ -55,7 +55,7 @@ jobs:
           MARIADB_ROOT_PASSWORD: ci-root-password
         ports:
           - 3306:3306
-        # Test database only: data on tmpfs and relaxed durability, never for production.
+        # Test database only: data on tmpfs, never for production.
         options: >-
           --tmpfs /var/lib/mysql
           --health-cmd="healthcheck.sh --connect --innodb_initialized"

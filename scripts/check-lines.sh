@@ -45,11 +45,23 @@ ROOT="${ROOT:-.}"
 [ -d "$ROOT" ] || die "root-dir not found: $ROOT"
 ROOT="$(cd "$ROOT" && pwd)"
 [[ "$WARN_LIMIT" =~ ^[0-9]+$ && "$FAIL_LIMIT" =~ ^[0-9]+$ ]] || die "thresholds must be integers"
+# An explicitly given allowlist (option or env) must exist; only the default may be missing.
+ALLOWLIST_EXPLICIT=0
+[ -z "$ALLOWLIST" ] || ALLOWLIST_EXPLICIT=1
 ALLOWLIST="${ALLOWLIST:-scripts/lines-allowlist.txt}"
 # A relative allowlist path is relative to the root.
 case "$ALLOWLIST" in /*) ;; *) ALLOWLIST="$ROOT/$ALLOWLIST" ;; esac
 
+[ "$ALLOWLIST_EXPLICIT" -eq 0 ] || [ -f "$ALLOWLIST" ] || die "allowlist not found: $ALLOWLIST"
+
 cd "$ROOT"
+
+# Escapes a value for a GitHub workflow command property ('%', CR, LF, ':' and ',').
+escape_prop() {
+  local v="$1"
+  v="${v//'%'/%25}"; v="${v//$'\r'/%0D}"; v="${v//$'\n'/%0A}"; v="${v//:/%3A}"; v="${v//,/%2C}"
+  printf '%s' "$v"
+}
 
 # Reads the allowlist: one path per line (relative to the repo root), '#' starts a comment.
 is_allowed() {
@@ -59,7 +71,8 @@ is_allowed() {
 
 # Builds the find expression for the configured extensions.
 name_args=()
-for ext in ${EXTENSIONS//,/ }; do
+read -ra ext_list <<< "${EXTENSIONS//,/ }"
+for ext in "${ext_list[@]}"; do
   ext="${ext#.}"
   [ "${#name_args[@]}" -eq 0 ] || name_args+=(-o)
   name_args+=(-name "*.${ext}")
@@ -71,13 +84,14 @@ failures=0
 
 while IFS= read -r -d '' file; do
   path="${file#./}"
-  lines=$(wc -l < "$file")
+  # awk also counts a last line without trailing newline; arithmetic trims any padding.
+  lines=$(( $(awk 'END { print NR }' "$file") ))
   if [ "$lines" -gt "$FAIL_LIMIT" ]; then
     if is_allowed "$path"; then
       echo "ALLOWED  $path: $lines lines (> $FAIL_LIMIT, in allowlist)"
     else
       echo "ERROR    $path: $lines lines (> $FAIL_LIMIT) - split the file or justify it in the allowlist"
-      echo "::error file=$path::$lines Zeilen (> $FAIL_LIMIT) - Datei aufteilen oder in der Allowlist begründen"
+      echo "::error file=$(escape_prop "$path")::$lines Zeilen (> $FAIL_LIMIT) - Datei aufteilen oder in der Allowlist begründen"
       failures=$((failures + 1))
     fi
   elif [ "$lines" -gt "$WARN_LIMIT" ]; then
