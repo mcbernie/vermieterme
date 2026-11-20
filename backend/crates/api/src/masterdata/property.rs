@@ -6,6 +6,7 @@ use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use vermieterme_db::repo::masterdata::property::{self, Property, PropertyInput};
 use vermieterme_db::repo::masterdata::{tenant, unit};
+use vermieterme_db::{AccountScope, AnyConnection};
 
 use super::fields::{TEXT_MAX, ZIP_MAX};
 use super::tenant_json::TenantJson;
@@ -130,11 +131,23 @@ pub async fn detail(
     Path(id): Path<String>,
 ) -> ApiResult<axum::Json<PropertyDetail>> {
     let mut conn = state.conn().await?;
-    let found = property::get(&mut conn, &ctx.scope, &id)
+    load_detail(&mut conn, &ctx.scope, &id)
+        .await
+        .map(axum::Json)
+}
+
+/// Loads a property with its units and their tenants (also embedded in the billing
+/// detail). A missing or foreign property is 404.
+pub(crate) async fn load_detail(
+    conn: &mut AnyConnection,
+    scope: &AccountScope,
+    id: &str,
+) -> ApiResult<PropertyDetail> {
+    let found = property::get(conn, scope, id)
         .await
         .map_err(not_found_as(NOT_FOUND))?;
-    let units = unit::list(&mut conn, &ctx.scope, Some(&id)).await?;
-    let tenants = tenant::list_for_property(&mut conn, &ctx.scope, &id).await?;
+    let units = unit::list(conn, scope, Some(id)).await?;
+    let tenants = tenant::list_for_property(conn, scope, id).await?;
     // The tenants are nested in their unit here, so the embedded `unit` is left out.
     let no_units = std::collections::HashMap::new();
     let units = units
@@ -149,10 +162,10 @@ pub async fn detail(
             unit: u.into(),
         })
         .collect();
-    Ok(axum::Json(PropertyDetail {
+    Ok(PropertyDetail {
         property: found.into(),
         units,
-    }))
+    })
 }
 
 /// Creates a property.

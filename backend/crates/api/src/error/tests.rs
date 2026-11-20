@@ -80,3 +80,17 @@ async fn upstream_is_502_with_its_code() {
         json!({"error": "Dienst nicht erreichbar", "code": "upstream"})
     );
 }
+
+#[tokio::test]
+async fn billing_conflicts_carry_their_codes() {
+    let (status, _, body) = render(ApiError::version_conflict(json!({"version": 3}))).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["code"], "version_conflict");
+    assert_eq!(body["current"], json!({"version": 3}));
+    let (status, _, body) = render(ApiError::overlap("Überlappung")).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body, json!({"error": "Überlappung", "code": "overlap"}));
+    let (status, _, body) = render(ApiError::invalid_shares("Anteile")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body["code"], "invalid_shares");
+}

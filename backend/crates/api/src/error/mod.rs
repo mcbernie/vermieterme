@@ -40,6 +40,12 @@ pub enum ErrorCode {
     MethodNotAllowed,
     /// 409: uniqueness or state conflict.
     Conflict,
+    /// 409: the sent version is outdated (`current` carries the stored state, #67).
+    VersionConflict,
+    /// 409: a billing period overlaps another one of the property.
+    Overlap,
+    /// 422: the shares of a unit do not allow the MEA share (#85).
+    InvalidShares,
     /// 413: request body too large.
     TooLarge,
     /// 429: too many attempts.
@@ -58,6 +64,7 @@ pub struct ApiError {
     message: Cow<'static, str>,
     fields: Vec<(String, String)>,
     retry_after: Option<Duration>,
+    current: Option<serde_json::Value>,
 }
 
 /// JSON body of an error.
@@ -67,6 +74,8 @@ struct Body<'a> {
     code: ErrorCode,
     #[serde(skip_serializing_if = "Option::is_none")]
     fields: Option<std::collections::BTreeMap<&'a str, &'a str>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current: Option<&'a serde_json::Value>,
 }
 
 impl ApiError {
@@ -78,6 +87,7 @@ impl ApiError {
             message: message.into(),
             fields: Vec::new(),
             retry_after: None,
+            current: None,
         }
     }
 
@@ -156,6 +166,33 @@ impl ApiError {
         Self::new(StatusCode::CONFLICT, ErrorCode::Conflict, message)
     }
 
+    /// 409 `overlap`: the billing period overlaps another one.
+    pub fn overlap(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::new(StatusCode::CONFLICT, ErrorCode::Overlap, message)
+    }
+
+    /// 409 `version_conflict` with the stored state in `current`, so the client can show
+    /// or merge it (#67).
+    pub fn version_conflict(current: serde_json::Value) -> Self {
+        Self {
+            current: Some(current),
+            ..Self::new(
+                StatusCode::CONFLICT,
+                ErrorCode::VersionConflict,
+                "Der Eintrag wurde inzwischen geändert. Bitte neu laden.",
+            )
+        }
+    }
+
+    /// 422 `invalid_shares`: a calculation needs shares the stored data cannot give.
+    pub fn invalid_shares(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorCode::InvalidShares,
+            message,
+        )
+    }
+
     /// 429 `rate_limited` with `Retry-After` (whole seconds, at least 1).
     pub fn rate_limited(retry_after: Duration) -> Self {
         Self {
@@ -211,6 +248,7 @@ impl IntoResponse for ApiError {
             error: &self.message,
             code: self.code,
             fields,
+            current: self.current.as_ref(),
         };
         let mut response = (self.status, axum::Json(body)).into_response();
         if let Some(wait) = self.retry_after {

@@ -9,11 +9,11 @@
 //! ([`AccountCtx::audit`]). Writing VPI values is global and therefore admin only.
 
 mod cost_category;
-mod fields;
+pub(crate) mod fields;
 mod landlord;
 mod pdf_config;
 mod pdf_template;
-mod property;
+pub(crate) mod property;
 mod rent_change;
 mod suggestions;
 mod tenant;
@@ -83,15 +83,17 @@ pub fn router() -> AppRouter {
 
 /// Runs a change that a business rule may refuse, together with its audit entry, in one
 /// transaction. `entity_id` names the changed row for the audit entry; the entry is not
-/// written (and nothing is committed) if the change returns a [`Rejection`]. A missing or
-/// foreign row becomes 404 with `missing`; a [`Rejection`] becomes 400/409.
-pub(super) async fn audited_checked<T>(
+/// written (and nothing is committed) if the change returns a refusal `R` (master data:
+/// [`Rejection`]; billing has its own). A missing or foreign row becomes 404 with
+/// `missing`; a refusal becomes the error of its `Into<ApiError>` (400/409). Shared with
+/// the billing area.
+pub(crate) async fn audited_checked<T, R: Into<ApiError>>(
     state: &AppState,
     ctx: &AccountCtx,
     (action, entity): (&'static str, &'static str),
     missing: &'static str,
     entity_id: impl FnOnce(&T) -> String,
-    change: impl AsyncFnOnce(&mut AnyConnection) -> DbResult<Result<T, Rejection>>,
+    change: impl AsyncFnOnce(&mut AnyConnection) -> DbResult<Result<T, R>>,
 ) -> ApiResult<T> {
     let mut conn = state.conn().await?;
     let outcome = in_transaction(&mut conn, async |tx| {
@@ -105,11 +107,11 @@ pub(super) async fn audited_checked<T>(
     })
     .await
     .map_err(not_found_as(missing))?;
-    outcome.map_err(refusal)
+    outcome.map_err(Into::into)
 }
 
 /// Like [`audited_checked`] for changes no business rule can refuse.
-pub(super) async fn audited<T>(
+pub(crate) async fn audited<T>(
     state: &AppState,
     ctx: &AccountCtx,
     names: (&'static str, &'static str),
@@ -118,37 +120,39 @@ pub(super) async fn audited<T>(
     change: impl AsyncFnOnce(&mut AnyConnection) -> DbResult<T>,
 ) -> ApiResult<T> {
     audited_checked(state, ctx, names, missing, entity_id, async |tx| {
-        change(tx).await.map(Ok)
+        change(tx).await.map(Ok::<T, Rejection>)
     })
     .await
 }
 
-/// The error answer for a refused change.
-fn refusal(rejection: Rejection) -> ApiError {
-    match rejection {
-        Rejection::SharesAboveTotal => ApiError::field(
-            "shares",
-            "Die Anteile dürfen die Gesamtanteile des Objekts nicht überschreiten",
-        ),
-        Rejection::TotalBelowUnitShares => ApiError::field(
-            "totalShares",
-            "Die Gesamtanteile dürfen nicht kleiner sein als die Anteile einer Einheit",
-        ),
-        Rejection::CategoryInUse => {
-            ApiError::conflict("Die Kostenart wird in Abrechnungen verwendet")
+impl From<Rejection> for ApiError {
+    /// The error answer for a refused master data change.
+    fn from(rejection: Rejection) -> Self {
+        match rejection {
+            Rejection::SharesAboveTotal => ApiError::field(
+                "shares",
+                "Die Anteile dürfen die Gesamtanteile des Objekts nicht überschreiten",
+            ),
+            Rejection::TotalBelowUnitShares => ApiError::field(
+                "totalShares",
+                "Die Gesamtanteile dürfen nicht kleiner sein als die Anteile einer Einheit",
+            ),
+            Rejection::CategoryInUse => {
+                ApiError::conflict("Die Kostenart wird in Abrechnungen verwendet")
+            }
+            Rejection::UnitInBillings => ApiError::conflict(
+                "Die Einheit wird in Abrechnungen verwendet und kann nicht in ein anderes Objekt verschoben werden",
+            ),
         }
-        Rejection::UnitInBillings => ApiError::conflict(
-            "Die Einheit wird in Abrechnungen verwendet und kann nicht in ein anderes Objekt verschoben werden",
-        ),
     }
 }
 
 /// `201 Created` with the object as JSON.
-pub(super) fn created<T: Serialize>(value: T) -> Response {
+pub(crate) fn created<T: Serialize>(value: T) -> Response {
     (StatusCode::CREATED, axum::Json(value)).into_response()
 }
 
 /// `204 No Content` (deleted).
-pub(super) fn deleted() -> Response {
+pub(crate) fn deleted() -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
