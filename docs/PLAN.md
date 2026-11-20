@@ -50,8 +50,9 @@ Rechte-Mapping (Rollen `admin`, `member`, Mieter) an einer Stelle: `backend/crat
   `INTEGER`/`TINYINT` 0/1; JSON (PDF-Vorlage) als `TEXT`. Unique-Spalten in MySQL als `VARCHAR` mit Länge.
 - **Optimistische Sperre:** `version BIGINT` in `cost` und `prepayment` (#67); Teil-Updates als ein `UPDATE` mit nur
   den gesendeten Feldern (#25).
-- Integrationstests: je Test eigene Datenbank (`TEST_DATABASE_URL` SQLite, `TEST_MYSQL_URL` MariaDB); fehlt der
-  Dienst, wird sichtbar `[skip]` ausgegeben.
+- Integrationstests: je Test eigene Datenbank. SQLite braucht keinen Dienst und läuft **immer** (temporäre Datei je
+  Test, kein Überspringen). MariaDB über `TEST_MYSQL_URL`; Tests heißen `mysql_*` und geben ohne Variable sichtbar
+  `[skip]` aus, das Rezept `test-mysql` bricht ohne Variable ab.
 
 Begründung: Ein Codepfad für beide Datenbanken, keine zweite Implementierung je Repository. Preis: keine
 `query!`-Prüfung zur Übersetzungszeit – ausgeglichen durch Integrationstests gegen beide Dialekte in CI.
@@ -196,10 +197,10 @@ höchstens 3 Korrekturschleifen. Qualitätstor je Paket: `just check`.
 
 | ID | Ziel | erlaubte Pfade | Abh. | Modell | Akzeptanz | Issues |
 |---|---|---|---|---|---|---|
-| P0 | Workspace-Gerüst, `justfile`, CI-Jobs, Router-Slots | `backend/` (Cargo.toml, Lock, Toolchain, Lints, deny, leere Crates), `justfile`, `.github/workflows/ci.yml` | – | sonnet | `just check` grün; leere Crates mit Doku; alle Workspace-Dependencies nach Entscheidung 23 eingetragen | – |
+| P0 | Workspace-Gerüst, `justfile`, CI-Jobs, Router-Slots | `backend/` (Cargo.toml, Lock, Toolchain, Lints, deny, leere Crates, Slots in `api/src/lib.rs` und `api/src/routes/mod.rs`), `justfile`, `.github/workflows/ci.yml`, `scripts/` (Zeilenprüfung), `.dockerignore` | – | sonnet | `just check` grün; leere Crates mit Doku; alle Workspace-Dependencies nach Entscheidung 23 eingetragen | – |
 | P1 | Domain: Cent, Datum, Abrechnung, MEA, Monate (`MonthRule`), Schlüssel inkl. `per_unit`, VPI, IBAN | `backend/crates/domain/` | P0 | opus | Fälle aus `billing-calc.test.ts`, `vpi.test.ts`, `iban.test.ts` portiert; Rundungstests; keine IO-Abhängigkeit | #70, #69, #2 |
 | P2 | Schema beider Dialekte, Pool, `Dialect`, Scope-Typen, Repos Kunde/Benutzer/Sitzung/Audit; `Any`-Spike | `backend/crates/db/`, `backend/migrations/` | P1 | opus | Migration 0001 vollständig für alle Tabellen; Schema-Gleichheitstest; Tests SQLite + MariaDB | #44 |
-| P3 | Auth, Sitzungen, CSRF, Rate-Limit, Rechte-Mapping, Fehlerform, Konfiguration, Benutzer/Profil/Admin/Audit, Health | `backend/crates/api/src/{auth,config,error,admin,users,health}*`, Slot `auth` in `routes/mod.rs` | P2 | opus | Login/Logout/Session; bcrypt→argon2id; Sitzungsende bei PW-Änderung; 404 für fremde Kunden; Audit bei Wechsel | #44, #70, #69 |
+| P3 | Auth, Sitzungen, CSRF, Rate-Limit, Rechte-Mapping, Fehlerform, Konfiguration, Benutzer/Profil/Admin/Audit, Health | `backend/crates/api/src/{auth,config,error,admin,users,health}*` | P2 | opus | Login/Logout/Session; bcrypt→argon2id; Sitzungsende bei PW-Änderung; 404 für fremde Kunden; Audit bei Wechsel | #44, #70, #69 |
 | P4 | Stammdaten: Objekte, Einheiten, Mieter, Mietänderungen, Kostenarten, Vermieter, PDF-Vorlage, VPI (+Abruf, Vorschläge) | `backend/crates/api/src/masterdata/`, `backend/crates/db/src/repo/masterdata*` | P3 | sonnet | Je Endpunkt Test inkl. fremder ID → 404 und Validierung → 400 | #69, #2 |
 | P5 | Abrechnung: Zeiträume, Kopie, Kosten, Vorauszahlungen; Teil-Update, Version, 409 | `backend/crates/api/src/billing/`, `backend/crates/db/src/repo/billing*` | P4 | opus | Paralleltest gleiche Kostenart; Kopie übernimmt `enabled`/Override; leerer Betrag = `null` | #25, #67, #69 |
 | P6 | Dokumente: Upload (Magic-Bytes), Ablage je Kunde, Download, Löschen inkl. Dateien | `backend/crates/api/src/documents/`, `backend/crates/db/src/repo/documents*` | P5 | opus | Typprüfung per Inhalt; keine Waisen beim Kaskadenlöschen; RFC-6266-Dateiname | #44 |
@@ -208,19 +209,23 @@ höchstens 3 Korrekturschleifen. Qualitätstor je Paket: `just check`.
 | P9 | `import-legacy`: Prisma-SQLite → neues Schema, Cent, Daten, Codes, Dateien, Prüfprotokoll | `backend/crates/db/src/legacy_import/`, Unterbefehl in `api/src/main.rs` | P8 | opus | Synthetische Alt-DB (Fixture, keine echten Daten) importiert, Bericht ohne Differenzen; `--dry-run` | #70, #44 |
 | P10 | Backup Export v2 / Import v1+v2 je Kunde | `backend/crates/api/src/backup/`, `backend/crates/db/src/repo/backup*` | P9 | sonnet | Rundreise v2 verlustfrei; v1-Import gerundet wie P9; Import ersetzt nur den eigenen Kunden | – |
 | P11 | Web: API-Client, Login/Session ohne NextAuth, CSRF-Header, Cent-Umrechnung | `src/lib/`, `src/features/`, `src/components/`, `src/app/` (ohne `api/`), Tests daneben | P10 | sonnet | Alle Web-Tests grün; keine `next-auth`-Importe; Beträge nur im API-Client umgerechnet | – |
-| P12 | Web: statischer Export, Detailroute per Query, Admin-Bereich, Benutzerverwaltung, Hinweisleiste; Altteile entfernen | `src/`, `next.config.ts`, `package.json`, `pnpm-lock.yaml`, `prisma/` (löschen) | P11 | sonnet | `pnpm build` erzeugt `out/`; keine API-Routen/Prisma mehr | #44 |
+| P12 | Web: statischer Export, Detailroute per Query, Admin-Bereich, Benutzerverwaltung, Hinweisleiste; Altteile entfernen | `src/`, `next.config.ts`, `package.json`, `pnpm-lock.yaml`, `prisma/` (löschen), `backend/crates/api/src/static_files*` | P11 | sonnet | `pnpm build` erzeugt `out/`; keine API-Routen/Prisma mehr | #44 |
 | P13 | Docker, Compose-Beispiel, Einstiegspunkt, Doku Betrieb | `Dockerfile`, `docker-entrypoint.sh`, `docker-compose.yml`, `.github/workflows/docker.yml`, `docs/{development,deployment,operations}.md`, `README.md` | P12 | sonnet | Image startet mit Alt-Volume, migriert, Health 200; läuft als UID 1001 | – |
 | P14 | Abnahme Mieter-App: Vertragstests gegen laufendes Image, Aufräumen | `backend/crates/api/tests/tenant_app_contract*`, `justfile` (Rezept `contract`) | P13 | haiku | Alle eingefrorenen Endpunkte gegen Fixtures grün | #70 |
 
 **Vorab vergebene Konfliktstellen:**
 - *Migrationen:* P2 legt `0001_initial.sql` (beide Dialekte) für **alle** Tabellen an. Nachträge nur mit vom
   Koordinator vergebener Nummer; reserviert: `0002` P5, `0003` P7, `0004` P9.
-- *Router:* `backend/crates/api/src/routes/mod.rs` legt P0 mit festen, auskommentierten Slots an
-  (`auth`, `masterdata`, `billing`, `documents`, `tenant_app`, `pdf`, `backup`, `static`); jedes Paket aktiviert nur
-  seinen Slot.
+- *Router:* Bereichsmodule liegen an der Crate-Wurzel (`backend/crates/api/src/<bereich>/`, wie in der Paket-Tabelle).
+  P0 legt in `api/src/lib.rs` die auskommentierten Moduldeklarationen und in `api/src/routes/mod.rs` die Funktion
+  `router()` mit auskommentierten `merge(crate::<bereich>::router())`-Zeilen an (`auth`, `masterdata`, `billing`,
+  `documents`, `tenant_app`, `pdf`, `backup`, `static_files`). Jedes Paket aktiviert nur seine zwei Zeilen; diese
+  Zeilen gehören zu den erlaubten Pfaden jedes Pakets. `static_files` (Auslieferung von `out/`) aktiviert P12 mit dem
+  Pfad `backend/crates/api/src/static_files*`.
 - *Cargo.toml/Cargo.lock:* Workspace-Dependencies nur in P0; spätere Pakete aktivieren sie per `workspace = true`.
   Neue Dependency → Rückfrage beim Koordinator.
-- *justfile:* nur P0 (Grundrezepte) und P14 (`contract`); weitere Rezepte über den Koordinator.
+- *justfile:* P0 (Grundrezepte), P9 (`import-legacy`), P11 (`dev`), P13 (`docker`), P14 (`contract`); jedes Paket
+  ergänzt nur sein Rezept (zählt zu seinen erlaubten Pfaden).
 
 ## Schnittstellen-Liste
 
@@ -241,7 +246,7 @@ höchstens 3 Korrekturschleifen. Qualitätstor je Paket: `just check`.
 | `PDF_RENDER_TIMEOUT_SECS` / `PDF_RENDER_CONCURRENCY` | `20` / `2` | Grenzen der PDF-Brücke |
 | `VPI_API_BASE` | Bundesbank-SDMX-Basis-URL (heute in `src/app/api/vpi/fetch/route.ts`) | austauschbar für Tests |
 | `LOG_LEVEL` / `LOG_FORMAT` | `info` / `json` | Logging (personenbezogene Felder geschwärzt) |
-| `TEST_DATABASE_URL` / `TEST_MYSQL_URL` | – | nur Tests; fehlt → `[skip]` |
+| `TEST_MYSQL_URL` | – | nur Tests (MariaDB); fehlt → `mysql_*`-Tests `[skip]`, `just test-mysql` bricht ab |
 
 Entfällt: `AUTH_TRUST_HOST`, `AUTH_APPLE_ID`, `AUTH_APPLE_SECRET`, `NEXT_TELEMETRY_DISABLED` (Laufzeit).
 
