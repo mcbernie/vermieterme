@@ -6,6 +6,7 @@ use std::time::Duration;
 use vermieterme_db::repo::session;
 use vermieterme_db::row::now_millis;
 
+use crate::error::db_log;
 use crate::routes::AppState;
 
 /// Interval of the cleanup.
@@ -22,7 +23,7 @@ pub async fn run_once(state: &AppState) {
     };
     match result {
         Ok(removed) => tracing::debug!(removed, "Abgelaufene Sitzungen entfernt"),
-        Err(error) => tracing::warn!(error = %error, "Aufräumen der Sitzungen fehlgeschlagen"),
+        Err(error) => db_log::warn(&error, "Aufräumen der Sitzungen fehlgeschlagen"),
     }
 }
 

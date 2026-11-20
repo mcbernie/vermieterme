@@ -3,11 +3,13 @@
 //!
 //! Handlers return `Result<_, ApiError>`. Messages are German and generic; internal
 //! details, personal data and secrets never reach the client and are not logged either
-//! (only the generic `Display` of database errors is logged).
+//! (database errors only with kind and SQLSTATE/code, decision 35).
 //!
 //! Submodules: [`json`] (request extractors with this error shape, timestamp format),
-//! [`validate`] (trimming and length checks against the schema limits).
+//! [`validate`] (trimming and length checks against the schema limits), [`db_log`]
+//! (what of a database error may be logged).
 
+pub mod db_log;
 pub mod json;
 pub mod validate;
 
@@ -196,14 +198,14 @@ impl IntoResponse for ApiError {
 
 impl From<DbError> for ApiError {
     /// Contract mapping: not found -> 404, conflict -> 409, constraint -> 400; anything
-    /// else is logged (generic text only) and becomes 500.
+    /// else is logged (kind and code only) and becomes 500.
     fn from(error: DbError) -> Self {
         match error {
             DbError::NotFound => Self::not_found("Nicht gefunden"),
             DbError::Conflict => Self::conflict("Eintrag existiert bereits"),
             DbError::Constraint => Self::bad_request("Eingabe ungültig (z. B. zu lang)"),
             other => {
-                tracing::error!(error = %other, "Datenbankfehler");
+                db_log::log(&other, "Datenbankfehler");
                 Self::internal()
             }
         }

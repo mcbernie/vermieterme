@@ -23,7 +23,8 @@ async fn health(State(state): State<AppState>) -> Response {
     match sqlx::query("SELECT 1").execute(state.db.pool()).await {
         Ok(_) => axum::Json(json!({"status": "ok", "version": VERSION})).into_response(),
         Err(error) => {
-            tracing::warn!(error = %vermieterme_db::DbError::from(error), "Health-Check fehlgeschlagen");
+            let error = vermieterme_db::DbError::from(error);
+            crate::error::db_log::warn(&error, "Health-Check fehlgeschlagen");
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 axum::Json(json!({"status": "error"})),

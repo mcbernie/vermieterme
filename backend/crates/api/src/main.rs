@@ -1,8 +1,13 @@
 //! Entry point of the `vermieterme` binary.
 //!
 //! Subcommands: `serve` (default) and `healthcheck`; `import-legacy` follows with P9.
+//!
+//! Errors end the process with exit code 1 and one generic line on stderr
+//! ([`failure_line`]); the error chain is not printed, as it may hold driver messages
+//! with field values (decision 35).
 
 use std::net::SocketAddr;
+use std::process::ExitCode;
 
 use anyhow::{Context as _, bail};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -10,16 +15,26 @@ use tokio::net::{TcpListener, TcpStream};
 use tracing_subscriber::EnvFilter;
 use vermieterme_api::auth::{bootstrap, housekeeping};
 use vermieterme_api::config::{Config, LogFormat};
+use vermieterme_api::error::db_log::failure_line;
 use vermieterme_api::routes::{AppState, router};
 use vermieterme_db::Db;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> ExitCode {
     let command = std::env::args().nth(1);
-    match command.as_deref() {
+    let result = match command.as_deref() {
         None | Some("serve") => serve().await,
         Some("healthcheck") => healthcheck().await,
-        Some(_) => bail!("Unbekannter Befehl (erlaubt: serve, healthcheck)"),
+        Some(_) => Err(anyhow::anyhow!(
+            "Unbekannter Befehl (erlaubt: serve, healthcheck)"
+        )),
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{}", failure_line(&error));
+            ExitCode::FAILURE
+        }
     }
 }
 
