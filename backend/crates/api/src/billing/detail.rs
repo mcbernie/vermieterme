@@ -3,8 +3,8 @@
 
 use serde::Serialize;
 use vermieterme_db::repo::billing::{BillingPeriod, Cost, Prepayment, cost, prepayment};
-use vermieterme_db::repo::masterdata::property::{self, Property};
-use vermieterme_db::repo::masterdata::unit::{self, Unit};
+use vermieterme_db::repo::masterdata::property::Property;
+use vermieterme_db::repo::masterdata::unit::Unit;
 use vermieterme_db::{AccountScope, AnyConnection, DbError};
 use vermieterme_domain::billing::{CostPosition, Period, UnitBasis, unit_statement};
 use vermieterme_domain::months::DEFAULT_MONTH_RULE;
@@ -45,15 +45,19 @@ pub async fn load(
     scope: &AccountScope,
     found: BillingPeriod,
 ) -> ApiResult<Detail> {
-    let property_detail = load_detail(conn, scope, &found.property_id).await?;
-    let owner = property::get(conn, scope, &found.property_id).await?;
-    let units = unit::list(conn, scope, Some(&found.property_id)).await?;
+    let loaded = load_detail(conn, scope, &found.property_id).await?;
     let costs = cost::list(conn, scope, &found.id).await?;
     let prepayments = prepayment::list(conn, scope, &found.id).await?;
-    let totals_by_unit = totals(&found, &owner, &units, &costs, &prepayments)?;
+    let totals_by_unit = totals(
+        &found,
+        &loaded.property,
+        &loaded.units,
+        &costs,
+        &prepayments,
+    )?;
     Ok(Detail {
         period: found.into(),
-        property: property_detail,
+        property: loaded.detail,
         costs: costs.into_iter().map(CostJson::from).collect(),
         prepayments: prepayments.into_iter().map(PrepaymentJson::from).collect(),
         totals_by_unit,

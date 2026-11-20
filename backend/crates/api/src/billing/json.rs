@@ -3,8 +3,31 @@
 
 use serde::Serialize;
 use vermieterme_db::repo::billing::{BillingPeriod, Cost, Prepayment};
+use vermieterme_db::repo::masterdata::property::Property;
 
 use crate::error::json::timestamp;
+
+/// The property embedded in a period summary: `property{id, street, zip, city}` (same
+/// form as the master data `PropertyEmbed`, which is private to that area).
+#[derive(Debug, Serialize)]
+pub struct PropertyEmbedJson {
+    id: String,
+    street: String,
+    zip: String,
+    city: String,
+}
+
+impl From<Property> for PropertyEmbedJson {
+    /// Response form.
+    fn from(p: Property) -> Self {
+        Self {
+            id: p.id,
+            street: p.street,
+            zip: p.zip,
+            city: p.city,
+        }
+    }
+}
 
 /// A billing period.
 #[derive(Debug, Serialize)]

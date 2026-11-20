@@ -16,14 +16,13 @@ use vermieterme_db::{AccountScope, AnyConnection, DbError};
 
 use super::audited::audited_read_committed;
 use super::detail::{Detail, load};
-use super::json::PeriodJson;
+use super::json::{PeriodJson, PropertyEmbedJson};
 use super::{NOT_FOUND, present};
 use crate::auth::AccountCtx;
 use crate::error::json::{ApiJson, ApiQuery};
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
 use crate::masterdata::fields::{ID_INPUT_MAX, filter};
-use crate::masterdata::property::PropertyJson;
 use crate::masterdata::{created, deleted};
 use crate::routes::AppState;
 
@@ -33,7 +32,7 @@ use crate::routes::AppState;
 pub struct SummaryJson {
     #[serde(flatten)]
     period: PeriodJson,
-    property: Option<PropertyJson>,
+    property: Option<PropertyEmbedJson>,
     cost_count: usize,
     unreviewed_count: usize,
 }
@@ -42,7 +41,7 @@ impl SummaryJson {
     /// Response form; `property` is `None` only if it vanished in between.
     fn new(item: PeriodSummary, property: Option<Property>) -> Self {
         Self {
-            property: property.map(PropertyJson::from),
+            property: property.map(PropertyEmbedJson::from),
             period: item.period.into(),
             cost_count: item.cost_count,
             unreviewed_count: item.unreviewed_count,

@@ -5,7 +5,8 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use vermieterme_db::repo::masterdata::property::{self, Property, PropertyInput};
-use vermieterme_db::repo::masterdata::{tenant, unit};
+use vermieterme_db::repo::masterdata::tenant;
+use vermieterme_db::repo::masterdata::unit::{self, Unit};
 use vermieterme_db::{AccountScope, AnyConnection};
 
 use super::fields::{TEXT_MAX, ZIP_MAX};
@@ -134,7 +135,18 @@ pub async fn detail(
     let mut conn = state.conn().await?;
     load_detail(&mut conn, &ctx.scope, &id)
         .await
-        .map(axum::Json)
+        .map(|loaded| axum::Json(loaded.detail))
+}
+
+/// A property detail together with the rows it was built from, so the billing detail
+/// computes its totals without reading them again (#115).
+pub(crate) struct LoadedDetail {
+    /// The response form.
+    pub detail: PropertyDetail,
+    /// The property row.
+    pub property: Property,
+    /// Its units, newest first.
+    pub units: Vec<Unit>,
 }
 
 /// Loads a property with its units and their tenants (also embedded in the billing
@@ -143,7 +155,7 @@ pub(crate) async fn load_detail(
     conn: &mut AnyConnection,
     scope: &AccountScope,
     id: &str,
-) -> ApiResult<PropertyDetail> {
+) -> ApiResult<LoadedDetail> {
     let found = property::get(conn, scope, id)
         .await
         .map_err(not_found_as(NOT_FOUND))?;
@@ -151,8 +163,9 @@ pub(crate) async fn load_detail(
     let tenants = tenant::list_for_property(conn, scope, id).await?;
     // The tenants are nested in their unit here, so the embedded `unit` is left out.
     let no_units = std::collections::HashMap::new();
-    let units = units
-        .into_iter()
+    let nested = units
+        .iter()
+        .cloned()
         .map(|u| UnitWithTenants {
             tenants: tenants
                 .iter()
@@ -163,8 +176,12 @@ pub(crate) async fn load_detail(
             unit: u.into(),
         })
         .collect();
-    Ok(PropertyDetail {
-        property: found.into(),
+    Ok(LoadedDetail {
+        detail: PropertyDetail {
+            property: found.clone().into(),
+            units: nested,
+        },
+        property: found,
         units,
     })
 }

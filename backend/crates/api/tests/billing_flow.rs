@@ -47,7 +47,12 @@ async fn periods(db: &Db) {
 
     let list = w.app.get(base, Some(&w.a)).await;
     assert_eq!(list.body[0]["id"], b.period.as_str());
-    assert_eq!(list.body[0]["property"]["street"], "Musterweg 1");
+    // `property{id, street, zip, city}` of the contract, nothing more.
+    let embed = list.body[0]["property"].as_object().unwrap();
+    let mut keys: Vec<&str> = embed.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["city", "id", "street", "zip"]);
+    assert_eq!(embed["street"], "Musterweg 1");
     assert_eq!(list.body[0]["costCount"], 0);
     assert_eq!(list.body[0]["unreviewedCount"], 0);
     let filtered = w
