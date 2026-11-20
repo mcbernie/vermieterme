@@ -22,6 +22,36 @@
 //! - tests.
 //!
 //! Inside this crate no scope is constructed from loose strings.
+//!
+//! # No widening between scopes
+//!
+//! No scope hands out a broader one. In particular a [`TenantScope`] never yields an
+//! [`AccountScope`]: a tenant-app handler gets the account id as a plain string (to filter
+//! the tenant's own rows inside this crate), never a scope for the customer's data. The
+//! only way to an [`AccountScope`] besides the session check is [`AdminScope::act_in`],
+//! which needs an admin scope that already reaches every account. [`UserScope`] gives
+//! only its user id.
+//!
+//! ```
+//! # use vermieterme_db::TenantScope;
+//! fn own_account(tenant: &TenantScope) -> &str {
+//!     tenant.account_id()
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! # use vermieterme_db::{AccountScope, TenantScope};
+//! fn widen(tenant: &TenantScope) -> &AccountScope {
+//!     tenant.account()
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! # use vermieterme_db::{AccountScope, TenantScope};
+//! fn widen(tenant: TenantScope) -> AccountScope {
+//!     tenant.into()
+//! }
+//! ```
 
 /// Access to the data of exactly one account.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +80,7 @@ impl AccountScope {
 /// Access of the tenant app: one tenant of one account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TenantScope {
-    account: AccountScope,
+    account_id: String,
     tenant_id: String,
     unit_id: String,
     property_id: String,
@@ -69,18 +99,18 @@ impl TenantScope {
         property_id: impl Into<String>,
     ) -> Self {
         Self {
-            account: AccountScope {
-                account_id: account_id.into(),
-            },
+            account_id: account_id.into(),
             tenant_id: tenant_id.into(),
             unit_id: unit_id.into(),
             property_id: property_id.into(),
         }
     }
 
-    /// The account of the tenant.
-    pub fn account(&self) -> &AccountScope {
-        &self.account
+    /// The account of the tenant, as a plain id for filtering the tenant's own rows.
+    /// Deliberately no [`AccountScope`]: the tenant app must not reach the customer's
+    /// data (see the module documentation).
+    pub fn account_id(&self) -> &str {
+        &self.account_id
     }
 
     /// The tenant.
