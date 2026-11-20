@@ -5,7 +5,7 @@ use axum::http::HeaderMap;
 use axum::response::Response;
 use serde::Deserialize;
 use vermieterme_db::repo::user::{self, normalize_email};
-use vermieterme_db::{AnyConnection, UserScope};
+use vermieterme_db::{AnyConnection, PasswordHash, UserScope};
 
 use super::client_ip::ClientIp;
 use super::extract::CurrentUser;
@@ -86,47 +86,55 @@ fn limiter_email(email: &str) -> Option<String> {
     (trimmed.chars().count() <= EMAIL_MAX).then(|| normalize_email(trimmed))
 }
 
-/// Verifies the credentials and starts the session; any mismatch -> generic 401.
+/// Verifies the credentials and starts the session; any mismatch -> generic 401. No
+/// pool connection is held while waiting for a hash permit or computing (#102): the user
+/// is read, the connection returned, the password checked, then a new one is taken.
 async fn attempt(
     state: &AppState,
     headers: &HeaderMap,
     email: &str,
     password: String,
 ) -> ApiResult<Response> {
-    let mut conn = state.conn().await?;
-    let record = user::find_login(&mut conn, email).await?;
+    let record = {
+        let mut conn = state.conn().await?;
+        user::find_login(&mut conn, email).await?
+    };
     let stored = record.as_ref().and_then(|r| r.password_hash.clone());
     let verification = state.hasher.verify(password.clone(), stored).await?;
     let (Some(record), Verification::Valid { rehash }) = (record, verification) else {
         return Err(ApiError::unauthenticated(LOGIN_FAILED));
     };
+    // Computed before the connection is taken; a failure (e.g. busy) must not turn the
+    // login into an error – the upgrade is retried at the next sign-in.
+    let upgraded = if rehash {
+        state.hasher.hash(password).await.ok()
+    } else {
+        None
+    };
+    let mut conn = state.conn().await?;
     let started = session::start(&mut conn, &state.config, headers, &record.user.id)
         .await?
         .ok_or_else(|| ApiError::unauthenticated(LOGIN_FAILED))?;
-    // The session exists already: a failed upgrade must not turn the login into an
-    // error (it is retried at the next sign-in).
-    if rehash
-        && upgrade_hash(state, &mut conn, &record.user.id, password)
-            .await
-            .is_err()
-    {
-        tracing::warn!("Passwort-Hash konnte nach der Anmeldung nicht erneuert werden");
+    if rehash {
+        store_upgrade(&mut conn, &record.user.id, upgraded.as_ref()).await;
     }
     let document = session::describe(&mut conn, &started.active.user, None).await?;
     Ok(session::signed_in(&started, document, &state.config))
 }
 
-/// Replaces a legacy (bcrypt) or outdated hash by argon2id after a successful sign-in.
+/// Stores the argon2id hash replacing a legacy (bcrypt) or outdated hash after a
+/// successful sign-in; a missing hash or a failure is only logged (the session exists).
 #[allow(clippy::disallowed_methods)] // The user just proved the password; own row only.
-async fn upgrade_hash(
-    state: &AppState,
-    conn: &mut AnyConnection,
-    user_id: &str,
-    password: String,
-) -> ApiResult<()> {
-    let hash = state.hasher.hash(password).await?;
-    user::set_password_hash(conn, &UserScope::from_session(user_id), &hash).await?;
-    Ok(())
+async fn store_upgrade(conn: &mut AnyConnection, user_id: &str, hash: Option<&PasswordHash>) {
+    let stored = match hash {
+        Some(hash) => user::set_password_hash(conn, &UserScope::from_session(user_id), hash)
+            .await
+            .is_ok(),
+        None => false,
+    };
+    if !stored {
+        tracing::warn!("Passwort-Hash konnte nach der Anmeldung nicht erneuert werden");
+    }
 }
 
 /// Ends the current session and deletes the cookie; always `204` (also without session).

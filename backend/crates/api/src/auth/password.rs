@@ -66,8 +66,10 @@ impl Hasher {
         }
     }
 
-    /// Waits for a permit; after the wait limit `429` (generic). Take the permit before
-    /// a transaction, so no database lock is held while waiting.
+    /// Waits for a permit; after the wait limit `429` (generic). Callers hold **no pool
+    /// connection and no transaction** while waiting or computing (here and in
+    /// [`Hasher::hash`]/[`Hasher::verify`]): the pool is small, and a login flood would
+    /// otherwise block every other request (#102).
     pub async fn permit(&self) -> Result<HashPermit, ApiError> {
         match tokio::time::timeout(self.wait, self.permits.clone().acquire_owned()).await {
             Ok(Ok(permit)) => Ok(HashPermit {
