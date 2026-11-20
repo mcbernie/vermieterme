@@ -32,7 +32,8 @@ Web: `{"error": string, "code"?: string, "fields"?: {[feld]: string}}` – `erro
 | 403 | `forbidden`, `csrf` | Rolle reicht nicht (nur für eigene, bekannte Ressourcen) / CSRF-Header fehlt |
 | 404 | `not_found` | nicht vorhanden **oder** fremder Kunde |
 | 409 | `conflict`, `version_conflict`, `overlap` | Eindeutigkeit, veraltete Version, überlappender Zeitraum |
-| 413 | `too_large` | Upload > 10 MB |
+| 405 | `method_not_allowed` | Methode für den Pfad nicht erlaubt |
+| 413 | `too_large` | Anfrage zu groß (Upload > 10 MB, sonstige Bodies > 2 MB) |
 | 429 | `rate_limited` | zu viele Versuche (mit `Retry-After`) |
 | 500 | `internal` | `{"error":"Interner Fehler"}`, keine Details |
 | 502 | `upstream` | externer Dienst (Bundesbank) fehlgeschlagen |

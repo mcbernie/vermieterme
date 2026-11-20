@@ -264,6 +264,7 @@ höchstens 3 Korrekturschleifen. Qualitätstor je Paket: `just check`.
 | `PDF_RENDER_TIMEOUT_SECS` / `PDF_RENDER_CONCURRENCY` | `20` / `2` | Grenzen der PDF-Brücke |
 | `VPI_API_BASE` | Bundesbank-SDMX-Basis-URL (heute in `src/app/api/vpi/fetch/route.ts`) | austauschbar für Tests |
 | `LOG_LEVEL` / `LOG_FORMAT` | `info` / `json` | Logging (personenbezogene Felder geschwärzt) |
+| `PASSWORD_HASH_CONCURRENCY` | `4` | gleichzeitige argon2-Berechnungen; Wartezeit > 5 s → 429 |
 | `TEST_MYSQL_URL` | – | nur Tests (MariaDB); fehlt → `mysql_*`-Tests `[skip]`, `just test-mysql` bricht ab |
 
 Entfällt: `AUTH_TRUST_HOST`, `AUTH_APPLE_ID`, `AUTH_APPLE_SECRET`, `NEXT_TELEMETRY_DISABLED` (Laufzeit).
