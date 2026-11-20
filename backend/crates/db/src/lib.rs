@@ -9,6 +9,14 @@
 //! scope parameter ([`scope`]), so access to foreign data is structurally impossible:
 //! a foreign id behaves like a missing one ([`DbError::NotFound`]).
 //!
+//! # Transactions
+//!
+//! Statements that belong together run through [`in_transaction`], never through
+//! `pool().begin()`: it starts SQLite write transactions with `BEGIN IMMEDIATE` (no
+//! `SQLITE_BUSY` for "read, then write"), rolls back explicitly and keeps the original
+//! error. Inside a transaction it opens a savepoint, so repository functions that use it
+//! can be combined in an outer one.
+//!
 //! # Rules the schema cannot enforce
 //!
 //! - `billing_period.copied_from_id` has a single-column foreign key (`ON DELETE SET
@@ -42,3 +50,4 @@ pub use pool::Db;
 pub use scope::{AccountScope, AdminScope, TenantScope, UserScope};
 pub use secret::{PasswordHash, SecretToken, TokenHash};
 pub use sqlx::AnyConnection;
+pub use tx::in_transaction;
