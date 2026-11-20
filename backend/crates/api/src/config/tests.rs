@@ -1,0 +1,89 @@
+//! Tests of the configuration parser.
+
+use std::collections::HashMap;
+
+use super::*;
+
+/// A lookup over fixed pairs.
+fn lookup(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+    let map: HashMap<String, String> = pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect();
+    move |name| map.get(name).cloned()
+}
+
+const SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+#[test]
+fn defaults_apply() {
+    let config = Config::from_lookup(lookup(&[("AUTH_SECRET", SECRET)])).unwrap();
+    assert_eq!(
+        config.database_url,
+        "sqlite://data/vermieterme-v2.db?mode=rwc"
+    );
+    assert_eq!(config.port, 3000);
+    assert!(config.cookie_secure);
+    assert_eq!(config.session_idle, Duration::from_secs(168 * 3600));
+    assert_eq!(config.session_max, Duration::from_secs(30 * 24 * 3600));
+    assert!(config.trusted_proxies.is_empty());
+    assert_eq!(config.log_format, LogFormat::Json);
+    assert_eq!(config.admin_email, None);
+}
+
+#[test]
+fn auth_secret_is_required_and_long() {
+    assert!(matches!(
+        Config::from_lookup(lookup(&[])),
+        Err(ConfigError::Missing("AUTH_SECRET"))
+    ));
+    assert!(matches!(
+        Config::from_lookup(lookup(&[("AUTH_SECRET", "kurz")])),
+        Err(ConfigError::Invalid("AUTH_SECRET", _))
+    ));
+}
+
+#[test]
+fn values_override_defaults() {
+    let config = Config::from_lookup(lookup(&[
+        ("AUTH_SECRET", SECRET),
+        ("COOKIE_SECURE", "false"),
+        ("PORT", "8080"),
+        ("TRUSTED_PROXIES", "10.0.0.0/8, 127.0.0.1"),
+        ("LOG_FORMAT", "text"),
+        ("ADMIN_EMAIL", " admin@example.org "),
+        ("ADMIN_PASSWORD", "geheim-geheim"),
+    ]))
+    .unwrap();
+    assert!(!config.cookie_secure);
+    assert_eq!(config.port, 8080);
+    assert_eq!(config.trusted_proxies.len(), 2);
+    assert_eq!(config.log_format, LogFormat::Text);
+    assert_eq!(config.admin_email.as_deref(), Some("admin@example.org"));
+    assert!(!format!("{config:?}").contains("geheim"));
+    assert!(!format!("{config:?}").contains(SECRET));
+}
+
+#[test]
+fn invalid_values_name_the_variable() {
+    for (name, bad) in [
+        ("PORT", "x"),
+        ("COOKIE_SECURE", "ja"),
+        ("SESSION_MAX_DAYS", "0"),
+        ("TRUSTED_PROXIES", "irgendwo"),
+        ("LOG_FORMAT", "xml"),
+    ] {
+        let err = Config::from_lookup(lookup(&[("AUTH_SECRET", SECRET), (name, bad)])).unwrap_err();
+        assert!(err.to_string().starts_with(name), "{err}");
+        assert!(!err.to_string().contains(bad) || bad == "0", "{err}");
+    }
+}
+
+#[test]
+fn reference_has_unique_documented_names() {
+    let mut names: Vec<_> = VARIABLES.iter().map(|v| v.name).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), VARIABLES.len());
+    assert!(VARIABLES.iter().all(|v| !v.description.is_empty()));
+}

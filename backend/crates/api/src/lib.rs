@@ -7,8 +7,8 @@
 
 pub mod routes;
 
-// pub mod config;        // P3
-// pub mod error;         // P3
+pub mod config; // P3
+pub mod error; // P3
 // pub mod auth;          // P3
 // pub mod admin;         // P3
 // pub mod users;         // P3
