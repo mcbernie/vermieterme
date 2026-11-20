@@ -9,7 +9,7 @@ use crate::dialect::Dialect;
 use crate::error::{DbError, DbResult};
 use crate::row::{new_id, now_millis};
 use crate::scope::AccountScope;
-use crate::tx::in_transaction;
+use crate::tx::in_transaction_read_committed;
 
 /// Allowed values of [`Unit::kind`] (#2).
 pub const KINDS: [&str; 4] = ["apartment", "garage", "carport", "other"];
@@ -154,7 +154,7 @@ pub async fn create(
     scope: &AccountScope,
     input: &UnitInput,
 ) -> Checked<Unit> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         if let Err(rejection) = check_shares(tx, scope, input).await? {
             return Ok(Err(rejection));
         }
@@ -191,7 +191,7 @@ pub async fn update(
     id: &str,
     input: &UnitInput,
 ) -> Checked<Unit> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         let owner = get(tx, scope, id).await?.property_id;
         let mut properties = [owner.as_str(), input.property_id.as_str()];
         properties.sort_unstable();
@@ -317,7 +317,7 @@ async fn in_billings(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -
 /// property is locked first (lock order, see `repo::billing`), so a billing period
 /// created at the same time either sees the unit or not, without a deadlock.
 pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<()> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         let owner = get(tx, scope, id).await?.property_id;
         property::lock(tx, scope, &owner).await?;
         let result = sqlx::query("DELETE FROM unit WHERE account_id = ? AND id = ?")

@@ -30,8 +30,22 @@
 //! 5. rows below (costs, unit amounts, prepayments), by the writes themselves.
 //!
 //! Where a step needs an id from a later row (the property of a period or unit), that id
-//! comes from a plain read first; checks after the locks then read with locks too, so
-//! an older snapshot of the transaction cannot hide a row committed in between.
+//! comes from a plain read first.
+//!
+//! ## No range locks beyond the property (#116)
+//!
+//! Every change here runs under `READ COMMITTED` on MySQL
+//! ([`in_transaction_read_committed`](crate::in_transaction_read_committed); the API
+//! starts its outer transaction with it too). InnoDB then takes no gap or next-key
+//! locks for searches, scans and cascades, and plain reads see the latest commit. Under
+//! the default `REPEATABLE READ` a locking range read (`… property_id = ? … FOR
+//! UPDATE`) or a cascade also locks the first row *behind* its range – a row of the
+//! neighbouring property or account in the index – and two changes of different
+//! properties could wait for each other in a circle. Hence:
+//!
+//! - checks after the locks (the overlap of periods) are plain reads, never locking
+//!   range reads;
+//! - only rows of the locked property itself are locked, by key or by its own range.
 //!
 //! Business rules that refuse a change come back as a [`Rejection`] inside `Ok`, so the
 //! HTTP layer can answer precisely while database failures stay `DbError`s.

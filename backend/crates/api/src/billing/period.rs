@@ -9,11 +9,12 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use vermieterme_db::repo::billing::{
-    BillingPeriod, NewPeriod, PeriodPatch, PeriodSummary, period, summary,
+    BillingPeriod, NewPeriod, PeriodPatch, PeriodSummary, Rejection, period, summary,
 };
 use vermieterme_db::repo::masterdata::property::{self, Property};
 use vermieterme_db::{AccountScope, AnyConnection, DbError};
 
+use super::audited::audited_read_committed;
 use super::detail::{Detail, load};
 use super::json::PeriodJson;
 use super::{NOT_FOUND, present};
@@ -23,7 +24,7 @@ use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
 use crate::masterdata::fields::{ID_INPUT_MAX, filter};
 use crate::masterdata::property::PropertyJson;
-use crate::masterdata::{audited, audited_checked, created, deleted};
+use crate::masterdata::{created, deleted};
 use crate::routes::AppState;
 
 /// A period with its property and counts (`BillingPeriodSummary`).
@@ -188,7 +189,7 @@ pub async fn create(
     ApiJson(body): ApiJson<CreateBody>,
 ) -> ApiResult<Response> {
     let input = body.validate()?;
-    let made = audited_checked(
+    let made = audited_read_committed(
         &state,
         &ctx,
         ("billing_period.create", "billing_period"),
@@ -224,7 +225,7 @@ pub async fn update(
     ApiJson(body): ApiJson<UpdateBody>,
 ) -> ApiResult<axum::Json<SummaryJson>> {
     let patch = body.validate()?;
-    let changed = audited_checked(
+    let changed = audited_read_committed(
         &state,
         &ctx,
         ("billing_period.update", "billing_period"),
@@ -245,7 +246,7 @@ pub async fn remove(
     ctx: AccountCtx,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    audited(
+    audited_read_committed(
         &state,
         &ctx,
         ("billing_period.delete", "billing_period"),
@@ -253,7 +254,7 @@ pub async fn remove(
         |id: &String| id.clone(),
         async |tx| {
             period::delete(tx, &ctx.scope, &id).await?;
-            Ok(id.clone())
+            Ok(Ok::<_, Rejection>(id.clone()))
         },
     )
     .await?;

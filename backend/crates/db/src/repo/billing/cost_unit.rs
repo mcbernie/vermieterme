@@ -9,7 +9,7 @@ use crate::error::{DbError, DbResult};
 use crate::repo::masterdata::unit;
 use crate::row::now_millis;
 use crate::scope::AccountScope;
-use crate::tx::in_transaction;
+use crate::tx::in_transaction_read_committed;
 
 /// Outcome of [`set_unit_amount`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +50,7 @@ pub async fn set_unit_amount(
     amount_cents: Option<i64>,
     version: Option<i64>,
 ) -> Checked<UnitAmountSaved> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         let locked = unit::lock(tx, scope, unit_id).await?;
         let position = cost::lock_position(tx, scope, period_id, category_id).await?;
         if locked.property_id != position.period.property_id {

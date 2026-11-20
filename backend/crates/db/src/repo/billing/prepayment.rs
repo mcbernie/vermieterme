@@ -9,7 +9,7 @@ use crate::error::{DbError, DbResult};
 use crate::repo::masterdata::unit;
 use crate::row::{flag, flag_value, new_id, now_millis};
 use crate::scope::AccountScope;
-use crate::tx::in_transaction;
+use crate::tx::in_transaction_read_committed;
 
 /// The monthly prepayment of one unit in one period.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,7 +120,7 @@ pub async fn save(
     unit_id: &str,
     patch: &PrepaymentPatch,
 ) -> Checked<Saved<Prepayment>> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         let locked = unit::lock(tx, scope, unit_id).await?;
         let found = period::lock(tx, scope, period_id).await?;
         if locked.property_id != found.property_id {

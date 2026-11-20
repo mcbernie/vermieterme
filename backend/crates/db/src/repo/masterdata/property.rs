@@ -9,7 +9,7 @@ use crate::dialect::Dialect;
 use crate::error::{DbError, DbResult};
 use crate::row::{new_id, now_millis};
 use crate::scope::AccountScope;
-use crate::tx::in_transaction;
+use crate::tx::{in_transaction, in_transaction_read_committed};
 
 /// A property.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,7 +189,7 @@ pub async fn update(
 /// `repo::billing`): the cascade reaches units and billing periods in an order of the
 /// database's choosing, and a prepayment save holds its unit before its period.
 pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<()> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         lock(tx, scope, id).await?;
         unit::lock_of_property(tx, scope, id).await?;
         let result = sqlx::query("DELETE FROM property WHERE account_id = ? AND id = ?")

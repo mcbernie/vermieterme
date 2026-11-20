@@ -13,6 +13,7 @@ use super::tenant_json::TenantJson;
 use super::unit::UnitJson;
 use super::{audited, created, deleted};
 use crate::auth::AccountCtx;
+use crate::billing::audited_read_committed;
 use crate::error::json::{ApiJson, timestamp};
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
@@ -213,7 +214,8 @@ pub async fn remove(
     ctx: AccountCtx,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    audited(
+    // The cascade reaches units and billing tables: same isolation as billing (#116).
+    audited_read_committed(
         &state,
         &ctx,
         ("property.delete", "property"),
@@ -221,7 +223,7 @@ pub async fn remove(
         |id: &String| id.clone(),
         async |tx| {
             property::delete(tx, &ctx.scope, &id).await?;
-            Ok(id.clone())
+            Ok(Ok::<_, super::Rejection>(id.clone()))
         },
     )
     .await?;

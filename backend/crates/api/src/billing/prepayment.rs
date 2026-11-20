@@ -8,12 +8,13 @@ use serde::Deserialize;
 use vermieterme_db::repo::billing::{Prepayment, PrepaymentPatch, Saved, prepayment};
 
 use super::NOT_FOUND;
+use super::audited::audited_read_committed;
 use super::json::PrepaymentJson;
 use crate::auth::AccountCtx;
 use crate::error::json::ApiJson;
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
-use crate::masterdata::{audited_checked, created};
+use crate::masterdata::created;
 use crate::routes::AppState;
 
 /// Message for a missing or foreign period or unit (or a unit of another property).
@@ -67,7 +68,7 @@ pub async fn save(
     ApiJson(body): ApiJson<PrepaymentBody>,
 ) -> ApiResult<Response> {
     let patch = body.validate()?;
-    let saved = audited_checked(
+    let saved = audited_read_committed(
         &state,
         &ctx,
         ("prepayment.save", "prepayment"),

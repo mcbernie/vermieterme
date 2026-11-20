@@ -6,17 +6,18 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
-use vermieterme_db::in_transaction;
+use vermieterme_db::in_transaction_read_committed;
 use vermieterme_db::repo::billing::{Cost, CostPatch, Saved, UnitAmountSaved, cost};
 use vermieterme_domain::DistributionKey;
 
+use super::audited::audited_read_committed;
 use super::json::CostJson;
 use super::{NOT_FOUND, present};
 use crate::auth::AccountCtx;
 use crate::error::json::ApiJson;
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
-use crate::masterdata::{audited_checked, created};
+use crate::masterdata::created;
 use crate::routes::AppState;
 
 /// Message for a missing or foreign period or category.
@@ -95,7 +96,7 @@ pub async fn save(
     ApiJson(body): ApiJson<CostBody>,
 ) -> ApiResult<Response> {
     let patch = body.validate()?;
-    let saved = audited_checked(
+    let saved = audited_read_committed(
         &state,
         &ctx,
         ("cost.save", "cost"),
@@ -131,7 +132,7 @@ pub async fn save_unit(
     v.finish()?;
     let key = (id.as_str(), category_id.as_str(), unit_id.as_str());
     let mut conn = state.conn().await?;
-    let saved = in_transaction(&mut conn, async |tx| {
+    let saved = in_transaction_read_committed(&mut conn, async |tx| {
         let saved = cost::set_unit_amount(tx, &ctx.scope, key, amount, body.version).await?;
         if let Ok(UnitAmountSaved::Written(written)) = &saved {
             ctx.audit(tx, "cost.save_unit_amount", "cost", Some(&written.id))

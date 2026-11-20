@@ -10,7 +10,7 @@ use crate::error::{DbError, DbResult};
 use crate::repo::masterdata::{property, unit};
 use crate::row::{new_id, now_millis};
 use crate::scope::AccountScope;
-use crate::tx::in_transaction;
+use crate::tx::in_transaction_read_committed;
 
 /// A billing period. Dates are `YYYY-MM-DD`, both days inclusive.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,7 +141,7 @@ pub async fn create(
     scope: &AccountScope,
     input: &NewPeriod,
 ) -> Checked<BillingPeriod> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         property::lock(tx, scope, &input.property_id).await?;
         let units = unit::lock_of_property(tx, scope, &input.property_id).await?;
         let source = match &input.copy_from_id {
@@ -208,7 +208,7 @@ pub async fn update(
     id: &str,
     patch: &PeriodPatch,
 ) -> Checked<BillingPeriod> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         let owner = get(tx, scope, id).await?.property_id;
         property::lock(tx, scope, &owner).await?;
         let current = lock(tx, scope, id).await?;
@@ -252,7 +252,7 @@ pub async fn update(
 /// `copied_from_id` in other periods of the property, which a parallel change of the
 /// dates may hold.
 pub async fn delete(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<()> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         let owner = get(tx, scope, id).await?.property_id;
         property::lock(tx, scope, &owner).await?;
         let result = sqlx::query("DELETE FROM billing_period WHERE account_id = ? AND id = ?")

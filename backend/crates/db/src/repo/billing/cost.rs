@@ -12,7 +12,7 @@ use crate::error::{DbError, DbResult};
 use crate::repo::masterdata::cost_category;
 use crate::row::{flag, flag_value, new_id, now_millis};
 use crate::scope::AccountScope;
-use crate::tx::in_transaction;
+use crate::tx::in_transaction_read_committed;
 
 pub(super) use super::cost_unit::insert_unit_amount;
 use super::cost_unit::with_unit_amounts;
@@ -236,7 +236,7 @@ pub async fn save(
     category_id: &str,
     patch: &CostPatch,
 ) -> Checked<Saved<Cost>> {
-    in_transaction(conn, async |tx| {
+    in_transaction_read_committed(conn, async |tx| {
         let position = lock_position(tx, scope, period_id, category_id).await?;
         let Some(current) = position.cost else {
             let cost = insert(tx, scope, period_id, category_id, patch).await?;

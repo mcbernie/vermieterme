@@ -50,4 +50,4 @@ pub use pool::Db;
 pub use scope::{AccountScope, AdminScope, TenantScope, UserScope};
 pub use secret::{PasswordHash, SecretToken, TokenHash};
 pub use sqlx::AnyConnection;
-pub use tx::in_transaction;
+pub use tx::{in_transaction, in_transaction_read_committed};
