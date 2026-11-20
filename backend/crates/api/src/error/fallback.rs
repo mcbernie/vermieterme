@@ -7,10 +7,11 @@ use super::ApiError;
 use crate::routes::AppRouter;
 
 /// Adds the fallbacks to the fully assembled router: unknown paths under `/api/` (also
-/// `/api` and `/api/` themselves, which the wildcard does not match) -> 404 `not_found`, a known path with a wrong method -> 405 `method_not_allowed`. Paths
-/// outside `/api/` are left to the static export (P12), so no router-wide fallback is
-/// set. Call after all areas are merged: the method fallback only reaches routes that
-/// exist at that point.
+/// `/api` and `/api/` themselves, which the wildcard does not match) -> 404 `not_found`,
+/// a known path with a wrong method -> 405 `method_not_allowed`. Paths outside `/api/`
+/// are left to the static export (P12), so no router-wide fallback is set. Call after
+/// all areas are merged: the method fallback only reaches routes that exist at that
+/// point.
 pub fn apply(app: AppRouter) -> AppRouter {
     app.route("/api", any(unknown_path))
         .route("/api/", any(unknown_path))

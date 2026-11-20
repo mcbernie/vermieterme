@@ -90,7 +90,10 @@ pub const VARIABLES: &[EnvVar] = &[
     var(
         "PASSWORD_HASH_CONCURRENCY",
         Some("4"),
-        "gleichzeitige Passwort-Berechnungen (argon2id, je ca. 19 MiB); weitere Anfragen warten bis 5 s, dann 429",
+        concat!(
+            "gleichzeitige Passwort-Berechnungen (argon2id, je ca. 19 MiB); ",
+            "weitere Anfragen warten bis 5 s, dann 429"
+        ),
     ),
     var(
         "VPI_API_BASE",

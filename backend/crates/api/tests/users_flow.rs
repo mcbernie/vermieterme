@@ -1,6 +1,6 @@
 //! User administration over the real router: role change and lock end sessions and links,
-//! deleting members, reset links, invitations of locked users, the bootstrap with an
-//! invited user.
+//! deleting members, reset links, invitations of locked users and accounts, the bootstrap
+//! with an invited user.
 
 // Test bodies and helpers are plain async fns run by `dual_test!`, so clippy's in-test
 // allowance for `unwrap` does not cover them (same convention as the db crate's tests).
@@ -171,6 +171,49 @@ async fn invite_locked(db: &Db) {
     assert_eq!(resp.status, 200, "{:?}", resp.body);
 }
 dual_test!(invitation_of_locked_user_stays_unused, invite_locked);
+
+/// Links of a member of a locked account are refused (401) and stay unused (#105): after
+/// unlocking, the same reset link and invitation work.
+async fn account_locked_links(db: &Db) {
+    let app = TestApp::start(db).await;
+    let account = seed_account(db, "Kunde").await;
+    seed_user(db, None, "admin@example.org", Role::Admin).await;
+    seed_user(db, Some(&account.id), "c@example.org", Role::Member).await;
+    let chef = app.login("c@example.org", PASSWORD).await;
+    let member = seed_user(db, Some(&account.id), "m@example.org", Role::Member).await;
+    let path = format!("/api/users/{}/reset-link", member.id);
+    let reset = app.call("POST", &path, Some(&chef), Value::Null).await;
+    let body = json!({"name": "Neu", "email": "neu@example.org"});
+    let invite = app
+        .call("POST", "/api/users/invitations", Some(&chef), body)
+        .await;
+    let accept = json!({"token": token_of(&invite.body["inviteUrl"]), "name": "Neu",
+        "password": "neues-passwort-1"});
+    let admin = app.login("admin@example.org", PASSWORD).await;
+    let lock = async |locked: bool| {
+        let path = format!("/api/admin/accounts/{}", account.id);
+        let resp = app
+            .call("PATCH", &path, Some(&admin), json!({"locked": locked}))
+            .await;
+        assert_eq!(resp.status, 200, "{:?}", resp.body);
+    };
+
+    lock(true).await;
+    let url = &reset.body["resetUrl"];
+    assert_eq!(redeem_reset(&app, url, "neues-passwort-m").await, 401);
+    let resp = app
+        .call("POST", "/api/auth/accept-invite", None, accept.clone())
+        .await;
+    assert_eq!(resp.status, 401);
+    lock(false).await;
+    assert_eq!(redeem_reset(&app, url, "neues-passwort-m").await, 204);
+    app.login("m@example.org", "neues-passwort-m").await;
+    let resp = app
+        .call("POST", "/api/auth/accept-invite", None, accept)
+        .await;
+    assert_eq!(resp.status, 200, "{:?}", resp.body);
+}
+dual_test!(links_of_locked_account_stay_unused, account_locked_links);
 
 /// A password change makes an open reset link unusable.
 async fn password_change_revokes(db: &Db) {

@@ -6,8 +6,8 @@
 //! | Access | Extractor | Who |
 //! |---|---|---|
 //! | [`Access::Public`] | none | everyone (login, links, health) |
-//! | [`Access::Session`] | [`super::CurrentUser`] | every signed-in user (profile, session, logout) |
-//! | [`Access::Account`] | [`super::AccountCtx`] | `member` in their account, `admin` in their own or switched account |
+//! | [`Access::Session`] | [`super::CurrentUser`] | signed-in users (profile, session, logout) |
+//! | [`Access::Account`] | [`super::AccountCtx`] | `member` (own), `admin` (own or switched) |
 //! | [`Access::Admin`] | [`super::AdminCtx`] | `admin` only |
 //! | [`Access::Tenant`] | tenant-JWT extractor (P7) | tenants of the app, never web users |
 //!

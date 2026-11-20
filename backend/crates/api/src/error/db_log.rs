@@ -55,9 +55,9 @@ pub fn warn(error: &DbError, context: &'static str) {
     tracing::warn!(kind = d.kind, sqlstate = d.code.as_deref(), "{context}");
 }
 
-/// The one line printed when the binary fails (start, health check): the outermost message (our own, generic
-/// texts) plus the diagnosis of a database error in the chain. The rest of the chain is
-/// left out on purpose: it may hold the driver message.
+/// The one line printed when the binary fails (start, health check): the outermost
+/// message (our own, generic texts) plus the diagnosis of a database error in the chain.
+/// The rest of the chain is left out on purpose: it may hold the driver message.
 pub fn failure_line(error: &anyhow::Error) -> String {
     let db = error.chain().find_map(|e| e.downcast_ref::<DbError>());
     match db {

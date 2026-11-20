@@ -10,11 +10,14 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
+use vermieterme_db::repo::account;
 use vermieterme_db::repo::session as session_repo;
-use vermieterme_db::repo::user;
+use vermieterme_db::repo::user::{self, Role, User};
 use vermieterme_db::repo::user_token::{self, TokenPurpose};
 use vermieterme_db::row::now_millis;
-use vermieterme_db::{AnyConnection, DbError, DbResult, SecretToken, UserScope, in_transaction};
+use vermieterme_db::{
+    AccountScope, AnyConnection, DbError, DbResult, SecretToken, UserScope, in_transaction,
+};
 
 use super::client_ip::ClientIp;
 use super::extract::millis;
@@ -212,7 +215,7 @@ async fn redeem<T>(
     })
 }
 
-/// Whether `token` is currently redeemable: valid, unused, and its user not locked. It is
+/// Whether `token` is currently redeemable: valid, unused, its user and account not locked. It is
 /// consumed in a transaction that is always rolled back (the repository has only the
 /// atomic consume, so validity is defined in one place); the transaction is short and
 /// computes nothing.
@@ -233,7 +236,8 @@ async fn check(state: &AppState, purpose: TokenPurpose, token: &SecretToken) -> 
 }
 
 /// Consumes `token` and returns the scope of its user; `NotFound` if the token is not
-/// redeemable or the user is locked.
+/// redeemable, the user is locked or its account is locked (admins exempt, the same rule
+/// as `session::find_valid`, #105).
 async fn consume_for_active_user(
     tx: &mut AnyConnection,
     purpose: TokenPurpose,
@@ -243,10 +247,22 @@ async fn consume_for_active_user(
         .await?
         .ok_or(DbError::NotFound)?;
     let scope = link_scope(&user_id);
-    if user::get_self(tx, &scope).await?.locked {
+    let me = user::get_self(tx, &scope).await?;
+    if me.locked || account_locked(tx, &me).await? {
         return Err(DbError::NotFound);
     }
     Ok(scope)
+}
+
+/// Whether the account of `me` is locked; admins are never locked out by an account.
+#[allow(clippy::disallowed_methods)] // Account id comes from the user row of a consumed link.
+async fn account_locked(tx: &mut AnyConnection, me: &User) -> DbResult<bool> {
+    match (&me.role, &me.account_id) {
+        (Role::Admin, _) | (_, None) => Ok(false),
+        (_, Some(id)) => Ok(account::get_own(tx, &AccountScope::from_session(id))
+            .await?
+            .locked),
+    }
 }
 
 /// Consumes a token of `purpose`; malformed tokens are rejected without a lookup.
