@@ -8,12 +8,12 @@ use serde::Deserialize;
 use vermieterme_db::repo::billing::{Prepayment, PrepaymentPatch, Saved, prepayment};
 
 use super::NOT_FOUND;
-use super::audited::audited_read_committed;
 use super::json::PrepaymentJson;
 use crate::auth::AccountCtx;
 use crate::error::json::ApiJson;
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
+use crate::masterdata::audited_read_committed;
 use crate::masterdata::created;
 use crate::routes::AppState;
 

@@ -14,7 +14,6 @@ use vermieterme_db::repo::billing::{
 use vermieterme_db::repo::masterdata::property::{self, Property};
 use vermieterme_db::{AccountScope, AnyConnection, DbError, DbResult};
 
-use super::audited::audited_read_committed;
 use super::detail::{Detail, load};
 use super::json::{PeriodJson, PropertyEmbedJson};
 use super::{NOT_FOUND, present};
@@ -22,6 +21,7 @@ use crate::auth::AccountCtx;
 use crate::error::json::{ApiJson, ApiQuery};
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
+use crate::masterdata::audited_read_committed;
 use crate::masterdata::fields::{ID_INPUT_MAX, filter};
 use crate::masterdata::{created, deleted};
 use crate::routes::AppState;

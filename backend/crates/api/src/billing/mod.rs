@@ -3,13 +3,12 @@
 //!
 //! Every handler takes [`AccountCtx`](crate::auth::AccountCtx) and passes its scope to
 //! the repositories, so foreign ids are 404. Every change runs with its audit entry in one
-//! transaction under `READ COMMITTED` ([`audited::audited_read_committed`], #116; a unit
+//! transaction under `READ COMMITTED` ([`audited_read_committed`](crate::masterdata::audited_read_committed), #116; a unit
 //! amount that writes nothing is not audited, #115). Costs and prepayments are
 //! saved with `PATCH`: only sent fields change, `null` clears, an outdated `version` is
 //! 409 `version_conflict` with the stored state in `current` (#25, #67). The web PDF
 //! (`/pdf`) comes with the PDF bridge (P8).
 
-mod audited;
 mod cost;
 mod detail;
 mod json;
@@ -21,7 +20,6 @@ use serde::{Deserialize, Deserializer};
 use vermieterme_db::repo::billing::Rejection;
 use vermieterme_domain::{Cents, DistributionKey};
 
-pub(crate) use self::audited::audited_read_committed;
 use self::json::{CostJson, PrepaymentJson, date_de};
 use crate::error::ApiError;
 use crate::error::validate::Validator;

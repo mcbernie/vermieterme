@@ -5,7 +5,8 @@
 //! Every handler takes [`AccountCtx`] (members in their account, admins in the account
 //! they work in) and passes `ctx.scope` to the repositories, so foreign ids are 404.
 //! Every create, update and delete runs together with its audit entry in one transaction
-//! ([`audited`]); the entry is only written when an admin works in a foreign account
+//! ([`audited`], or [`audited_read_committed`] for changes in the lock order of
+//! `repo::billing`); the entry is only written when an admin works in a foreign account
 //! ([`AccountCtx::audit`]). Writing VPI values is global and therefore admin only.
 
 mod cost_category;
@@ -28,7 +29,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use serde::Serialize;
 use vermieterme_db::repo::masterdata::Rejection;
-use vermieterme_db::{AnyConnection, DbResult, in_transaction};
+use vermieterme_db::{AnyConnection, DbResult, in_transaction, in_transaction_read_committed};
 
 use crate::auth::AccountCtx;
 use crate::error::{ApiError, ApiResult, not_found_as};
@@ -90,24 +91,80 @@ pub fn router() -> AppRouter {
 pub(crate) async fn audited_checked<T, R: Into<ApiError>>(
     state: &AppState,
     ctx: &AccountCtx,
-    (action, entity): (&'static str, &'static str),
+    names: (&'static str, &'static str),
     missing: &'static str,
     entity_id: impl FnOnce(&T) -> String,
     change: impl AsyncFnOnce(&mut AnyConnection) -> DbResult<Result<T, R>>,
 ) -> ApiResult<T> {
-    let mut conn = state.conn().await?;
-    let outcome = in_transaction(&mut conn, async |tx| {
-        let value = match change(tx).await? {
-            Ok(value) => value,
-            Err(rejection) => return Ok(Err(rejection)),
+    let audit = AuditedChange {
+        ctx,
+        names,
+        missing,
+    };
+    audit.run(state, false, entity_id, change).await
+}
+
+/// Like [`audited_checked`], but the transaction runs under `READ COMMITTED` on MySQL.
+/// The repositories that follow the lock order of `repo::billing` rely on it ("No range
+/// locks beyond the property", #116): their own transaction is only a savepoint of this
+/// one, and the isolation can only be chosen at its `BEGIN`. Used by every billing
+/// change and by the master data changes in that lock order (creating, changing and
+/// deleting a unit, deleting a property).
+pub(crate) async fn audited_read_committed<T, R: Into<ApiError>>(
+    state: &AppState,
+    ctx: &AccountCtx,
+    names: (&'static str, &'static str),
+    missing: &'static str,
+    entity_id: impl FnOnce(&T) -> String,
+    change: impl AsyncFnOnce(&mut AnyConnection) -> DbResult<Result<T, R>>,
+) -> ApiResult<T> {
+    let audit = AuditedChange {
+        ctx,
+        names,
+        missing,
+    };
+    audit.run(state, true, entity_id, change).await
+}
+
+/// The common part of [`audited_checked`] and [`audited_read_committed`]: who audits,
+/// the audit names `(action, entity)` and the 404 message.
+struct AuditedChange<'a> {
+    ctx: &'a AccountCtx,
+    names: (&'static str, &'static str),
+    missing: &'static str,
+}
+
+impl AuditedChange<'_> {
+    /// Runs `change` and, unless refused, its audit entry in one transaction
+    /// (`read_committed`: see [`audited_read_committed`]).
+    async fn run<T, R: Into<ApiError>>(
+        self,
+        state: &AppState,
+        read_committed: bool,
+        entity_id: impl FnOnce(&T) -> String,
+        change: impl AsyncFnOnce(&mut AnyConnection) -> DbResult<Result<T, R>>,
+    ) -> ApiResult<T> {
+        let (action, entity) = self.names;
+        let body = async |tx: &mut AnyConnection| {
+            let value = match change(tx).await? {
+                Ok(value) => value,
+                Err(rejection) => return Ok(Err(rejection)),
+            };
+            self.ctx
+                .audit(tx, action, entity, Some(&entity_id(&value)))
+                .await?;
+            Ok(Ok(value))
         };
-        ctx.audit(tx, action, entity, Some(&entity_id(&value)))
-            .await?;
-        Ok(Ok(value))
-    })
-    .await
-    .map_err(not_found_as(missing))?;
-    outcome.map_err(Into::into)
+        let mut conn = state.conn().await?;
+        let outcome = if read_committed {
+            in_transaction_read_committed(&mut conn, body).await
+        } else {
+            in_transaction(&mut conn, body).await
+        };
+        outcome
+            .map_err(not_found_as(self.missing))?
+            .map_err(Into::into)
+    }
 }
 
 /// Like [`audited_checked`] for changes no business rule can refuse.

@@ -1,4 +1,6 @@
-//! `/api/units`: list (optionally of one property), create, replace and delete.
+//! `/api/units`: list (optionally of one property), create, replace and delete. Changes
+//! run under `READ COMMITTED` ([`audited_read_committed`]): the unit repository follows
+//! the lock order of `repo::billing`.
 
 use axum::extract::{Path, State};
 use axum::response::Response;
@@ -8,7 +10,7 @@ use vermieterme_db::repo::masterdata::unit::{self, KINDS, Unit, UnitInput};
 
 use super::fields::{ID_INPUT_MAX, TEXT_MAX, filter};
 use super::property::{NOT_FOUND as PROPERTY_NOT_FOUND, SHARES_MAX};
-use super::{audited, audited_checked, created, deleted};
+use super::{Rejection, audited_read_committed, created, deleted};
 use crate::auth::AccountCtx;
 use crate::error::json::{ApiJson, ApiQuery, timestamp};
 use crate::error::validate::Validator;
@@ -111,7 +113,7 @@ pub async fn create(
     ApiJson(body): ApiJson<UnitBody>,
 ) -> ApiResult<Response> {
     let input = body.validate()?;
-    let unit = audited_checked(
+    let unit = audited_read_committed(
         &state,
         &ctx,
         ("unit.create", "unit"),
@@ -150,7 +152,7 @@ pub async fn update(
 ) -> ApiResult<axum::Json<UnitJson>> {
     let input = body.validate()?;
     check_targets(&state, &ctx, &id, &input.property_id).await?;
-    let unit = audited_checked(
+    let unit = audited_read_committed(
         &state,
         &ctx,
         ("unit.update", "unit"),
@@ -168,7 +170,7 @@ pub async fn remove(
     ctx: AccountCtx,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    audited(
+    audited_read_committed(
         &state,
         &ctx,
         ("unit.delete", "unit"),
@@ -176,7 +178,7 @@ pub async fn remove(
         |id: &String| id.clone(),
         async |tx| {
             unit::delete(tx, &ctx.scope, &id).await?;
-            Ok(id.clone())
+            Ok(Ok::<_, Rejection>(id.clone()))
         },
     )
     .await?;
