@@ -20,7 +20,7 @@ mod suggestions;
 mod tenant;
 mod tenant_json;
 mod unit;
-mod unit_embed;
+pub(crate) mod unit_embed;
 mod vpi;
 mod vpi_fetch;
 

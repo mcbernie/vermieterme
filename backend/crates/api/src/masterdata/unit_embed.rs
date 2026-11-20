@@ -1,22 +1,49 @@
 //! The unit (with its property) embedded in tenant and rent-change responses, so the
-//! user interface needs no second request (decision 38).
+//! user interface needs no second request (decision 38), and the property embed that
+//! billing period summaries share.
 
 use std::collections::HashMap;
 
 use serde::Serialize;
-use vermieterme_db::repo::masterdata::unit_ref::{self, UnitRef};
+use vermieterme_db::repo::masterdata::property::Property;
+use vermieterme_db::repo::masterdata::unit_ref::{self, PropertyRef, UnitRef};
 
 use crate::auth::AccountCtx;
 use crate::error::ApiResult;
 use crate::routes::AppState;
 
-/// `property{id, street, zip, city}`.
+/// `property{id, street, zip, city}`: the one embedded form of a property (units of
+/// tenants and rent changes, billing period summaries).
 #[derive(Debug, Clone, Serialize)]
 pub struct PropertyEmbed {
     id: String,
     street: String,
     zip: String,
     city: String,
+}
+
+impl From<&PropertyRef> for PropertyEmbed {
+    /// Response form of the property of a unit reference.
+    fn from(p: &PropertyRef) -> Self {
+        Self {
+            id: p.id.clone(),
+            street: p.street.clone(),
+            zip: p.zip.clone(),
+            city: p.city.clone(),
+        }
+    }
+}
+
+impl From<Property> for PropertyEmbed {
+    /// Response form of a full property.
+    fn from(p: Property) -> Self {
+        Self {
+            id: p.id,
+            street: p.street,
+            zip: p.zip,
+            city: p.city,
+        }
+    }
 }
 
 /// `unit{id, name, floor, shares, property}`.
@@ -37,12 +64,7 @@ impl From<&UnitRef> for UnitEmbed {
             name: u.name.clone(),
             floor: u.floor.clone(),
             shares: u.shares,
-            property: PropertyEmbed {
-                id: u.property.id.clone(),
-                street: u.property.street.clone(),
-                zip: u.property.zip.clone(),
-                city: u.property.city.clone(),
-            },
+            property: PropertyEmbed::from(&u.property),
         }
     }
 }
