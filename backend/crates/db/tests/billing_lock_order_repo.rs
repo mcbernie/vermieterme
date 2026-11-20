@@ -1,15 +1,16 @@
 //! The lock order of `repo::billing` under concurrency (two connections): creating a
-//! period next to unit and property changes ends without a database error (#113). On
-//! SQLite the write lock serializes everything; the MySQL runs are the real check.
+//! period next to unit and property changes ends without a database error (#113), and
+//! the locks behind decision 37 and the overlap check hold (#114). On SQLite the write
+//! lock serializes everything; the MySQL runs are the real check.
 
 // Test bodies are plain async fns run by `dual_test!` (see account_user_repo.rs).
 #![allow(clippy::unwrap_used)]
 
 mod billing_support;
 
-use billing_support::{new_period, property, setup, unit_input};
-use vermieterme_db::repo::billing::period;
-use vermieterme_db::repo::masterdata::{property as property_repo, unit};
+use billing_support::{category, new_period, property, setup, unit_input};
+use vermieterme_db::repo::billing::{PeriodPatch, Rejection, cost, period};
+use vermieterme_db::repo::masterdata::{self, property as property_repo, unit};
 use vermieterme_db::{Db, DbError, dual_test};
 
 /// Rounds of each race: a wrong lock order shows only sometimes.
@@ -72,3 +73,81 @@ async fn period_create_vs_property_delete(db: &Db) {
     }
 }
 dual_test!(period_create_vs_delete, period_create_vs_property_delete);
+
+/// A first unit amount and moving its unit to another property at the same time: either
+/// the move is refused (the amount came first) or the amount finds the unit gone from
+/// the property (404). Never a moved unit with an amount (decision 37).
+async fn parallel_unit_amount_and_move(db: &Db) {
+    let s = setup(db, "A").await;
+    let target = property(db, &s.scope).await;
+    let notice = category(db, &s.scope, "Grundsteuer je Wohnung", "per_notice").await;
+    let mut c1 = db.pool().acquire().await.unwrap();
+    let mut c2 = db.pool().acquire().await.unwrap();
+    for round in 0..ROUNDS {
+        let uid = billing_support::unit(db, &s.scope, &s.property_id, 0).await;
+        let key = (s.period.id.as_str(), notice.as_str(), uid.as_str());
+        let moved = unit_input(&target, 0);
+        let (saved, move_result) = tokio::join!(
+            cost::set_unit_amount(&mut c1, &s.scope, key, Some(500), None),
+            unit::update(&mut c2, &s.scope, &uid, &moved),
+        );
+        let move_result = move_result.unwrap();
+        match saved {
+            Ok(written) => {
+                written.unwrap();
+                assert_eq!(
+                    move_result.unwrap_err(),
+                    masterdata::Rejection::UnitInBillings,
+                    "Runde {round}"
+                );
+            }
+            Err(DbError::NotFound) => assert!(move_result.is_ok(), "Runde {round}"),
+            Err(other) => panic!("Runde {round}: {other:?}"),
+        }
+    }
+}
+dual_test!(unit_amount_vs_move, parallel_unit_amount_and_move);
+
+/// Moving a period into a free range while another period is created there: exactly one
+/// is refused with an overlap. Only the property lock of both serializes them.
+async fn parallel_period_update_and_create(db: &Db) {
+    let s = setup(db, "A").await;
+    let mut c1 = db.pool().acquire().await.unwrap();
+    let mut c2 = db.pool().acquire().await.unwrap();
+    for round in 0..ROUNDS {
+        let year = 2040 + round;
+        let first = new_period(
+            &s.property_id,
+            &format!("{year}-01-01"),
+            &format!("{year}-03-31"),
+        );
+        let mut c = db.pool().acquire().await.unwrap();
+        let existing = period::create(&mut c, &s.scope, &first)
+            .await
+            .unwrap()
+            .unwrap();
+        let shift = PeriodPatch {
+            start_date: Some(format!("{year}-07-01")),
+            end_date: Some(format!("{year}-12-31")),
+            ..PeriodPatch::default()
+        };
+        let fresh = new_period(
+            &s.property_id,
+            &format!("{year}-09-01"),
+            &format!("{year}-10-31"),
+        );
+        let (changed, made) = tokio::join!(
+            period::update(&mut c1, &s.scope, &existing.id, &shift),
+            period::create(&mut c2, &s.scope, &fresh),
+        );
+        let (changed, made) = (changed.unwrap(), made.unwrap());
+        let refused = [&changed.as_ref().err(), &made.as_ref().err()];
+        let overlaps = refused
+            .iter()
+            .filter(|r| matches!(r, Some(Rejection::Overlap { .. })))
+            .count();
+        assert_eq!(overlaps, 1, "Runde {round}: {changed:?} / {made:?}");
+        assert!(changed.is_ok() != made.is_ok(), "Runde {round}");
+    }
+}
+dual_test!(period_update_vs_create, parallel_period_update_and_create);
