@@ -9,3 +9,21 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+# Test helpers (temporary SQLite file, MariaDB database per test) for the integration
+# tests of this crate and of dependent crates. Never enabled in the release binary.
+testing = ["dep:tokio"]
+
+[dependencies]
+rand = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+# Enables the `testing` feature for this crate's own integration tests.
+vermieterme-db = { workspace = true, features = ["testing"] }
