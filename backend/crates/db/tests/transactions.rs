@@ -1,5 +1,6 @@
 //! Transactions: rollback keeps the original error, savepoints, SQLite write locks, and
-//! the account lock ending sessions atomically.
+//! the account lock ending sessions atomically, and MySQL isolation levels that never
+//! carry over to the next transaction of a connection.
 
 // Test bodies are plain async fns run by `dual_test!`, so clippy's in-test allowance
 // does not reach them.
@@ -18,7 +19,9 @@ use vermieterme_db::repo::account::{self, AccountPatch};
 use vermieterme_db::repo::session;
 use vermieterme_db::repo::user::{self, NewUser, Role};
 use vermieterme_db::testing::TestDb;
-use vermieterme_db::{AdminScope, Db, DbError, SecretToken, dual_test, in_transaction};
+use vermieterme_db::{
+    AdminScope, Db, DbError, SecretToken, dual_test, in_transaction, in_transaction_read_committed,
+};
 
 /// Number of accounts (the rollback tests write accounts).
 async fn account_count(c: &mut AnyConnection) -> i64 {
@@ -181,4 +184,77 @@ async fn sqlite_read_then_write_transactions_serialise() {
         .unwrap()
         .get("n");
     assert_eq!(n, 2, "beide Erhöhungen nacheinander");
+}
+
+/// Isolation level InnoDB reports for the open transaction of this connection, after a
+/// write (so the transaction is registered there).
+async fn isolation_of(tx: &mut AnyConnection) -> Result<String, DbError> {
+    sqlx::query("INSERT INTO tx_iso (n) VALUES (1)")
+        .execute(&mut *tx)
+        .await?;
+    // `information_schema.innodb_trx` is cached for up to 0.1 s.
+    sqlx::raw_sql("DO SLEEP(0.2)").execute(&mut *tx).await?;
+    let row = sqlx::query(
+        "SELECT trx_isolation_level AS level FROM information_schema.innodb_trx \
+         WHERE trx_mysql_thread_id = CONNECTION_ID()",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    Ok(row.get("level"))
+}
+
+/// Level of an `in_transaction` on `c` (REPEATABLE READ path).
+async fn default_level(c: &mut AnyConnection) -> String {
+    in_transaction(c, async |tx| isolation_of(tx).await)
+        .await
+        .unwrap()
+}
+
+/// Each top-level transaction names its isolation (#118): after a `READ COMMITTED`
+/// transaction – committed or rolled back – and after a `SET TRANSACTION` left pending
+/// without `BEGIN` (an interrupted start), the next `in_transaction` on the same
+/// connection runs under `REPEATABLE READ`.
+#[tokio::test]
+async fn mysql_isolation_never_carries_over() {
+    let Some(test_db) = TestDb::mysql("mysql_isolation_never_carries_over").await else {
+        return;
+    };
+    let mut c = test_db.db().pool().acquire().await.unwrap();
+    sqlx::query("CREATE TABLE tx_iso (n BIGINT NOT NULL)")
+        .execute(&mut *c)
+        .await
+        .unwrap();
+
+    let rc = in_transaction_read_committed(&mut c, async |tx| isolation_of(tx).await)
+        .await
+        .unwrap();
+    assert_eq!(rc, "READ COMMITTED");
+    assert_eq!(
+        default_level(&mut c).await,
+        "REPEATABLE READ",
+        "nach Commit"
+    );
+
+    let aborted: Result<(), DbError> = in_transaction_read_committed(&mut c, async |tx| {
+        assert_eq!(isolation_of(tx).await?, "READ COMMITTED");
+        Err(DbError::Conflict)
+    })
+    .await;
+    assert!(matches!(aborted, Err(DbError::Conflict)), "{aborted:?}");
+    assert_eq!(
+        default_level(&mut c).await,
+        "REPEATABLE READ",
+        "nach Abbruch"
+    );
+
+    sqlx::raw_sql("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut *c)
+        .await
+        .unwrap();
+    sqlx::raw_sql("SELECT 'x'").execute(&mut *c).await.unwrap();
+    assert_eq!(
+        default_level(&mut c).await,
+        "REPEATABLE READ",
+        "liegengebliebene Vormerkung"
+    );
 }
