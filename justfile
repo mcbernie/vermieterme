@@ -27,7 +27,8 @@ fmt-check:
 lint:
     cd {{backend}} && cargo clippy --locked --workspace --all-targets -- -D warnings
 
-# Rust unit and integration tests (SQLite; tests without a service print [skip]).
+# Rust unit and integration tests. SQLite needs no service and always runs (temporary file per
+# test, never skipped). Tests named `mysql_*` print [skip] without TEST_MYSQL_URL; see `test-mysql`.
 test:
     cd {{backend}} && cargo test --locked --workspace
 
