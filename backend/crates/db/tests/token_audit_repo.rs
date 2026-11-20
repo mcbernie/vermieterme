@@ -10,7 +10,9 @@
 mod fixtures;
 
 use fixtures::{HOUR, NOW, setup};
-use vermieterme_db::repo::audit::{self, AuditFilter, NewAuditEntry};
+use std::collections::HashSet;
+
+use vermieterme_db::repo::audit::{self, AuditCursor, AuditFilter, NewAuditEntry};
 use vermieterme_db::repo::user::Role;
 use vermieterme_db::repo::user_token::{self, TokenPurpose};
 use vermieterme_db::{AdminScope, Db, SecretToken, dual_test};
@@ -101,7 +103,10 @@ async fn audit_log(db: &Db) {
     assert_eq!(audit::list(&mut c, &admin, &filter).await.unwrap().len(), 2);
     let filter = AuditFilter {
         account_id: None,
-        before: Some(0),
+        before: Some(AuditCursor {
+            at: 0,
+            id: String::new(),
+        }),
     };
     assert!(
         audit::list(&mut c, &admin, &filter)
@@ -126,3 +131,48 @@ async fn audit_log(db: &Db) {
     assert_eq!(page.len(), usize::try_from(audit::MAX_PAGE).unwrap());
 }
 dual_test!(audit_entries, audit_log);
+
+/// Entries sharing one millisecond across a page boundary are all returned exactly once:
+/// the cursor `(at, id)` breaks ties by id.
+async fn audit_paging_same_millisecond(db: &Db) {
+    let mut c = db.pool().acquire().await.unwrap();
+    let admin = AdminScope::system();
+    let total = audit::MAX_PAGE + 1;
+    for i in 0..total {
+        // Inserted out of id order, all at the same instant.
+        let id = format!("e{:03}", (i * 37) % total);
+        sqlx::query(
+            "INSERT INTO audit_log (id, at, user_id, account_id, action, entity, entity_id) \
+             VALUES (?, ?, NULL, NULL, 'x', 'y', NULL)",
+        )
+        .bind(&id)
+        .bind(NOW)
+        .execute(&mut *c)
+        .await
+        .unwrap();
+    }
+    let first = audit::list(&mut c, &admin, &AuditFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(first.len(), usize::try_from(audit::MAX_PAGE).unwrap());
+    let filter = AuditFilter {
+        account_id: None,
+        before: first.last().map(AuditCursor::after),
+    };
+    let second = audit::list(&mut c, &admin, &filter).await.unwrap();
+    assert_eq!(second.len(), 1, "Rest derselben Millisekunde");
+
+    let ids: Vec<&str> = first.iter().chain(&second).map(|e| e.id.as_str()).collect();
+    let unique: HashSet<&str> = ids.iter().copied().collect();
+    assert_eq!(unique.len(), ids.len(), "keine Dubletten");
+    assert_eq!(
+        unique.len(),
+        usize::try_from(total).unwrap(),
+        "alle Einträge"
+    );
+    assert!(
+        ids.windows(2).all(|w| w[0] > w[1]),
+        "absteigend nach id innerhalb der Millisekunde"
+    );
+}
+dual_test!(audit_paging, audit_paging_same_millisecond);

@@ -89,7 +89,8 @@ CREATE TABLE web_session (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 -- Audit log: action, entity and id only, never field values. No foreign keys, so entries
--- survive the deletion of users.
+-- survive the deletion of users. Paging uses the cursor (at, id) in the order
+-- at DESC, id DESC (both indexes end in id).
 CREATE TABLE audit_log (
     id         VARCHAR(36) NOT NULL,
     at         BIGINT      NOT NULL,
@@ -99,8 +100,8 @@ CREATE TABLE audit_log (
     entity     VARCHAR(64) NOT NULL,
     entity_id  VARCHAR(36) NULL,
     PRIMARY KEY (id),
-    KEY audit_log_at_idx (at),
-    KEY audit_log_account_at_idx (account_id, at)
+    KEY audit_log_at_idx (at, id),
+    KEY audit_log_account_at_idx (account_id, at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 -- Settings per account --------------------------------------------------------------------

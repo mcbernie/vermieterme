@@ -88,8 +88,9 @@ CREATE TABLE audit_log (
     entity     TEXT    NOT NULL CHECK (length(entity) <= 64),
     entity_id  TEXT    NULL CHECK (length(entity_id) <= 36)
 ) STRICT;
-CREATE INDEX audit_log_at_idx ON audit_log (at);
-CREATE INDEX audit_log_account_at_idx ON audit_log (account_id, at);
+-- Paging uses the cursor (at, id) in the order at DESC, id DESC (both indexes end in id).
+CREATE INDEX audit_log_at_idx ON audit_log (at, id);
+CREATE INDEX audit_log_account_at_idx ON audit_log (account_id, at, id);
 
 -- Settings per account --------------------------------------------------------------------
 

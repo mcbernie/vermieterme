@@ -51,13 +51,34 @@ pub struct AuditEntry {
     pub entity_id: Option<String>,
 }
 
+/// Position in the log for paging backwards: the `(at, id)` of the last entry of the
+/// previous page. Several entries can share one millisecond, so the id breaks the tie;
+/// a cursor of time alone would skip the rest of that millisecond at a page boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditCursor {
+    /// Time of the last entry seen (Unix ms).
+    pub at: i64,
+    /// Id of the last entry seen.
+    pub id: String,
+}
+
+impl AuditCursor {
+    /// The cursor continuing after `entry` (pass the last entry of a page).
+    pub fn after(entry: &AuditEntry) -> Self {
+        Self {
+            at: entry.at,
+            id: entry.id.clone(),
+        }
+    }
+}
+
 /// Filter of [`list`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AuditFilter {
     /// Only entries of this account.
     pub account_id: Option<String>,
-    /// Only entries strictly before this time (Unix ms), for paging backwards.
-    pub before: Option<i64>,
+    /// Only entries strictly before this position in the order `at DESC, id DESC`.
+    pub before: Option<AuditCursor>,
 }
 
 /// Records an entry at the current time. Works on any connection, so it can join the
@@ -80,23 +101,29 @@ pub async fn record(conn: &mut AnyConnection, entry: &NewAuditEntry<'_>) -> DbRe
     Ok(id)
 }
 
-/// Lists entries newest first, at most [`MAX_PAGE`] (admin).
+/// Lists entries newest first (`at DESC, id DESC`), at most [`MAX_PAGE`] (admin). The
+/// next page is requested with [`AuditCursor::after`] of the last entry; pages together
+/// return every entry exactly once.
 pub async fn list(
     conn: &mut AnyConnection,
     _admin: &AdminScope,
     filter: &AuditFilter,
 ) -> DbResult<Vec<AuditEntry>> {
     // NULL parameters disable a condition; one static statement for all filter combinations.
+    let before_at = filter.before.as_ref().map(|c| c.at);
     let rows = sqlx::query(
         "SELECT l.id, l.at, l.user_id, u.email AS user_email, l.account_id, l.action, \
          l.entity, l.entity_id FROM audit_log l LEFT JOIN app_user u ON u.id = l.user_id \
-         WHERE (? IS NULL OR l.account_id = ?) AND (? IS NULL OR l.at < ?) \
+         WHERE (? IS NULL OR l.account_id = ?) \
+         AND (? IS NULL OR l.at < ? OR (l.at = ? AND l.id < ?)) \
          ORDER BY l.at DESC, l.id DESC LIMIT ?",
     )
     .bind(filter.account_id.as_deref())
     .bind(filter.account_id.as_deref())
-    .bind(filter.before)
-    .bind(filter.before)
+    .bind(before_at)
+    .bind(before_at)
+    .bind(before_at)
+    .bind(filter.before.as_ref().map(|c| c.id.as_str()))
     .bind(MAX_PAGE)
     .fetch_all(&mut *conn)
     .await?;
