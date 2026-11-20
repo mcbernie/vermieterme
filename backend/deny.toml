@@ -23,6 +23,9 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Path dependencies between workspace crates have no version; all crates are
+# `publish = false`, so wildcard paths are allowed (registry wildcards stay denied).
+allow-wildcard-paths = true
 deny = [
     # TLS is rustls only (rust.md).
     { name = "openssl" },
