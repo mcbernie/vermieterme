@@ -98,7 +98,7 @@ fn prune_keeps_active_entries() {
     fail(&limiter, &TEST, "a", 1);
     let _running = limiter.begin(&TEST, "b").unwrap();
     limiter.prune();
-    assert_eq!(limiter.lock().len(), 2);
+    assert_eq!(limiter.len(), 2);
 }
 
 #[test]
@@ -124,8 +124,75 @@ fn key_count_is_capped() {
     for i in 0..50 {
         limiter.begin(&TEST, &format!("k{i}")).unwrap().failed();
     }
-    assert_eq!(limiter.lock().len(), 5);
+    assert_eq!(limiter.len(), 5);
     // The newest keys are kept.
     fail(&limiter, &TEST, "k49", 2);
     assert!(limiter.begin(&TEST, "k49").is_err());
+}
+
+#[test]
+fn flooding_new_keys_does_not_reset_a_lock() {
+    let limiter = RateLimiter::with_capacity(5);
+    fail(&limiter, &TEST, "victim", 3);
+    for i in 0..50 {
+        limiter.begin(&TEST, &format!("flood{i}")).unwrap().failed();
+    }
+    assert!(limiter.begin(&TEST, "victim").unwrap_err() > BUSY_RETRY);
+}
+
+#[test]
+fn full_store_of_locked_keys_does_not_lock_others_out() {
+    let limiter = RateLimiter::with_capacity(3);
+    for key in ["a", "b", "c"] {
+        fail(&limiter, &TEST, key, 3);
+    }
+    // No entry for the new key, but no refusal either: untracked attempts.
+    for _ in 0..10 {
+        limiter.begin(&TEST, "new").unwrap().failed();
+    }
+    assert_eq!(limiter.len(), 3);
+    assert!(limiter.begin(&TEST, "a").is_err());
+}
+
+#[test]
+fn policies_have_separate_stores() {
+    let other = Policy {
+        prefix: "other",
+        ..PER_IP
+    };
+    let limiter = RateLimiter::with_capacity(2);
+    fail(&limiter, &TEST, "a", 3);
+    fail(&limiter, &TEST, "b", 3);
+    fail(&limiter, &other, "ip", 3);
+    assert!(limiter.begin(&other, "ip").is_err());
+}
+
+#[test]
+fn busy_key_survives_a_full_store() {
+    let limiter = RateLimiter::with_capacity(1);
+    let old = limiter.begin(&TEST, "a").unwrap();
+    // "a" is busy, so "b" cannot evict it and stays untracked.
+    drop(limiter.begin(&TEST, "b").unwrap());
+    assert_eq!(limiter.len(), 1);
+    let held: Vec<_> = (0..2).map(|_| limiter.begin(&TEST, "a").unwrap()).collect();
+    assert_eq!(limiter.begin(&TEST, "a").unwrap_err(), BUSY_RETRY);
+    old.failed();
+    assert_eq!(limiter.begin(&TEST, "a").unwrap_err(), BUSY_RETRY);
+    drop(held);
+}
+
+#[test]
+fn settle_ignores_a_later_incarnation_of_the_key() {
+    let limiter = RateLimiter::with_capacity(4);
+    let first = limiter.begin(&TEST, "a").unwrap();
+    let second = limiter.begin(&TEST, "a").unwrap();
+    // The success of `first` keeps the entry (one attempt still runs); force a new
+    // incarnation by removing it directly, as an eviction or prune would.
+    first.succeeded();
+    limiter.lock().get_mut(TEST.prefix).unwrap().remove("a");
+    let held: Vec<_> = (0..3).map(|_| limiter.begin(&TEST, "a").unwrap()).collect();
+    // The stale reservation ends: it must not free a slot of the new entry.
+    drop(second);
+    assert_eq!(limiter.begin(&TEST, "a").unwrap_err(), BUSY_RETRY);
+    drop(held);
 }

@@ -11,16 +11,27 @@
 //! valid account does not reset an attacker's budget.
 //!
 //! Memory is bounded: keys are short ([`ip_key`] folds an IPv6 client into its /64, the
-//! callers cap e-mail keys at `EMAIL_MAX`), the store holds at most [`MAX_ENTRIES`] keys
-//! and evicts the oldest beyond that, and expired keys are removed by the periodic
-//! housekeeping ([`RateLimiter::prune`]), never on the request path.
+//! callers cap e-mail keys at `EMAIL_MAX`), each policy has its own store of at most
+//! [`MAX_ENTRIES`] keys, and expired keys are removed by the periodic housekeeping
+//! ([`RateLimiter::prune`]), never on the request path.
+//!
+//! A full store evicts only idle keys: a locked key or one with running attempts is never
+//! pushed out, so flooding new keys cannot reset a lock (#101). If nothing is evictable,
+//! the new key gets an **untracked** attempt (no entry; it is not limited by this policy)
+//! instead of a refusal – a full store must not lock everybody out. Login then still
+//! counts against the address limit; filling that store with locked keys would take
+//! millions of password checks. Separate stores keep cheap keys of one policy (invalid
+//! links) from crowding out another (login).
 
+mod attempt;
 mod store;
 
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+pub use attempt::Attempt;
 use store::Store;
 
 /// Limits of one kind of key.
@@ -64,7 +75,7 @@ const fn policy(prefix: &'static str, max_failures: u32, reset_on_success: bool)
 /// `Retry-After` when the budget is taken by attempts still running (not a lock).
 const BUSY_RETRY: Duration = Duration::from_secs(1);
 
-/// Most keys kept in memory; a new key beyond that evicts the oldest one.
+/// Most keys kept in memory per policy; a new key beyond that evicts the oldest idle one.
 pub const MAX_ENTRIES: usize = 100_000;
 
 /// Rate-limit key of a client address: IPv4 (also IPv4-mapped IPv6) per address, IPv6
@@ -102,6 +113,11 @@ impl Entry {
         }
     }
 
+    /// Whether the entry may be evicted from a full store: not locked, nothing running.
+    fn idle(&self, now: Instant) -> bool {
+        self.in_flight == 0 && self.locked_until.is_none_or(|until| until <= now)
+    }
+
     /// Starts a new window if the lock ended or the window is over (keeps reservations).
     fn refresh(&mut self, policy: &Policy, now: Instant) {
         let lock_over = self.locked_until.is_some_and(|until| until <= now);
@@ -127,10 +143,14 @@ enum Outcome {
     Released,
 }
 
+/// The stores of all policies, by [`Policy::prefix`].
+type Stores = HashMap<&'static str, Store<Entry>>;
+
 /// Shared limiter (inside `AppState`).
 #[derive(Debug)]
 pub struct RateLimiter {
-    entries: Mutex<Store<Entry>>,
+    stores: Mutex<Stores>,
+    capacity: usize,
 }
 
 impl Default for RateLimiter {
@@ -141,21 +161,35 @@ impl Default for RateLimiter {
 }
 
 impl RateLimiter {
-    /// A limiter for at most `capacity` keys.
+    /// A limiter for at most `capacity` keys per policy.
     fn with_capacity(capacity: usize) -> Self {
         Self {
-            entries: Mutex::new(Store::with_capacity(capacity)),
+            stores: Mutex::new(HashMap::new()),
+            capacity,
         }
     }
 
     /// Reserves one attempt for `key`: `Err(retry_after)` if the key is locked or its
     /// budget is used up by failures and running attempts; else the reservation, which
-    /// counts against the limit until it is booked or dropped.
+    /// counts against the limit until it is booked or dropped. If the policy's store is
+    /// full of locked or busy keys, the attempt is untracked (see module docs).
     pub fn begin(&self, policy: &Policy, key: &str) -> Result<Attempt<'_>, Duration> {
         let now = Instant::now();
-        let key = full_key(policy, key);
-        let mut entries = self.lock();
-        let entry = entries.entry(&key, || Entry::new(now));
+        let mut stores = self.lock();
+        let store = stores
+            .entry(policy.prefix)
+            .or_insert_with(|| Store::with_capacity(self.capacity));
+        let Some((seq, entry)) = store.entry(key, || Entry::new(now), |e| e.idle(now)) else {
+            tracing::warn!(
+                policy = policy.prefix,
+                "Speicher des Rate-Limits voll, Versuch ohne Zählung"
+            );
+            return Ok(Attempt {
+                limiter: self,
+                policy: *policy,
+                slot: None,
+            });
+        };
         entry.refresh(policy, now);
         if let Some(until) = entry.locked_until {
             return Err(until - now);
@@ -167,21 +201,33 @@ impl RateLimiter {
         Ok(Attempt {
             limiter: self,
             policy: *policy,
-            key,
-            settled: false,
+            slot: Some((key.to_owned(), seq)),
         })
     }
 
     /// Removes expired entries (housekeeping task).
     pub fn prune(&self) {
-        prune(&mut self.lock(), Instant::now());
+        let now = Instant::now();
+        for store in self.lock().values_mut() {
+            prune(store, now);
+        }
     }
 
-    /// Books the outcome of a reservation of `key` (the entry may be gone after a prune).
-    fn settle(&self, policy: &Policy, key: &str, outcome: Outcome) {
+    /// Number of stored keys over all policies (tests).
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.lock().values().map(Store::len).sum()
+    }
+
+    /// Books the outcome of a reservation of `key`. Only the incarnation `seq` the
+    /// reservation was made on is touched; a later entry of the same key is not.
+    fn settle(&self, policy: &Policy, key: &str, seq: u64, outcome: Outcome) {
         let now = Instant::now();
-        let mut entries = self.lock();
-        let Some(entry) = entries.get_mut(key) else {
+        let mut stores = self.lock();
+        let Some(entries) = stores.get_mut(policy.prefix) else {
+            return;
+        };
+        let Some(entry) = entries.get_mut_seq(key, seq) else {
             return;
         };
         entry.in_flight = entry.in_flight.saturating_sub(1);
@@ -207,57 +253,12 @@ impl RateLimiter {
         }
     }
 
-    /// The map; a poisoned lock is taken over (the data stays consistent per entry).
-    fn lock(&self) -> MutexGuard<'_, Store<Entry>> {
-        self.entries
+    /// The stores; a poisoned lock is taken over (the data stays consistent per entry).
+    fn lock(&self) -> MutexGuard<'_, Stores> {
+        self.stores
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
-}
-
-/// A reserved attempt. Book it with [`Attempt::failed`] or [`Attempt::succeeded`];
-/// dropping it unbooked (other errors, cancelled request) frees the reservation without
-/// counting a failure.
-#[derive(Debug)]
-#[must_use = "an attempt counts against the limit until it is booked or dropped"]
-pub struct Attempt<'a> {
-    limiter: &'a RateLimiter,
-    policy: Policy,
-    key: String,
-    settled: bool,
-}
-
-impl Attempt<'_> {
-    /// Books a failure; locks the key when the limit is reached.
-    pub fn failed(mut self) {
-        self.settle(Outcome::Failed);
-    }
-
-    /// Books a success: per-account keys are cleared, per-IP keys only lose the
-    /// reservation.
-    pub fn succeeded(mut self) {
-        self.settle(Outcome::Succeeded);
-    }
-
-    /// Books `outcome` once.
-    fn settle(&mut self, outcome: Outcome) {
-        if !self.settled {
-            self.settled = true;
-            self.limiter.settle(&self.policy, &self.key, outcome);
-        }
-    }
-}
-
-impl Drop for Attempt<'_> {
-    /// Frees an unbooked reservation.
-    fn drop(&mut self) {
-        self.settle(Outcome::Released);
-    }
-}
-
-/// Key in the map: policy prefix plus key.
-fn full_key(policy: &Policy, key: &str) -> String {
-    format!("{}:{key}", policy.prefix)
 }
 
 /// Drops idle entries whose lock ended and whose window is over (all windows are equal).

@@ -39,8 +39,12 @@ pub async fn login(
     let deadline = Deadline::start();
     let ip = ip_key(ip);
     let limiter = &state.limiter;
-    // An over-long address is never a valid login: refused before it becomes a key.
-    let Some(email) = limiter_email(&body.email) else {
+    // An over-long address or password is never a valid login: refused before the
+    // e-mail becomes a key (a cheap way to create keys otherwise, #101), counted only
+    // against the address.
+    let email =
+        limiter_email(&body.email).filter(|_| body.password.chars().count() <= PASSWORD_MAX);
+    let Some(email) = email else {
         let result = match limiter.begin(&LOGIN_IP, &ip) {
             Err(wait) => Err(ApiError::rate_limited(wait)),
             Ok(by_ip) => {
@@ -89,9 +93,6 @@ async fn attempt(
     email: &str,
     password: String,
 ) -> ApiResult<Response> {
-    if password.chars().count() > PASSWORD_MAX {
-        return Err(ApiError::unauthenticated(LOGIN_FAILED));
-    }
     let mut conn = state.conn().await?;
     let record = user::find_login(&mut conn, email).await?;
     let stored = record.as_ref().and_then(|r| r.password_hash.clone());

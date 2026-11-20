@@ -10,7 +10,8 @@ mod support;
 use std::sync::Arc;
 
 use serde_json::json;
-use support::{TestApp, seed_account, seed_user};
+use support::{PASSWORD, TestApp, seed_account, seed_user};
+use vermieterme_api::error::validate::PASSWORD_MAX;
 use vermieterme_db::repo::user::Role;
 use vermieterme_db::testing::TestDb;
 
@@ -50,6 +51,27 @@ async fn huge_email_is_refused_generically() {
     let resp = app.call("POST", "/api/auth/login", None, body).await;
     assert_eq!(resp.status, 401);
     assert_eq!(resp.body["error"], "Anmeldung fehlgeschlagen");
+}
+
+/// An over-long password counts only against the address: it creates no e-mail key and
+/// so cannot lock the account, and it costs no argon2 work (#101).
+#[tokio::test]
+async fn overlong_password_does_not_count_against_the_email() {
+    let test_db = TestDb::sqlite().await;
+    let db = test_db.db();
+    let app = TestApp::start(db).await;
+    let account = seed_account(db, "Kunde").await;
+    seed_user(db, Some(&account.id), "o@example.org", Role::Member).await;
+    let long = json!({"email": "o@example.org", "password": "x".repeat(PASSWORD_MAX + 1)});
+    for _ in 0..6 {
+        let resp = app
+            .call("POST", "/api/auth/login", None, long.clone())
+            .await;
+        assert_eq!(resp.status, 401);
+        assert_eq!(resp.body["error"], "Anmeldung fehlgeschlagen");
+    }
+    assert_eq!(app.hasher.computed(), 0);
+    app.login("o@example.org", PASSWORD).await;
 }
 
 /// Starts `n` failing logins at once, each for its own e-mail (so only the address limit
