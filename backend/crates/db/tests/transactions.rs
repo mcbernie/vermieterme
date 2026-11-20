@@ -1,4 +1,5 @@
-//! Transactions: rollback keeps the original error, savepoints, SQLite write locks.
+//! Transactions: rollback keeps the original error, savepoints, SQLite write locks, and
+//! the account lock ending sessions atomically.
 
 // Test bodies are plain async fns run by `dual_test!`, so clippy's in-test allowance
 // does not reach them.
@@ -6,12 +7,18 @@
 // Tests build scopes directly (no session layer here); see vermieterme_db::scope.
 #![allow(clippy::disallowed_methods)]
 
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use std::time::Duration;
 
+use fixtures::{HOUR, NOW, setup};
 use sqlx::{AnyConnection, Row};
-use vermieterme_db::repo::account;
+use vermieterme_db::repo::account::{self, AccountPatch};
+use vermieterme_db::repo::session;
+use vermieterme_db::repo::user::{self, NewUser, Role};
 use vermieterme_db::testing::TestDb;
-use vermieterme_db::{AdminScope, Db, DbError, dual_test, in_transaction};
+use vermieterme_db::{AdminScope, Db, DbError, SecretToken, dual_test, in_transaction};
 
 /// Number of accounts (the rollback tests write accounts).
 async fn account_count(c: &mut AnyConnection) -> i64 {
@@ -57,6 +64,80 @@ async fn rollback_and_savepoint(db: &Db) {
     assert_eq!(names, ["bleibt"]);
 }
 dual_test!(tx_rollback, rollback_and_savepoint);
+
+/// Locking an account ends its members' sessions and moves switched-in admins out, in
+/// the same call; renaming leaves sessions alone.
+async fn account_lock_ends_sessions(db: &Db) {
+    let mut c = db.pool().acquire().await.unwrap();
+    let admin = AdminScope::system();
+    let (scope, member) = setup(&mut c, "m@example.org", Role::Member).await;
+    let member_session =
+        session::create(&mut c, &member, &SecretToken::generate(), NOW, NOW + HOUR)
+            .await
+            .unwrap();
+    let root = NewUser {
+        email: "admin@example.org".into(),
+        name: "A".into(),
+        role: Role::Admin,
+        password_hash: None,
+    };
+    let root = user::create_for_admin(&mut c, &admin, None, &root)
+        .await
+        .unwrap();
+    let admin_session =
+        session::create(&mut c, &root.id, &SecretToken::generate(), NOW, NOW + HOUR)
+            .await
+            .unwrap();
+    session::set_acting_account(&mut c, &admin, &admin_session.id, Some(scope.account_id()))
+        .await
+        .unwrap();
+
+    let rename = AccountPatch {
+        name: Some("Neu".into()),
+        locked: None,
+    };
+    account::update(&mut c, &admin, scope.account_id(), &rename)
+        .await
+        .unwrap();
+    assert_eq!(
+        session_ids(&mut c).await.len(),
+        2,
+        "Umbenennen beendet nichts"
+    );
+
+    let lock = AccountPatch {
+        name: None,
+        locked: Some(true),
+    };
+    account::update(&mut c, &admin, scope.account_id(), &lock)
+        .await
+        .unwrap();
+    assert_eq!(
+        session_ids(&mut c).await,
+        std::slice::from_ref(&admin_session.id)
+    );
+    assert_ne!(member_session.id, admin_session.id);
+    let acting: Option<String> =
+        sqlx::query("SELECT acting_account_id FROM web_session WHERE id = ?")
+            .bind(&admin_session.id)
+            .fetch_one(&mut *c)
+            .await
+            .unwrap()
+            .get("acting_account_id");
+    assert_eq!(acting, None, "Admin verlässt den gesperrten Kunden");
+}
+dual_test!(tx_account_lock, account_lock_ends_sessions);
+
+/// Ids of all stored sessions.
+async fn session_ids(c: &mut AnyConnection) -> Vec<String> {
+    sqlx::query("SELECT id FROM web_session ORDER BY id")
+        .fetch_all(&mut *c)
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.get("id"))
+        .collect()
+}
 
 /// Reads the counter, waits so the other transaction overlaps, then writes it + 1.
 async fn increment(db: &Db) -> Result<(), DbError> {

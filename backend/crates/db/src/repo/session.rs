@@ -12,6 +12,7 @@ use crate::repo::user::{self, User};
 use crate::row::new_id;
 use crate::scope::AdminScope;
 use crate::secret::SecretToken;
+use crate::tx::in_transaction;
 
 /// A stored session (without the token).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,25 +196,30 @@ pub async fn delete_for_user(
 
 /// Lock of an account: ends the sessions of its members (admins keep theirs, the account
 /// lock does not apply to them) and moves admins who switched into it back to their own
-/// account. Returns the number of ended sessions.
+/// account, both in one transaction. Returns the number of ended sessions.
+///
+/// [`super::account::update`] calls this itself when it locks an account.
 pub async fn delete_for_account(
     conn: &mut AnyConnection,
     _admin: &AdminScope,
     account_id: &str,
 ) -> DbResult<u64> {
-    let ended = sqlx::query(
-        "DELETE FROM web_session WHERE user_id IN \
-         (SELECT id FROM app_user WHERE account_id = ? AND role <> 'admin')",
-    )
-    .bind(account_id)
-    .execute(&mut *conn)
-    .await?
-    .rows_affected();
-    sqlx::query("UPDATE web_session SET acting_account_id = NULL WHERE acting_account_id = ?")
+    in_transaction(conn, async |tx| {
+        let ended = sqlx::query(
+            "DELETE FROM web_session WHERE user_id IN \
+             (SELECT id FROM app_user WHERE account_id = ? AND role <> 'admin')",
+        )
         .bind(account_id)
-        .execute(&mut *conn)
-        .await?;
-    Ok(ended)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        sqlx::query("UPDATE web_session SET acting_account_id = NULL WHERE acting_account_id = ?")
+            .bind(account_id)
+            .execute(&mut *tx)
+            .await?;
+        Ok(ended)
+    })
+    .await
 }
 
 /// Removes expired and idle sessions (housekeeping). Returns the number removed.

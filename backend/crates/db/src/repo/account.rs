@@ -3,9 +3,11 @@
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 
+use super::session;
 use crate::error::{DbError, DbResult};
 use crate::row::{flag, flag_value, new_id, now_millis};
 use crate::scope::{AccountScope, AdminScope};
+use crate::tx::in_transaction;
 
 /// An account.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,27 +113,34 @@ pub async fn get_own(conn: &mut AnyConnection, scope: &AccountScope) -> DbResult
 }
 
 /// Updates name and/or lock state with one `UPDATE` (only sent fields change).
-/// Ending sessions of a locked account is up to the caller ([`super::session`]).
+/// Locking ends the sessions of the members in the same transaction, like locking a user
+/// ([`session::delete_for_account`]: admins keep theirs but leave the account).
 pub async fn update(
     conn: &mut AnyConnection,
-    _admin: &AdminScope,
+    admin: &AdminScope,
     id: &str,
     patch: &AccountPatch,
 ) -> DbResult<Account> {
-    let result = sqlx::query(
-        "UPDATE account SET name = COALESCE(?, name), locked = COALESCE(?, locked), \
-         updated_at = ? WHERE id = ?",
-    )
-    .bind(patch.name.as_deref())
-    .bind(patch.locked.map(flag_value))
-    .bind(now_millis())
-    .bind(id)
-    .execute(&mut *conn)
-    .await?;
-    if result.rows_affected() == 0 {
-        return Err(DbError::NotFound);
-    }
-    load(conn, id).await
+    in_transaction(conn, async |tx| {
+        let result = sqlx::query(
+            "UPDATE account SET name = COALESCE(?, name), locked = COALESCE(?, locked), \
+             updated_at = ? WHERE id = ?",
+        )
+        .bind(patch.name.as_deref())
+        .bind(patch.locked.map(flag_value))
+        .bind(now_millis())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        if patch.locked == Some(true) {
+            session::delete_for_account(tx, admin, id).await?;
+        }
+        load(tx, id).await
+    })
+    .await
 }
 
 /// The first account by creation (owner of the legacy data, decision 21).
