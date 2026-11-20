@@ -1,0 +1,60 @@
+[workspace]
+resolver = "3"
+members = ["crates/domain", "crates/db", "crates/api"]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+publish = false
+
+# All third-party dependencies are declared here (plan decision 23). Packages
+# activate them with `name = { workspace = true }`; new ones need the coordinator.
+[workspace.dependencies]
+# Internal crates
+vermieterme-domain = { path = "crates/domain" }
+vermieterme-db = { path = "crates/db" }
+
+# HTTP server
+axum = { version = "0.8.9", features = ["macros", "multipart"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "signal", "process", "time", "fs", "net", "io-util", "sync"] }
+tower-http = { version = "0.6.11", features = ["fs", "trace", "set-header", "limit", "timeout"] }
+
+# Database (rustls only, no OpenSSL)
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "mysql", "migrate"] }
+
+# Serialization, errors, logging
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+
+# Auth and crypto
+argon2 = "0.6.0"
+bcrypt = "0.19.3"
+jsonwebtoken = "12.0.0"
+hmac = "0.13.0"
+sha2 = "0.11.1"
+hkdf = "0.13.0"
+rand = "0.10.4"
+
+# Misc
+time = { version = "0.3.55", features = ["formatting", "parsing", "macros"] }
+uuid = { version = "1.29.3", features = ["v7"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json"] }
+infer = "0.22.0"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[profile.release]
+lto = "thin"
+strip = true

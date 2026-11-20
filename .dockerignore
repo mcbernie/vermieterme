@@ -14,3 +14,4 @@ coverage
 .DS_Store
 README.md
 LICENSE
+backend/target
