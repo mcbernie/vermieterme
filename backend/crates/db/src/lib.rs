@@ -16,6 +16,9 @@
 //!   into another account. It is informational only: the copy function loads the source
 //!   period through the account scope and sets the column only to a period of the same
 //!   account, and no query follows the link to read data.
+//! - Text input is trimmed by the API before it is stored (P3/P4). Trailing spaces
+//!   behave differently: MariaDB cuts those beyond a `VARCHAR` limit with a note only
+//!   and compares with PAD SPACE (`'a' = 'a  '`), SQLite rejects and compares exactly.
 //! - The audit log stores the acting user's id only; the e-mail shown in the log is
 //!   joined at read time and becomes `None` once the user is deleted. This is
 //!   intentional: the log keeps no copy of personal data.
@@ -30,6 +33,7 @@ pub mod scope;
 pub mod secret;
 #[cfg(feature = "testing")]
 pub mod testing;
+mod tx;
 
 pub use dialect::Dialect;
 pub use error::{DbError, DbResult};

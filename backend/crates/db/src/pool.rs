@@ -30,7 +30,8 @@ impl Db {
     ///
     /// Every MySQL connection adds `STRICT_ALL_TABLES` to its `sql_mode`, so a too long
     /// value is rejected (like the SQLite length checks) instead of silently truncated,
-    /// whatever the server default is.
+    /// whatever the server default is. Trailing spaces are the exception: MariaDB still
+    /// cuts those beyond the limit with a note only, so the API trims text input.
     pub async fn connect(url: &str) -> DbResult<Self> {
         let dialect = Dialect::from_url(url)?;
         sqlx::any::install_default_drivers();

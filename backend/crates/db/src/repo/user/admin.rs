@@ -4,8 +4,10 @@ use sqlx::{AnyConnection, Row};
 
 use super::{NewUser, Role, User, UserPatch, insert, load};
 use crate::error::{DbError, DbResult};
+use crate::repo::session;
 use crate::row::{flag_value, now_millis};
 use crate::scope::AdminScope;
+use crate::tx::in_transaction;
 
 /// Creates a user with any role, in `account_id` or without account (admin bootstrap,
 /// admin user management, legacy import). Taken address -> [`DbError::Conflict`]; a
@@ -40,30 +42,60 @@ pub async fn get_for_admin(
     load(conn, id).await
 }
 
+/// Partial update of [`update_for_admin`]. The `WHERE` refuses to demote or lock the
+/// last active (unlocked) admin: the row matches only if it is not an active admin, stays
+/// one after the change, or another active admin exists. Old values are compared, since
+/// `WHERE` is evaluated before `SET`. The inner derived table lets MySQL read the table
+/// it updates.
+const UPDATE_GUARDED: &str = "UPDATE app_user SET name = COALESCE(?, name), \
+     role = COALESCE(?, role), locked = COALESCE(?, locked), updated_at = ? WHERE id = ? \
+     AND (role <> 'admin' OR locked <> 0 \
+     OR (COALESCE(?, role) = 'admin' AND COALESCE(?, locked) = 0) \
+     OR EXISTS (SELECT 1 FROM (SELECT id FROM app_user WHERE role = 'admin' AND locked = 0) \
+     other WHERE other.id <> ?))";
+
 /// Updates any user including the role (admin); only sent fields change. The only way to
-/// change a role. Making a user without account a member is refused by the schema
-/// (`app_user_member_account_chk`) -> [`DbError::Constraint`].
+/// change a role.
+///
+/// - A role change or a lock ends all sessions of the user, in the same transaction
+///   (security baseline; a demoted admin must not keep a switched account).
+/// - Demoting or locking the last active admin -> [`DbError::Conflict`]. (Admins cannot
+///   be deleted at all: the only delete function is scoped to members.)
+/// - Making a user without account a member is refused by the schema
+///   (`app_user_member_account_chk`) -> [`DbError::Constraint`].
+/// - Unknown id -> [`DbError::NotFound`].
 pub async fn update_for_admin(
     conn: &mut AnyConnection,
     _admin: &AdminScope,
     id: &str,
     patch: &UserPatch,
 ) -> DbResult<User> {
-    let result = sqlx::query(
-        "UPDATE app_user SET name = COALESCE(?, name), role = COALESCE(?, role), \
-         locked = COALESCE(?, locked), updated_at = ? WHERE id = ?",
-    )
-    .bind(patch.name.as_deref())
-    .bind(patch.role.map(Role::code))
-    .bind(patch.locked.map(flag_value))
-    .bind(now_millis())
-    .bind(id)
-    .execute(&mut *conn)
-    .await?;
-    if result.rows_affected() == 0 {
-        return Err(DbError::NotFound);
-    }
-    load(conn, id).await
+    in_transaction(conn, async |tx| {
+        let before = load(tx, id).await?;
+        let role = patch.role.map(Role::code);
+        let locked = patch.locked.map(flag_value);
+        let result = sqlx::query(UPDATE_GUARDED)
+            .bind(patch.name.as_deref())
+            .bind(role)
+            .bind(locked)
+            .bind(now_millis())
+            .bind(id)
+            .bind(role)
+            .bind(locked)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        if result.rows_affected() == 0 {
+            // The row exists (loaded above), so the guard refused the change.
+            return Err(DbError::Conflict);
+        }
+        let after = load(tx, id).await?;
+        if after.role != before.role || patch.locked == Some(true) {
+            session::delete_for_user(tx, id, None).await?;
+        }
+        Ok(after)
+    })
+    .await
 }
 
 /// Whether at least one admin exists (admin bootstrap, #69).

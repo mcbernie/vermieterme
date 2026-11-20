@@ -67,14 +67,14 @@ async fn has_all_tables_with_account_id(db: &Db) {
     let fks: usize = tables.iter().map(|t| t.foreign_keys.len()).sum();
     let indexes: usize = tables.iter().map(|t| t.indexes.len()).sum();
     assert_eq!((fks, indexes), (24, 35));
-    // Every text column except the free-form TEXT ones has a length limit (#88).
+    // Every text column has a length limit (#88, #91).
     let unlimited: Vec<String> = tables
         .iter()
         .flat_map(|t| t.columns.iter().map(move |c| (t, c)))
         .filter(|(_, c)| c.class == "text" && c.max_len.is_none())
         .map(|(t, c)| format!("{}.{}", t.name, c.name))
         .collect();
-    assert_eq!(unlimited, ["pdf_template.config", "rent_change.reason"]);
+    assert_eq!(unlimited, Vec::<String>::new());
     let cost = tables
         .iter()
         .find(|t| t.name == "cost_unit_amount")

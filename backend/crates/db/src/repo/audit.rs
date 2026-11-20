@@ -102,33 +102,105 @@ pub async fn record(conn: &mut AnyConnection, entry: &NewAuditEntry<'_>) -> DbRe
     Ok(id)
 }
 
-/// Lists entries newest first (`at DESC, id DESC`), at most [`MAX_PAGE`] (admin). The
-/// next page is requested with [`AuditCursor::after`] of the last entry; pages together
-/// return every entry exactly once.
+/// One page of [`list`]: the entries and the cursor of the next page (`None` = last page).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditPage {
+    /// At most [`MAX_PAGE`] entries, newest first.
+    pub items: Vec<AuditEntry>,
+    /// Cursor for the next page; set only if more entries exist.
+    pub next: Option<AuditCursor>,
+}
+
+/// Shared part of the two list statements (select list and join).
+macro_rules! list_select {
+    () => {
+        "SELECT l.id, l.at, l.user_id, u.email AS user_email, l.account_id, l.action, \
+         l.entity, l.entity_id FROM audit_log l LEFT JOIN app_user u ON u.id = l.user_id WHERE "
+    };
+}
+
+/// Cursor condition and order of the two list statements; a NULL cursor disables the
+/// condition.
+macro_rules! list_page {
+    () => {
+        "(? IS NULL OR l.at < ? OR (l.at = ? AND l.id < ?)) \
+         ORDER BY l.at DESC, l.id DESC LIMIT ?"
+    };
+}
+
+/// All entries; SQLite walks `audit_log_at_idx`.
+const LIST_ALL: &str = concat!(list_select!(), list_page!());
+
+/// Entries of one account. A separate static statement (instead of `? IS NULL OR
+/// l.account_id = ?`) so SQLite can use `audit_log_account_at_idx`.
+const LIST_ACCOUNT: &str = concat!(list_select!(), "l.account_id = ? AND ", list_page!());
+
+/// Lists entries newest first (`at DESC, id DESC`), at most [`MAX_PAGE`] (admin). Reads
+/// one entry more to know whether another page follows; [`AuditPage::next`] then points
+/// after the last returned entry. Pages together return every entry exactly once.
 pub async fn list(
     conn: &mut AnyConnection,
     _admin: &AdminScope,
     filter: &AuditFilter,
-) -> DbResult<Vec<AuditEntry>> {
-    // NULL parameters disable a condition; one static statement for all filter combinations.
+) -> DbResult<AuditPage> {
     let before_at = filter.before.as_ref().map(|c| c.at);
-    let rows = sqlx::query(
-        "SELECT l.id, l.at, l.user_id, u.email AS user_email, l.account_id, l.action, \
-         l.entity, l.entity_id FROM audit_log l LEFT JOIN app_user u ON u.id = l.user_id \
-         WHERE (? IS NULL OR l.account_id = ?) \
-         AND (? IS NULL OR l.at < ? OR (l.at = ? AND l.id < ?)) \
-         ORDER BY l.at DESC, l.id DESC LIMIT ?",
-    )
-    .bind(filter.account_id.as_deref())
-    .bind(filter.account_id.as_deref())
-    .bind(before_at)
-    .bind(before_at)
-    .bind(before_at)
-    .bind(filter.before.as_ref().map(|c| c.id.as_str()))
-    .bind(MAX_PAGE)
-    .fetch_all(&mut *conn)
-    .await?;
-    rows.iter().map(from_row).collect()
+    let before_id = filter.before.as_ref().map(|c| c.id.as_str());
+    let query = match filter.account_id.as_deref() {
+        Some(account_id) => sqlx::query(LIST_ACCOUNT).bind(account_id),
+        None => sqlx::query(LIST_ALL),
+    };
+    let rows = query
+        .bind(before_at)
+        .bind(before_at)
+        .bind(before_at)
+        .bind(before_id)
+        .bind(MAX_PAGE + 1)
+        .fetch_all(&mut *conn)
+        .await?;
+    let mut items = rows.iter().map(from_row).collect::<DbResult<Vec<_>>>()?;
+    let page = usize::try_from(MAX_PAGE).unwrap_or(usize::MAX);
+    let more = items.len() > page;
+    items.truncate(page);
+    let next = if more {
+        items.last().map(AuditCursor::after)
+    } else {
+        None
+    };
+    Ok(AuditPage { items, next })
+}
+
+// `cfg(all(test, ...))` is not recognised as test code by clippy's in-test allowance.
+#[cfg(all(test, feature = "testing"))]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::{LIST_ACCOUNT, LIST_ALL};
+    use crate::testing::TestDb;
+    use sqlx::Row;
+
+    /// SQLite query plan of `sql` as one string.
+    async fn plan(db: &TestDb, sql: &'static str) -> String {
+        let sql = sqlx::AssertSqlSafe(format!("EXPLAIN QUERY PLAN {sql}"));
+        let rows = sqlx::query(sql)
+            .bind("a")
+            .fetch_all(db.db().pool())
+            .await
+            .unwrap();
+        rows.iter()
+            .map(|r| r.get::<String, _>("detail"))
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    /// Each statement walks its own index (no full scan, no temporary sort).
+    #[tokio::test]
+    async fn statements_use_their_index() {
+        let db = TestDb::sqlite().await;
+        let all = plan(&db, LIST_ALL).await;
+        assert!(all.contains("audit_log_at_idx"), "{all}");
+        let account = plan(&db, LIST_ACCOUNT).await;
+        assert!(account.contains("audit_log_account_at_idx"), "{account}");
+        assert!(!account.contains("TEMP B-TREE"), "{account}");
+    }
 }
 
 /// Maps a row of [`list`].

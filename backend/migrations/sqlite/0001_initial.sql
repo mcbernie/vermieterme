@@ -10,7 +10,10 @@
 -- Tables are STRICT so SQLite rejects values of the wrong type, like MySQL does, and
 -- every text column with a length in MySQL (VARCHAR(n)/CHAR(n)) has the same limit here
 -- as CHECK (length(col) <= n); MySQL connections run in strict mode (see pool.rs), so
--- both dialects reject too long values instead of truncating them.
+-- both dialects reject too long values instead of truncating them. Exception: trailing
+-- spaces beyond the limit are cut by MariaDB with a note only, and utf8mb4_bin compares
+-- with PAD SPACE ('a' = 'a  '), while SQLite rejects and compares them exactly. The API
+-- therefore trims every text input before storing it (P3/P4).
 --
 -- Every business table carries account_id. References between business tables are
 -- composite foreign keys (account_id, x_id) -> parent (account_id, id), so a row can
@@ -125,7 +128,7 @@ CREATE TABLE pdf_template (
     id         TEXT    NOT NULL PRIMARY KEY CHECK (length(id) <= 36),
     account_id TEXT    NOT NULL REFERENCES account (id) CHECK (length(account_id) <= 36),
     name       TEXT    NOT NULL DEFAULT 'Standard' CHECK (length(name) <= 255),
-    config     TEXT    NOT NULL,
+    config     TEXT    NOT NULL CHECK (length(config) <= 16000),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 ) STRICT;
@@ -217,7 +220,7 @@ CREATE TABLE rent_change (
     change_type    TEXT    NOT NULL CHECK (length(change_type) <= 16),
     amount_cents   INTEGER NOT NULL,
     effective_date TEXT    NOT NULL CHECK (length(effective_date) <= 10),
-    reason         TEXT    NULL,
+    reason         TEXT    NULL CHECK (length(reason) <= 2000),
     created_at     INTEGER NOT NULL,
     updated_at     INTEGER NOT NULL,
     FOREIGN KEY (account_id, unit_id) REFERENCES unit (account_id, id) ON DELETE CASCADE
@@ -273,6 +276,8 @@ CREATE UNIQUE INDEX billing_period_account_id_key ON billing_period (account_id,
 CREATE INDEX billing_period_property_start_idx ON billing_period (account_id, property_id, start_date);
 CREATE INDEX billing_period_copied_from_idx ON billing_period (copied_from_id);
 
+-- Legacy import (P9): Prisma Cost and Prepayment have no updatedAt; the import sets
+-- updated_at to created_at.
 -- total_amount_cents NULL = position without amount (#25). version: optimistic lock (#67).
 -- Deleting a category with costs is refused (no cascade).
 CREATE TABLE cost (

@@ -11,7 +11,11 @@
 --   booleans     SMALLINT 0/1: TINYINT/BOOLEAN is not decodable through `Any`
 --   integers     BIGINT (all integers decode as i64)
 -- utf8mb4_bin keeps comparisons and unique keys byte-exact like SQLite (e-mail addresses
--- are normalised to lower case in the application).
+-- are normalised to lower case in the application), except for trailing spaces: it
+-- compares with PAD SPACE ('a' = 'a  '), and spaces beyond a VARCHAR limit are cut with a
+-- note only, even in strict mode. The API therefore trims every text input (P3/P4).
+-- Free text: TEXT holds at most 65 535 bytes, so pdf_template.config is limited to
+-- 16 000 characters (4 bytes each in utf8mb4) by a CHECK, like in SQLite.
 --
 -- Foreign keys are table constraints (InnoDB ignores inline REFERENCES), and every
 -- foreign key has an explicitly named index, so MySQL creates no implicit ones.
@@ -144,7 +148,8 @@ CREATE TABLE pdf_template (
     updated_at BIGINT       NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY pdf_template_account_key (account_id),
-    FOREIGN KEY (account_id) REFERENCES account (id)
+    FOREIGN KEY (account_id) REFERENCES account (id),
+    CONSTRAINT pdf_template_config_len_chk CHECK (CHAR_LENGTH(config) <= 16000)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 -- Master data -----------------------------------------------------------------------------
@@ -238,7 +243,7 @@ CREATE TABLE rent_change (
     change_type    VARCHAR(16) NOT NULL,
     amount_cents   BIGINT      NOT NULL,
     effective_date CHAR(10)    NOT NULL,
-    reason         TEXT        NULL,
+    reason         VARCHAR(2000) NULL,
     created_at     BIGINT      NOT NULL,
     updated_at     BIGINT      NOT NULL,
     PRIMARY KEY (id),
@@ -300,6 +305,8 @@ CREATE TABLE billing_period (
     FOREIGN KEY (copied_from_id) REFERENCES billing_period (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+-- Legacy import (P9): Prisma Cost and Prepayment have no updatedAt; the import sets
+-- updated_at to created_at.
 -- total_amount_cents NULL = position without amount (#25). version: optimistic lock (#67).
 -- Deleting a category with costs is refused (no cascade).
 CREATE TABLE cost (

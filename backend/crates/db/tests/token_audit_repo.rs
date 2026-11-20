@@ -108,9 +108,11 @@ async fn audit_log(db: &Db) {
         };
         audit::record(&mut c, &entry).await.unwrap();
     }
-    let all = audit::list(&mut c, &admin, &AuditFilter::default())
+    let page = audit::list(&mut c, &admin, &AuditFilter::default())
         .await
         .unwrap();
+    assert_eq!(page.next, None, "nur eine Seite");
+    let all = page.items;
     assert_eq!(all.len(), 3);
     assert!(
         all.windows(2)
@@ -124,7 +126,14 @@ async fn audit_log(db: &Db) {
         account_id: Some(scope.account_id().into()),
         before: None,
     };
-    assert_eq!(audit::list(&mut c, &admin, &filter).await.unwrap().len(), 2);
+    assert_eq!(
+        audit::list(&mut c, &admin, &filter)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
     let filter = AuditFilter {
         account_id: None,
         before: Some(AuditCursor {
@@ -136,6 +145,7 @@ async fn audit_log(db: &Db) {
         audit::list(&mut c, &admin, &filter)
             .await
             .unwrap()
+            .items
             .is_empty()
     );
 
@@ -152,50 +162,68 @@ async fn audit_log(db: &Db) {
     let page = audit::list(&mut c, &admin, &AuditFilter::default())
         .await
         .unwrap();
-    assert_eq!(page.len(), usize::try_from(audit::MAX_PAGE).unwrap());
+    assert_eq!(page.items.len(), usize::try_from(audit::MAX_PAGE).unwrap());
+    assert_eq!(page.next, page.items.last().map(AuditCursor::after));
 }
 dual_test!(audit_entries, audit_log);
 
+/// Inserts an audit entry with a fixed id at [`NOW`].
+async fn insert_at_now(c: &mut sqlx::AnyConnection, id: &str) {
+    sqlx::query(
+        "INSERT INTO audit_log (id, at, user_id, account_id, action, entity, entity_id) \
+         VALUES (?, ?, NULL, NULL, 'x', 'y', NULL)",
+    )
+    .bind(id)
+    .bind(NOW)
+    .execute(&mut *c)
+    .await
+    .unwrap();
+}
+
 /// Entries sharing one millisecond across a page boundary are all returned exactly once:
-/// the cursor `(at, id)` breaks ties by id.
+/// the cursor `(at, id)` breaks ties by id. Exactly one full page has no next cursor.
 async fn audit_paging_same_millisecond(db: &Db) {
     let mut c = db.pool().acquire().await.unwrap();
     let admin = AdminScope::system();
     let total = audit::MAX_PAGE + 1;
-    for i in 0..total {
-        // Inserted out of id order, all at the same instant.
-        let id = format!("e{:03}", (i * 37) % total);
-        sqlx::query(
-            "INSERT INTO audit_log (id, at, user_id, account_id, action, entity, entity_id) \
-             VALUES (?, ?, NULL, NULL, 'x', 'y', NULL)",
-        )
-        .bind(&id)
-        .bind(NOW)
-        .execute(&mut *c)
+    // Inserted out of id order, all at the same instant.
+    let ids: Vec<String> = (0..total)
+        .map(|i| format!("e{:03}", (i * 37) % total))
+        .collect();
+    for id in &ids[..ids.len() - 1] {
+        insert_at_now(&mut c, id).await;
+    }
+    let full = audit::list(&mut c, &admin, &AuditFilter::default())
         .await
         .unwrap();
-    }
+    assert_eq!(full.items.len(), usize::try_from(audit::MAX_PAGE).unwrap());
+    assert_eq!(full.next, None, "genau eine volle Seite: kein Cursor");
+
+    insert_at_now(&mut c, &ids[ids.len() - 1]).await;
     let first = audit::list(&mut c, &admin, &AuditFilter::default())
         .await
         .unwrap();
-    assert_eq!(first.len(), usize::try_from(audit::MAX_PAGE).unwrap());
+    assert_eq!(first.items.len(), usize::try_from(audit::MAX_PAGE).unwrap());
+    assert_eq!(first.next, first.items.last().map(AuditCursor::after));
     let filter = AuditFilter {
         account_id: None,
-        before: first.last().map(AuditCursor::after),
+        before: first.next.clone(),
     };
     let second = audit::list(&mut c, &admin, &filter).await.unwrap();
-    assert_eq!(second.len(), 1, "Rest derselben Millisekunde");
+    assert_eq!(second.items.len(), 1, "Rest derselben Millisekunde");
+    assert_eq!(second.next, None);
 
-    let ids: Vec<&str> = first.iter().chain(&second).map(|e| e.id.as_str()).collect();
-    let unique: HashSet<&str> = ids.iter().copied().collect();
-    assert_eq!(unique.len(), ids.len(), "keine Dubletten");
-    assert_eq!(
-        unique.len(),
-        usize::try_from(total).unwrap(),
-        "alle Einträge"
-    );
+    let seen: Vec<&str> = first
+        .items
+        .iter()
+        .chain(&second.items)
+        .map(|e| e.id.as_str())
+        .collect();
+    let unique: HashSet<&str> = seen.iter().copied().collect();
+    assert_eq!(unique.len(), seen.len(), "keine Dubletten");
+    assert_eq!(unique.len(), ids.len(), "alle Einträge");
     assert!(
-        ids.windows(2).all(|w| w[0] > w[1]),
+        seen.windows(2).all(|w| w[0] > w[1]),
         "absteigend nach id innerhalb der Millisekunde"
     );
 }

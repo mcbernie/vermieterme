@@ -11,7 +11,8 @@ pub enum DbError {
     /// security baseline: foreign IDs behave like missing ones).
     #[error("Nicht gefunden")]
     NotFound,
-    /// A unique key would be violated (e.g. e-mail address already taken).
+    /// A unique key would be violated (e.g. e-mail address already taken), or the change
+    /// conflicts with the current state (e.g. demoting or locking the last active admin).
     #[error("Eintrag existiert bereits")]
     Conflict,
     /// A value breaks a column rule: text longer than the column allows (SQLite `CHECK`,

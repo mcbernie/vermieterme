@@ -10,8 +10,10 @@ use sqlx::AnyConnection;
 
 use super::{MemberPatch, NewMember, Role, User, from_row, insert, load};
 use crate::error::{DbError, DbResult};
+use crate::repo::session;
 use crate::row::{flag_value, now_millis};
 use crate::scope::AccountScope;
+use crate::tx::in_transaction;
 
 /// Creates a member in the scope's account. Taken address -> [`DbError::Conflict`].
 pub async fn create(
@@ -62,27 +64,34 @@ pub async fn get(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> Db
 }
 
 /// Updates name and/or lock state of a member with one `UPDATE` (only sent fields change).
+/// Locking ends all sessions of the member in the same transaction (security baseline).
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
     id: &str,
     patch: &MemberPatch,
 ) -> DbResult<User> {
-    let result = sqlx::query(
-        "UPDATE app_user SET name = COALESCE(?, name), locked = COALESCE(?, locked), \
-         updated_at = ? WHERE id = ? AND account_id = ? AND role = 'member'",
-    )
-    .bind(patch.name.as_deref())
-    .bind(patch.locked.map(flag_value))
-    .bind(now_millis())
-    .bind(id)
-    .bind(scope.account_id())
-    .execute(&mut *conn)
-    .await?;
-    if result.rows_affected() == 0 {
-        return Err(DbError::NotFound);
-    }
-    load(conn, id).await
+    in_transaction(conn, async |tx| {
+        let result = sqlx::query(
+            "UPDATE app_user SET name = COALESCE(?, name), locked = COALESCE(?, locked), \
+             updated_at = ? WHERE id = ? AND account_id = ? AND role = 'member'",
+        )
+        .bind(patch.name.as_deref())
+        .bind(patch.locked.map(flag_value))
+        .bind(now_millis())
+        .bind(id)
+        .bind(scope.account_id())
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        if patch.locked == Some(true) {
+            session::delete_for_user(tx, id, None).await?;
+        }
+        load(tx, id).await
+    })
+    .await
 }
 
 /// Deletes a member of the scope's account (sessions and tokens cascade).
