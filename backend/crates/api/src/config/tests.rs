@@ -87,3 +87,27 @@ fn reference_has_unique_documented_names() {
     assert_eq!(names.len(), VARIABLES.len());
     assert!(VARIABLES.iter().all(|v| !v.description.is_empty()));
 }
+
+#[test]
+fn trusted_proxies_with_oversized_prefix_stop_the_start() {
+    for bad in [
+        "10.0.0.0/33",
+        "::/129",
+        "::ffff:10.0.0.0/8",
+        "::ffff:10.0.0.0/129",
+    ] {
+        let err = Config::from_lookup(lookup(&[("AUTH_SECRET", SECRET), ("TRUSTED_PROXIES", bad)]))
+            .unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Invalid("TRUSTED_PROXIES", _)),
+            "{bad}"
+        );
+    }
+    let config = Config::from_lookup(lookup(&[
+        ("AUTH_SECRET", SECRET),
+        ("TRUSTED_PROXIES", "::ffff:10.0.0.0/104"),
+    ]))
+    .unwrap();
+    assert!(config.trusted_proxies[0].contains("10.9.8.7".parse().unwrap()));
+    assert!(!config.trusted_proxies[0].contains("8.8.8.8".parse().unwrap()));
+}

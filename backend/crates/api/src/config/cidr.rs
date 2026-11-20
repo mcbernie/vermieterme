@@ -11,18 +11,24 @@ pub struct Cidr {
 }
 
 impl Cidr {
-    /// Parses `addr[/prefix]`; `None` if malformed or the prefix is too long.
+    /// Parses `addr[/prefix]`; `None` if malformed or the prefix exceeds the address
+    /// length. An IPv4-mapped network (`::ffff:10.0.0.0/104`) is stored as the IPv4
+    /// network (`10.0.0.0/8`); its prefix must cover the 96 mapping bits, so
+    /// `::ffff:0.0.0.0/95` and shorter are rejected rather than widened.
     pub fn parse(text: &str) -> Option<Self> {
         let (addr, prefix) = match text.split_once('/') {
             Some((a, p)) => (a, Some(p)),
             None => (text, None),
         };
-        let network: IpAddr = addr.trim().parse().ok()?;
-        let max = if network.is_ipv4() { 32 } else { 128 };
+        let parsed: IpAddr = addr.trim().parse().ok()?;
+        let max = width(parsed);
         let prefix = match prefix {
             Some(p) => p.trim().parse::<u8>().ok().filter(|p| *p <= max)?,
             None => max,
         };
+        let network = canonical(parsed);
+        // Mapped networks lose the 96 bits of the `::ffff:0:0/96` prefix.
+        let prefix = prefix.checked_sub(max - width(network))?;
         Some(Self { network, prefix })
     }
 
@@ -30,7 +36,7 @@ impl Cidr {
     /// are compared as IPv4.
     pub fn contains(&self, ip: IpAddr) -> bool {
         let ip = canonical(ip);
-        match (canonical(self.network), ip) {
+        match (self.network, ip) {
             (IpAddr::V4(net), IpAddr::V4(ip)) => same_prefix(
                 u128::from(u32::from(net)),
                 u128::from(u32::from(ip)),
@@ -45,6 +51,11 @@ impl Cidr {
     }
 }
 
+/// Address length in bits (32 or 128).
+fn width(ip: IpAddr) -> u8 {
+    if ip.is_ipv4() { 32 } else { 128 }
+}
+
 /// IPv4-mapped IPv6 address as IPv4, everything else unchanged.
 fn canonical(ip: IpAddr) -> IpAddr {
     match ip {
@@ -53,9 +64,12 @@ fn canonical(ip: IpAddr) -> IpAddr {
     }
 }
 
-/// Whether the first `prefix` of `width` bits of `a` and `b` are equal.
+/// Whether the first `prefix` of `width` bits of `a` and `b` are equal. A prefix longer
+/// than `width` (excluded by [`Cidr::parse`]) never matches instead of overflowing.
 fn same_prefix(a: u128, b: u128, width: u32, prefix: u8) -> bool {
-    let shift = width - u32::from(prefix);
+    let Some(shift) = width.checked_sub(u32::from(prefix)) else {
+        return false;
+    };
     if shift >= 128 {
         return true;
     }
@@ -106,5 +120,34 @@ mod tests {
         assert_eq!(parse_list("10.0.0.0/8, x"), None);
         assert_eq!(parse_list(" ").unwrap().len(), 0);
         assert_eq!(parse_list("10.0.0.0/8,,::1").unwrap().len(), 2);
+        assert_eq!(Cidr::parse("::/129"), None);
+        assert_eq!(Cidr::parse("10.0.0.0/255"), None);
+    }
+
+    #[test]
+    fn ipv4_mapped_networks_become_ipv4() {
+        let net = Cidr::parse("::ffff:10.0.0.0/104").unwrap();
+        assert_eq!(net, Cidr::parse("10.0.0.0/8").unwrap());
+        assert!(net.contains(ip("10.1.2.3")));
+        assert!(net.contains(ip("::ffff:10.1.2.3")));
+        assert!(!net.contains(ip("8.8.8.8")));
+        assert!(!net.contains(ip("::ffff:8.8.8.8")));
+        let host = Cidr::parse("::ffff:127.0.0.1").unwrap();
+        assert!(host.contains(ip("127.0.0.1")));
+        assert!(!host.contains(ip("127.0.0.2")));
+        // Shorter than the mapping prefix would cover non-mapped addresses: rejected.
+        assert_eq!(Cidr::parse("::ffff:10.0.0.0/8"), None);
+        assert_eq!(Cidr::parse("::ffff:0.0.0.0/95"), None);
+        assert!(
+            Cidr::parse("::ffff:0.0.0.0/96")
+                .unwrap()
+                .contains(ip("8.8.8.8"))
+        );
+    }
+
+    #[test]
+    fn oversized_prefix_never_matches() {
+        assert!(!same_prefix(0, 0, 32, 104));
+        assert!(!same_prefix(0, 0, 128, 129));
     }
 }
