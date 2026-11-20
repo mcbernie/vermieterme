@@ -5,6 +5,7 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use serde::Deserialize;
 use vermieterme_db::repo::documents::Owner;
+use vermieterme_db::repo::masterdata::Rejection;
 use vermieterme_db::repo::masterdata::tenant::{self, LEASE_TYPES, Tenant, TenantData};
 use vermieterme_db::repo::masterdata::unit as unit_repo;
 use vermieterme_domain::vpi::base_year_code;
@@ -13,9 +14,10 @@ use super::fields::{ID_INPUT_MAX, SHORT_MAX, TEXT_MAX, filter};
 use super::tenant_json::TenantJson;
 use super::unit::NOT_FOUND as UNIT_NOT_FOUND;
 use super::unit_embed;
-use super::{audited, created, deleted};
+use super::{audited, audited_read_committed, created, deleted};
 use crate::auth::AccountCtx;
 use crate::documents::cascade::delete_owner;
+use crate::documents::changed_meanwhile;
 use crate::error::json::{ApiJson, ApiQuery};
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
@@ -219,15 +221,22 @@ pub async fn update(
 ) -> ApiResult<axum::Json<TenantJson>> {
     let data = body.validate()?;
     check_targets(&state, &ctx, &id, &data.unit_id).await?;
-    let tenant = audited(
+    // A move locks properties and units in the order of `repo::billing` (#120), hence
+    // `READ COMMITTED`; something moved meanwhile is 409 with a request to retry.
+    let tenant = audited_read_committed(
         &state,
         &ctx,
         ("tenant.update", "tenant"),
         NOT_FOUND,
         |t: &Tenant| t.id.clone(),
-        async |tx| tenant::update(tx, &ctx.scope, &id, &data).await,
+        async |tx| {
+            Ok(Ok::<_, Rejection>(
+                tenant::update(tx, &ctx.scope, &id, &data).await?,
+            ))
+        },
     )
-    .await?;
+    .await
+    .map_err(changed_meanwhile)?;
     let units = unit_embed::load(&state, &ctx).await?;
     Ok(axum::Json(TenantJson::new(tenant, &units)))
 }

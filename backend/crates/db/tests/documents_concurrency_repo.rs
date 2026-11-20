@@ -17,6 +17,7 @@ use vermieterme_db::repo::billing::period;
 use vermieterme_db::repo::documents::{self, NewDocument, Owner, files_of};
 use vermieterme_db::repo::masterdata::property as property_repo;
 use vermieterme_db::repo::masterdata::tenant::{self, TenantData};
+use vermieterme_db::repo::masterdata::unit as unit_repo;
 use vermieterme_db::{AccountScope, AnyConnection, Db, DbError, DbResult, dual_test};
 
 /// Rounds of each race: a missing lock shows only sometimes.
@@ -149,3 +150,82 @@ async fn upload_vs_tenant_delete(db: &Db) {
     }
 }
 dual_test!(upload_vs_tenant, upload_vs_tenant_delete);
+
+/// Where a moved tenant's documents end up when its target is deleted.
+#[derive(Clone, Copy)]
+enum Target {
+    /// The target unit is deleted.
+    Unit,
+    /// The target property is deleted.
+    Property,
+}
+
+/// A tenant with a document moves into a unit (transaction open, not yet committed)
+/// while that unit or its property is deleted (#120). The delete must wait for the move
+/// and then list the tenant's file, or leave the tenant in place: never a deleted
+/// document whose file is missing from the list.
+async fn move_vs_delete(db: &Db, target: Target) {
+    let s = scope(db, "A").await;
+    let mut c1 = db.pool().acquire().await.unwrap();
+    let mut c2 = db.pool().acquire().await.unwrap();
+    let home = unit(db, &s, &property(db, &s).await, 10).await;
+    for round in 0..ROUNDS {
+        let pid = property(db, &s).await;
+        let uid = unit(db, &s, &pid, 10).await;
+        let tid = tenant(db, &s, &home).await;
+        let mut c = db.pool().acquire().await.unwrap();
+        let doc = documents::create(&mut c, &s, &new_doc(&format!("m{round}"), None, Some(&tid)))
+            .await
+            .unwrap();
+        let mut data = tenant::get(&mut c, &s, &tid).await.unwrap().data;
+        drop(c);
+        data.unit_id = uid.clone();
+        let (moved_tx, moved_rx) = tokio::sync::oneshot::channel::<()>();
+        let (moved, files) = tokio::join!(
+            in_transaction_read_committed(&mut c2, async |tx| {
+                tenant::update(tx, &s, &tid, &data).await?;
+                let _ = moved_tx.send(());
+                // Keep the move uncommitted while the delete starts.
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                Ok(())
+            }),
+            async {
+                moved_rx.await.unwrap();
+                match target {
+                    Target::Unit => {
+                        cascade(&mut c1, &s, Owner::Unit(&uid), async |tx| {
+                            unit_repo::delete(tx, &s, &uid).await
+                        })
+                        .await
+                    }
+                    Target::Property => {
+                        cascade(&mut c1, &s, Owner::Property(&pid), async |tx| {
+                            property_repo::delete(tx, &s, &pid).await
+                        })
+                        .await
+                    }
+                }
+            },
+        );
+        moved.unwrap();
+        let files = files.unwrap();
+        let mut c = db.pool().acquire().await.unwrap();
+        let kept = documents::get(&mut c, &s, &doc.id).await.is_ok();
+        assert!(
+            kept || files.contains(&doc.file_name),
+            "Runde {round}: Dokument gelöscht, Datei nicht gelistet"
+        );
+    }
+}
+
+/// [`move_vs_delete`] against deleting the target unit.
+async fn move_vs_unit_delete(db: &Db) {
+    move_vs_delete(db, Target::Unit).await;
+}
+dual_test!(move_vs_unit, move_vs_unit_delete);
+
+/// [`move_vs_delete`] against deleting the target property.
+async fn move_vs_property_delete(db: &Db) {
+    move_vs_delete(db, Target::Property).await;
+}
+dual_test!(move_vs_property, move_vs_property_delete);

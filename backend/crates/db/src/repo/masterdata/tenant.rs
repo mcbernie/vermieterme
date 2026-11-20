@@ -3,11 +3,14 @@
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 
+use self::move_lock::lock_move;
 use super::unit;
 use crate::error::{DbError, DbResult};
 use crate::row::{new_id, now_millis};
 use crate::scope::AccountScope;
-use crate::tx::in_transaction;
+use crate::tx::{in_transaction, in_transaction_read_committed};
+
+mod move_lock;
 
 /// Allowed values of [`TenantData::lease_type`].
 pub const LEASE_TYPES: [&str; 3] = ["standard", "index", "staffel"];
@@ -225,15 +228,21 @@ pub async fn create(
 /// to another tenant afterwards. The decision is made inside the `UPDATE` itself (not from
 /// a prior read), so concurrent changes cannot skip a revocation; the `CASE` stands before
 /// `unit_id = ?` because MySQL evaluates assignments left to right.
+/// A move to another unit takes the locks of `move_lock` first (#120, `READ COMMITTED`);
+/// something moved meanwhile -> [`DbError::Conflict`].
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
     id: &str,
     data: &TenantData,
 ) -> DbResult<Tenant> {
-    in_transaction(conn, async |tx| {
-        get(tx, scope, id).await?;
-        unit::ensure(tx, scope, &data.unit_id).await?;
+    in_transaction_read_committed(conn, async |tx| {
+        let current = get(tx, scope, id).await?.data.unit_id;
+        if current == data.unit_id {
+            unit::ensure(tx, scope, &data.unit_id).await?;
+        } else {
+            lock_move(tx, scope, id, &current, &data.unit_id).await?;
+        }
         let now = now_millis();
         sqlx::query(
             "UPDATE tenant SET salutation = ?, first_name = ?, last_name = ?, \
