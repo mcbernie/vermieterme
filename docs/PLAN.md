@@ -189,6 +189,9 @@ per Test gegen den Code geprüft).
 27. **Automatische Migration** beim ersten Start von 2.0: ja, Altdatei unverändert, Abbruch mit deutlicher Meldung
     bei Prüffehler.
 28. **IBAN-Verschlüsselung:** nicht in Phase 2 (Schutz über Volume/Host), als Issue vorgemerkt.
+29. **Einheitenbetrag je Einheit** (#80): Beträge „laut Bescheid“/„siehe Anlage“ werden je Einheit und Kostenposition
+    gespeichert (Tabelle `cost_unit_amount`), nicht mehr einmal je Kostenposition. Altbestand: der bisherige Betrag
+    wird für jede Einheit des Objekts übernommen (P9). Web-API und Vertrag: P2/P5 ergänzen das Feld je Einheit.
 
 ## Arbeitspakete
 
