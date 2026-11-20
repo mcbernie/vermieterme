@@ -1,51 +1,137 @@
 name: CI
 
+# All jobs call `just` recipes (see justfile): local = CI.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  lint:
-    name: Lint
+  rust-lint:
+    name: Rust Lint (fmt, clippy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: taiki-e/install-action@just
+      - uses: Swatinem/rust-cache@v2
         with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
+          workspaces: backend
+          shared-key: rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: just fmt-check lint
 
-  test:
-    name: Test
+  rust-test-sqlite:
+    name: Rust Test (SQLite)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: taiki-e/install-action@just
+      - uses: Swatinem/rust-cache@v2
         with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+          workspaces: backend
+          shared-key: rust
+          save-if: false
+      - run: just test
 
-  build:
-    name: Build
+  rust-test-mysql:
+    name: Rust Test (MariaDB)
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root-password
+        ports:
+          - 3306:3306
+        # Test database only: data on tmpfs and relaxed durability, never for production.
+        options: >-
+          --tmpfs /var/lib/mysql
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@just
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+          shared-key: rust
+          save-if: false
+      - run: just test-mysql
+        env:
+          TEST_MYSQL_URL: mysql://root:ci-root-password@127.0.0.1:3306
+
+  cargo-deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@cargo-deny
+      - run: just deny
+
+  lines:
+    name: Zeilenprüfung
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@just
+      - run: just lines
+
+  web-lint:
+    name: Web Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@just
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - run: just web-lint web-types
+
+  web-test:
+    name: Web Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@just
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: just web-test
+
+  web-build:
+    name: Web Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@just
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: just web-build
         env:
           DATABASE_URL: "file:./dev.db"
           AUTH_SECRET: "ci-build-secret-not-for-production"
