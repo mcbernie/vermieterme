@@ -1,11 +1,12 @@
 //! Periodic cleanup: expired and idle sessions in the database, expired rate-limit
-//! entries in memory.
+//! entries in memory, temporary upload files left behind by a crash (#121).
 
 use std::time::Duration;
 
 use vermieterme_db::repo::session;
 use vermieterme_db::row::now_millis;
 
+use crate::documents::storage::{STALE_PART_AGE, remove_stale_parts};
 use crate::error::db_log;
 use crate::routes::AppState;
 
@@ -25,6 +26,9 @@ pub async fn run_once(state: &AppState) {
         Ok(removed) => tracing::debug!(removed, "Abgelaufene Sitzungen entfernt"),
         Err(error) => db_log::warn(&error, "Aufräumen der Sitzungen fehlgeschlagen"),
     }
+    let upload_dir = std::path::Path::new(&state.config.upload_dir);
+    let parts = remove_stale_parts(upload_dir, STALE_PART_AGE).await;
+    tracing::debug!(removed = parts, "Alte Upload-Dateien entfernt");
 }
 
 /// Starts the cleanup task (first run after one interval).

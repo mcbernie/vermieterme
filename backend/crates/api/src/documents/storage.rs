@@ -7,6 +7,7 @@
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use crate::error::{ApiError, ApiResult};
 
@@ -59,6 +60,71 @@ pub async fn remove_files(upload_dir: &str, account_id: &str, file_names: &[Stri
     }
 }
 
+/// Age after which a temporary upload file counts as left behind by a crash (an upload
+/// itself takes seconds; the request timeout ends it long before).
+pub const STALE_PART_AGE: Duration = Duration::from_secs(3600);
+
+/// Removes temporary upload files (`.{uuid}.part`, see `upload`) older than `max_age`
+/// from the account directories below `upload_dir`: a crash during an upload leaves
+/// them, the [`FileGuard`] cannot. Returns how many were removed; failures are logged
+/// with their kind only. A missing `upload_dir` (no upload yet) is fine.
+pub async fn remove_stale_parts(upload_dir: &Path, max_age: Duration) -> usize {
+    let mut removed = 0;
+    for dir in entries(upload_dir).await {
+        if !dir.file_type().await.is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        for entry in entries(&dir.path()).await {
+            if is_stale_part(&entry, max_age).await {
+                match tokio::fs::remove_file(entry.path()).await {
+                    Ok(()) => removed += 1,
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
+                    Err(error) => {
+                        tracing::warn!(kind = ?error.kind(), "Alte Upload-Datei konnte nicht gelöscht werden");
+                    }
+                }
+            }
+        }
+    }
+    removed
+}
+
+/// The entries of a directory; empty (failure logged with its kind) if it cannot be read.
+async fn entries(dir: &Path) -> Vec<tokio::fs::DirEntry> {
+    let mut found = Vec::new();
+    let mut read = match tokio::fs::read_dir(dir).await {
+        Ok(read) => read,
+        Err(error) if error.kind() == ErrorKind::NotFound => return found,
+        Err(error) => {
+            tracing::warn!(kind = ?error.kind(), "Upload-Verzeichnis nicht lesbar");
+            return found;
+        }
+    };
+    while let Ok(Some(entry)) = read.next_entry().await {
+        found.push(entry);
+    }
+    found
+}
+
+/// `true` for a regular file named `.{…}.part` last modified more than `max_age` ago.
+async fn is_stale_part(entry: &tokio::fs::DirEntry, max_age: Duration) -> bool {
+    let name = entry.file_name();
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    if !(name.starts_with('.') && name.ends_with(".part")) {
+        return false;
+    }
+    let Ok(meta) = entry.metadata().await else {
+        return false;
+    };
+    let age = meta
+        .modified()
+        .ok()
+        .and_then(|m| SystemTime::now().duration_since(m).ok());
+    meta.is_file() && age.is_some_and(|age| age > max_age)
+}
+
 /// A file on disk that is removed when the guard is dropped, unless [`FileGuard::keep`]
 /// was called: covers failed uploads, refused types, a failed insert and a cancelled
 /// request (dropped future) alike.
@@ -109,7 +175,9 @@ impl Drop for FileGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{file_path, is_safe_name};
+    use std::time::{Duration, SystemTime};
+
+    use super::{file_path, is_safe_name, remove_stale_parts};
 
     #[test]
     fn safe_names() {
@@ -130,5 +198,33 @@ mod tests {
         assert_eq!(path, std::path::Path::new("data/uploads/acc/f.pdf"));
         assert!(file_path("data/uploads", "..", "f.pdf").is_none());
         assert!(file_path("data/uploads", "acc", "../f.pdf").is_none());
+    }
+
+    #[tokio::test]
+    async fn only_old_temporary_files_are_removed() {
+        let root = std::env::temp_dir().join(format!("vm-parts-{}", vermieterme_db::row::new_id()));
+        let dir = root.join("acc");
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = SystemTime::now() - Duration::from_secs(7200);
+        for name in [".old.part", "old.pdf"] {
+            let file = std::fs::File::create(dir.join(name)).unwrap();
+            file.set_modified(old).unwrap();
+        }
+        std::fs::File::create(dir.join(".new.part")).unwrap();
+        assert_eq!(
+            remove_stale_parts(&root, Duration::from_secs(3600)).await,
+            1
+        );
+        let mut left: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        left.sort();
+        assert_eq!(left, [".new.part", "old.pdf"]);
+        assert_eq!(
+            remove_stale_parts(&root.join("fehlt"), Duration::ZERO).await,
+            0
+        );
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }
