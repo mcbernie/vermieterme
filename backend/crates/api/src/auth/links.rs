@@ -149,16 +149,15 @@ async fn guarded(
     ip: &str,
     work: impl Future<Output = ApiResult<Response>>,
 ) -> ApiResult<Response> {
-    state
+    let attempt = state
         .limiter
-        .check(&LINK_IP, ip)
+        .begin(&LINK_IP, ip)
         .map_err(ApiError::rate_limited)?;
     let result = work.await;
-    if result
-        .as_ref()
-        .is_err_and(|e| e.status() == StatusCode::UNAUTHORIZED)
-    {
-        state.limiter.fail(&LINK_IP, ip);
+    match &result {
+        Ok(_) => attempt.succeeded(),
+        Err(e) if e.status() == StatusCode::UNAUTHORIZED => attempt.failed(),
+        Err(_) => {}
     }
     result
 }

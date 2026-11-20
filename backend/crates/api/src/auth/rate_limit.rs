@@ -1,9 +1,14 @@
 //! In-memory rate limits against guessing (decision 13: one process, one instance).
 //!
 //! A key (e.g. `login-ip:203.0.113.7`) collects failures within a window; once
-//! [`Policy::max_failures`] is reached the key is locked for [`Policy::lockout`]. A
-//! success clears per-account keys ([`RateLimiter::clear`]); per-IP keys only expire, so
-//! one valid account does not reset an attacker's budget.
+//! [`Policy::max_failures`] is reached the key is locked for [`Policy::lockout`].
+//!
+//! An attempt is **reserved** before the work starts ([`RateLimiter::begin`]): checking
+//! and counting happen in one step under the lock, so parallel requests cannot all pass
+//! the check before the first failure is booked. Reserved, unfinished attempts count
+//! against the limit; the returned [`Attempt`] books the outcome. A success clears
+//! per-account keys ([`Policy::reset_on_success`]); per-IP keys only expire, so one
+//! valid account does not reset an attacker's budget.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
@@ -14,35 +19,41 @@ use std::time::{Duration, Instant};
 pub struct Policy {
     /// Key prefix, keeps kinds apart.
     pub prefix: &'static str,
-    /// Failures allowed within [`Policy::window`] before the lock.
+    /// Failures (plus reserved attempts) allowed within [`Policy::window`].
     pub max_failures: u32,
     /// Counting window.
     pub window: Duration,
     /// Duration of the lock.
     pub lockout: Duration,
+    /// A success forgets the key (per-account keys); else it only ends the reservation.
+    pub reset_on_success: bool,
 }
 
 /// Fifteen minutes, the window and lock of all policies.
 const QUARTER_HOUR: Duration = Duration::from_secs(15 * 60);
 
 /// Login attempts per client address.
-pub const LOGIN_IP: Policy = policy("login-ip", 20);
+pub const LOGIN_IP: Policy = policy("login-ip", 20, false);
 /// Login attempts per e-mail address.
-pub const LOGIN_EMAIL: Policy = policy("login-email", 5);
+pub const LOGIN_EMAIL: Policy = policy("login-email", 5, true);
 /// Redemption of invitation and reset links per client address.
-pub const LINK_IP: Policy = policy("link-ip", 10);
+pub const LINK_IP: Policy = policy("link-ip", 10, false);
 /// Wrong current password at a password change, per user.
-pub const PASSWORD_CHANGE: Policy = policy("password-change", 5);
+pub const PASSWORD_CHANGE: Policy = policy("password-change", 5, true);
 
 /// Builds a policy with the common window and lock.
-const fn policy(prefix: &'static str, max_failures: u32) -> Policy {
+const fn policy(prefix: &'static str, max_failures: u32, reset_on_success: bool) -> Policy {
     Policy {
         prefix,
         max_failures,
         window: QUARTER_HOUR,
         lockout: QUARTER_HOUR,
+        reset_on_success,
     }
 }
+
+/// `Retry-After` when the budget is taken by attempts still running (not a lock).
+const BUSY_RETRY: Duration = Duration::from_secs(1);
 
 /// Number of keys above which expired entries are pruned on insert.
 const PRUNE_ABOVE: usize = 10_000;
@@ -51,8 +62,45 @@ const PRUNE_ABOVE: usize = 10_000;
 #[derive(Debug, Clone, Copy)]
 struct Entry {
     failures: u32,
+    in_flight: u32,
     window_start: Instant,
     locked_until: Option<Instant>,
+}
+
+impl Entry {
+    /// A fresh entry whose window starts `now`.
+    fn new(now: Instant) -> Self {
+        Self {
+            failures: 0,
+            in_flight: 0,
+            window_start: now,
+            locked_until: None,
+        }
+    }
+
+    /// Starts a new window if the lock ended or the window is over (keeps reservations).
+    fn refresh(&mut self, policy: &Policy, now: Instant) {
+        let lock_over = self.locked_until.is_some_and(|until| until <= now);
+        let window_over =
+            self.locked_until.is_none() && now.duration_since(self.window_start) > policy.window;
+        if lock_over || window_over {
+            *self = Self {
+                in_flight: self.in_flight,
+                ..Self::new(now)
+            };
+        }
+    }
+}
+
+/// How a reserved attempt ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    /// Counts as failure (wrong password, invalid link).
+    Failed,
+    /// Success; clears per-account keys.
+    Succeeded,
+    /// Neither (e.g. invalid input, internal error, cancelled request).
+    Released,
 }
 
 /// Shared limiter (inside `AppState`).
@@ -62,54 +110,68 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
-    /// `Err(retry_after)` if `key` is locked under `policy`.
-    pub fn check(&self, policy: &Policy, key: &str) -> Result<(), Duration> {
+    /// Reserves one attempt for `key`: `Err(retry_after)` if the key is locked or its
+    /// budget is used up by failures and running attempts; else the reservation, which
+    /// counts against the limit until it is booked or dropped.
+    pub fn begin(&self, policy: &Policy, key: &str) -> Result<Attempt<'_>, Duration> {
         let now = Instant::now();
-        let entries = self.lock();
-        match entries
-            .get(&full_key(policy, key))
-            .and_then(|e| e.locked_until)
-        {
-            Some(until) if until > now => Err(until - now),
-            _ => Ok(()),
-        }
-    }
-
-    /// Records a failure; locks the key when the limit is reached.
-    pub fn fail(&self, policy: &Policy, key: &str) {
-        let now = Instant::now();
+        let key = full_key(policy, key);
         let mut entries = self.lock();
-        if entries.len() > PRUNE_ABOVE {
+        if entries.len() > PRUNE_ABOVE && !entries.contains_key(&key) {
             prune(&mut entries, now);
         }
-        let entry = entries.entry(full_key(policy, key)).or_insert(Entry {
-            failures: 0,
-            window_start: now,
-            locked_until: None,
-        });
-        if now.duration_since(entry.window_start) > policy.window
-            || entry.locked_until.is_some_and(|until| until <= now)
-        {
-            *entry = Entry {
-                failures: 0,
-                window_start: now,
-                locked_until: None,
-            };
+        let entry = entries
+            .entry(key.clone())
+            .or_insert_with(|| Entry::new(now));
+        entry.refresh(policy, now);
+        if let Some(until) = entry.locked_until {
+            return Err(until - now);
         }
-        entry.failures = entry.failures.saturating_add(1);
-        if entry.failures >= policy.max_failures {
-            entry.locked_until = Some(now + policy.lockout);
+        if entry.failures.saturating_add(entry.in_flight) >= policy.max_failures {
+            return Err(BUSY_RETRY);
         }
-    }
-
-    /// Forgets a key (after a success).
-    pub fn clear(&self, policy: &Policy, key: &str) {
-        self.lock().remove(&full_key(policy, key));
+        entry.in_flight += 1;
+        Ok(Attempt {
+            limiter: self,
+            policy: *policy,
+            key,
+            settled: false,
+        })
     }
 
     /// Removes expired entries (housekeeping task).
     pub fn prune(&self) {
         prune(&mut self.lock(), Instant::now());
+    }
+
+    /// Books the outcome of a reservation of `key` (the entry may be gone after a prune).
+    fn settle(&self, policy: &Policy, key: &str, outcome: Outcome) {
+        let now = Instant::now();
+        let mut entries = self.lock();
+        let Some(entry) = entries.get_mut(key) else {
+            return;
+        };
+        entry.in_flight = entry.in_flight.saturating_sub(1);
+        match outcome {
+            Outcome::Failed => {
+                entry.refresh(policy, now);
+                entry.failures = entry.failures.saturating_add(1);
+                if entry.failures >= policy.max_failures {
+                    entry.locked_until = Some(now + policy.lockout);
+                }
+            }
+            Outcome::Succeeded if policy.reset_on_success => {
+                if entry.in_flight == 0 {
+                    entries.remove(key);
+                } else {
+                    *entry = Entry {
+                        in_flight: entry.in_flight,
+                        ..Entry::new(now)
+                    };
+                }
+            }
+            Outcome::Succeeded | Outcome::Released => {}
+        }
     }
 
     /// The map; a poisoned lock is taken over (the data stays consistent per entry).
@@ -120,59 +182,59 @@ impl RateLimiter {
     }
 }
 
+/// A reserved attempt. Book it with [`Attempt::failed`] or [`Attempt::succeeded`];
+/// dropping it unbooked (other errors, cancelled request) frees the reservation without
+/// counting a failure.
+#[derive(Debug)]
+#[must_use = "an attempt counts against the limit until it is booked or dropped"]
+pub struct Attempt<'a> {
+    limiter: &'a RateLimiter,
+    policy: Policy,
+    key: String,
+    settled: bool,
+}
+
+impl Attempt<'_> {
+    /// Books a failure; locks the key when the limit is reached.
+    pub fn failed(mut self) {
+        self.settle(Outcome::Failed);
+    }
+
+    /// Books a success: per-account keys are cleared, per-IP keys only lose the
+    /// reservation.
+    pub fn succeeded(mut self) {
+        self.settle(Outcome::Succeeded);
+    }
+
+    /// Books `outcome` once.
+    fn settle(&mut self, outcome: Outcome) {
+        if !self.settled {
+            self.settled = true;
+            self.limiter.settle(&self.policy, &self.key, outcome);
+        }
+    }
+}
+
+impl Drop for Attempt<'_> {
+    /// Frees an unbooked reservation.
+    fn drop(&mut self) {
+        self.settle(Outcome::Released);
+    }
+}
+
 /// Key in the map: policy prefix plus key.
 fn full_key(policy: &Policy, key: &str) -> String {
     format!("{}:{key}", policy.prefix)
 }
 
-/// Drops entries whose lock ended and whose window is over (all windows are equal).
+/// Drops idle entries whose lock ended and whose window is over (all windows are equal).
 fn prune(entries: &mut HashMap<String, Entry>, now: Instant) {
     entries.retain(|_, e| {
-        e.locked_until.is_some_and(|until| until > now)
+        e.in_flight > 0
+            || e.locked_until.is_some_and(|until| until > now)
             || now.duration_since(e.window_start) <= QUARTER_HOUR
     });
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const TEST: Policy = Policy {
-        prefix: "t",
-        max_failures: 3,
-        window: Duration::from_secs(60),
-        lockout: Duration::from_secs(60),
-    };
-
-    #[test]
-    fn locks_after_max_failures() {
-        let limiter = RateLimiter::default();
-        for _ in 0..2 {
-            limiter.fail(&TEST, "a");
-            assert!(limiter.check(&TEST, "a").is_ok());
-        }
-        limiter.fail(&TEST, "a");
-        let wait = limiter.check(&TEST, "a").unwrap_err();
-        assert!(wait > Duration::from_secs(50));
-        assert!(limiter.check(&TEST, "b").is_ok());
-        assert!(limiter.check(&LOGIN_IP, "a").is_ok());
-    }
-
-    #[test]
-    fn clear_resets() {
-        let limiter = RateLimiter::default();
-        for _ in 0..3 {
-            limiter.fail(&TEST, "a");
-        }
-        limiter.clear(&TEST, "a");
-        assert!(limiter.check(&TEST, "a").is_ok());
-    }
-
-    #[test]
-    fn prune_keeps_active_entries() {
-        let limiter = RateLimiter::default();
-        limiter.fail(&TEST, "a");
-        limiter.prune();
-        assert_eq!(limiter.lock().len(), 1);
-    }
-}
+mod tests;

@@ -40,21 +40,28 @@ pub async fn login(
     let ip = ip.to_string();
     let email = normalize_email(&body.email);
     let limiter = &state.limiter;
-    let result = match limiter
-        .check(&LOGIN_IP, &ip)
-        .and(limiter.check(&LOGIN_EMAIL, &email))
-    {
+    // Both reservations before any work: parallel requests cannot exceed the limits.
+    let reserved = limiter
+        .begin(&LOGIN_IP, &ip)
+        .and_then(|by_ip| Ok((by_ip, limiter.begin(&LOGIN_EMAIL, &email)?)));
+    let result = match reserved {
         Err(wait) => Err(ApiError::rate_limited(wait)),
-        Ok(()) => attempt(&state, &headers, &email, body.password).await,
-    };
-    match &result {
-        Ok(_) => limiter.clear(&LOGIN_EMAIL, &email),
-        Err(e) if e.status() == axum::http::StatusCode::UNAUTHORIZED => {
-            limiter.fail(&LOGIN_IP, &ip);
-            limiter.fail(&LOGIN_EMAIL, &email);
+        Ok((by_ip, by_email)) => {
+            let result = attempt(&state, &headers, &email, body.password).await;
+            match &result {
+                Ok(_) => {
+                    by_ip.succeeded();
+                    by_email.succeeded();
+                }
+                Err(e) if e.status() == axum::http::StatusCode::UNAUTHORIZED => {
+                    by_ip.failed();
+                    by_email.failed();
+                }
+                Err(_) => {}
+            }
+            result
         }
-        Err(_) => {}
-    }
+    };
     deadline.finish(result).await
 }
 

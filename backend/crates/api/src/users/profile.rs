@@ -100,9 +100,9 @@ async fn check_and_hash(
     new: String,
 ) -> ApiResult<vermieterme_db::PasswordHash> {
     let key = current.user.id.as_str();
-    state
+    let attempt = state
         .limiter
-        .check(&PASSWORD_CHANGE, key)
+        .begin(&PASSWORD_CHANGE, key)
         .map_err(ApiError::rate_limited)?;
     let mut conn = state.conn().await?;
     let stored = user::find_login(&mut conn, &current.user.email)
@@ -111,12 +111,12 @@ async fn check_and_hash(
         .and_then(|r| r.password_hash);
     drop(conn);
     if password::verify(old, stored).await? == Verification::Invalid {
-        state.limiter.fail(&PASSWORD_CHANGE, key);
+        attempt.failed();
         return Err(ApiError::field(
             "currentPassword",
             "Aktuelles Passwort ist falsch",
         ));
     }
-    state.limiter.clear(&PASSWORD_CHANGE, key);
+    attempt.succeeded();
     password::hash(new).await
 }
