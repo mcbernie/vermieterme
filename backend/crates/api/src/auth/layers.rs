@@ -1,5 +1,5 @@
 //! Global layers of the router: CSRF guard, security headers, `Cache-Control` for the
-//! API and the request trace.
+//! API, the time limit of every request (`time_limit`) and the request trace.
 //!
 //! CSRF (plan "Auth"): mutating requests (`POST/PUT/PATCH/DELETE`) under `/api/` except
 //! `/api/tenant-app/**` need `X-CSRF-Guard: 1` and – if an `Origin` header is sent – an
@@ -30,9 +30,12 @@ const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsa
      base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
 /// Adds the API fallbacks ([`crate::error::fallback`]) and wraps the router in the global
-/// layers (outermost last).
+/// layers (outermost last). The time limit is innermost, so its 503 gets the headers too.
 pub fn apply(app: AppRouter, state: &AppState) -> AppRouter {
-    let app = crate::error::fallback::apply(app);
+    let app = crate::error::fallback::apply(app).layer(middleware::from_fn_with_state(
+        state.clone(),
+        time_limit::time_limit,
+    ));
     let headers = [
         (header::CONTENT_SECURITY_POLICY, CSP),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
@@ -145,6 +148,8 @@ async fn no_store_for_api(req: Request, next: Next) -> Response {
     }
     response
 }
+
+mod time_limit;
 
 #[cfg(test)]
 mod tests;

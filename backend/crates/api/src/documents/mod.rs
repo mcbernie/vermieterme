@@ -10,6 +10,7 @@ pub(crate) mod cascade;
 mod detached;
 pub mod download;
 pub mod file_type;
+pub mod quota;
 pub mod storage;
 pub mod upload;
 
@@ -34,6 +35,9 @@ pub const MAX_FILE_BYTES: usize = 10 * 1024 * 1024;
 /// multipart framing (all other routes keep axum's 2 MB).
 const UPLOAD_BODY_MAX: usize = MAX_FILE_BYTES + 64 * 1024;
 
+/// Path of the list and the upload (the upload has its own time limit, decision 45).
+pub const UPLOAD_PATH: &str = "/api/documents";
+
 /// Message for a missing or foreign document.
 pub const NOT_FOUND: &str = "Dokument nicht gefunden";
 /// Message for a missing or foreign tenant in a filter or assignment.
@@ -43,7 +47,7 @@ const TENANT_NOT_FOUND: &str = "Mieter nicht gefunden";
 pub fn router() -> AppRouter {
     AppRouter::new()
         .route(
-            "/api/documents",
+            UPLOAD_PATH,
             get(list)
                 .post(upload::create)
                 .layer(DefaultBodyLimit::max(UPLOAD_BODY_MAX)),

@@ -126,3 +126,29 @@ fn password_hash_concurrency_is_bounded_and_positive() {
         ConfigError::Invalid("PASSWORD_HASH_CONCURRENCY", _)
     ));
 }
+
+#[test]
+fn quota_and_request_timeout_have_defaults_and_must_be_positive() {
+    let config = Config::from_lookup(lookup(&[("AUTH_SECRET", SECRET)])).unwrap();
+    assert_eq!(config.upload_quota_bytes, 1024 * 1024 * 1024);
+    assert_eq!(config.request_timeout, Duration::from_secs(30));
+    let set = Config::from_lookup(lookup(&[
+        ("AUTH_SECRET", SECRET),
+        ("UPLOAD_QUOTA_BYTES", "100000"),
+        ("REQUEST_TIMEOUT_SECS", "5"),
+    ]))
+    .unwrap();
+    assert_eq!(set.upload_quota_bytes, 100_000);
+    assert_eq!(set.request_timeout, Duration::from_secs(5));
+    for name in ["UPLOAD_QUOTA_BYTES", "REQUEST_TIMEOUT_SECS"] {
+        let err = Config::from_lookup(lookup(&[("AUTH_SECRET", SECRET), (name, "0")])).unwrap_err();
+        assert!(err.to_string().starts_with(name), "{err}");
+    }
+    let huge = u64::MAX.to_string();
+    let err = Config::from_lookup(lookup(&[
+        ("AUTH_SECRET", SECRET),
+        ("UPLOAD_QUOTA_BYTES", &huge),
+    ]))
+    .unwrap_err();
+    assert!(err.to_string().starts_with("UPLOAD_QUOTA_BYTES"), "{err}");
+}

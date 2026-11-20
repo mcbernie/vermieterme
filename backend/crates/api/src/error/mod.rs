@@ -1,17 +1,16 @@
 //! The one error shape of the web API (`docs/api-contract.md`, "Fehlerform"):
-//! `{"error": string, "code"?: string, "fields"?: {field: message}}`.
-//!
-//! Handlers return `Result<_, ApiError>`. Messages are German and generic; internal
+//! `{"error": string, "code"?: string, "fields"?: {field: message}}`. Handlers return `Result<_, ApiError>`. Messages are German and generic; internal
 //! details, personal data and secrets never reach the client and are not logged either
 //! (database errors only with kind and SQLSTATE/code, decision 35).
 //!
-//! Submodules: [`json`] (request extractors with this error shape, timestamp format),
-//! [`validate`] (trimming and length checks against the schema limits), [`db_log`]
-//! (what of a database error may be logged), [`fallback`] (unknown paths and methods).
+//! Submodules: [`json`] (request extractors, timestamps), [`validate`] (trimming and length
+//! checks), [`db_log`] (what of a database error may be logged), [`fallback`] (unknown
+//! paths and methods), `limits` (storage quota, time limit).
 
 pub mod db_log;
 pub mod fallback;
 pub mod json;
+mod limits;
 pub mod validate;
 
 use std::borrow::Cow;
@@ -48,10 +47,14 @@ pub enum ErrorCode {
     InvalidShares,
     /// 413: request body too large.
     TooLarge,
+    /// 413: the account's storage quota is used up (decision 44).
+    QuotaExceeded,
     /// 429: too many attempts.
     RateLimited,
     /// 502: an external service failed.
     Upstream,
+    /// 503: the request ran past its time limit (decision 45, not yet in the contract).
+    Timeout,
     /// 500: internal error.
     Internal,
 }

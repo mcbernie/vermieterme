@@ -15,7 +15,7 @@ use super::masterdata_support::{World, id_of, world_with};
 use super::support::config;
 
 /// Boundary of the multipart bodies.
-const BOUNDARY: &str = "----vermieterme-test-boundary";
+pub const BOUNDARY: &str = "----vermieterme-test-boundary";
 
 /// A minimal PDF head (enough for the content check).
 pub const PDF: &[u8] = b"%PDF-1.7\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n";
@@ -37,11 +37,18 @@ impl Drop for DocWorld {
 
 /// Starts a world whose `UPLOAD_DIR` is a fresh temporary directory.
 pub async fn doc_world(db: &Db) -> DocWorld {
+    doc_world_with(db, &[]).await
+}
+
+/// Like [`doc_world`] with further configuration `pairs`.
+pub async fn doc_world_with(db: &Db, pairs: &[(&str, &str)]) -> DocWorld {
     let dir = std::env::temp_dir().join(format!(
         "vermieterme-uploads-{}",
         vermieterme_db::row::new_id()
     ));
-    let w = world_with(db, config(&[("UPLOAD_DIR", dir.to_str().unwrap())])).await;
+    let mut all = vec![("UPLOAD_DIR", dir.to_str().unwrap())];
+    all.extend_from_slice(pairs);
+    let w = world_with(db, config(&all)).await;
     DocWorld { w, dir }
 }
 

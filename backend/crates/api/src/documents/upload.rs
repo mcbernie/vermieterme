@@ -13,11 +13,11 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use tokio::io::AsyncWriteExt as _;
 use vermieterme_db::repo::documents::{self, CATEGORIES, Document, NewDocument};
-use vermieterme_db::repo::masterdata::Rejection;
 use vermieterme_db::row::new_id;
 
 use super::detached::detached;
 use super::file_type::{FileType, HEAD_LEN};
+use super::quota::begin_upload;
 use super::storage::{FileGuard, account_dir, io_failure, tighten_dir};
 use super::{DocumentJson, MAX_FILE_BYTES, changed_meanwhile, check_assignment};
 use crate::auth::AccountCtx;
@@ -56,6 +56,8 @@ pub async fn create(
     ctx: AccountCtx,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ApiResult<Response> {
+    let limiter = state.limiter.clone();
+    let _counted = begin_upload(&limiter, &ctx)?;
     let mut multipart =
         multipart.map_err(|_| ApiError::bad_request("Ungültige Anfrage (Formular erwartet)"))?;
     let dir = account_dir(&state.config.upload_dir, ctx.scope.account_id())
@@ -89,7 +91,8 @@ pub async fn create(
     .await?;
     // Insert, commit and `keep` run detached from the request (#121), so a disconnect
     // cannot drop the guard after the commit. Locks in the order of `repo::billing`,
-    // hence `READ COMMITTED` (#116).
+    // hence `READ COMMITTED` (#116); the quota is checked under the account lock (#124).
+    let quota = state.config.upload_quota_bytes;
     let document = detached(async move {
         let document = audited_read_committed(
             &state,
@@ -97,10 +100,7 @@ pub async fn create(
             ("document.create", "document"),
             "Zuordnung nicht gefunden",
             |d: &Document| d.id.clone(),
-            async |tx| {
-                let document = documents::create(tx, &ctx.scope, &new).await?;
-                Ok(Ok::<_, Rejection>(document))
-            },
+            async |tx| documents::create_within_quota(tx, &ctx.scope, &new, quota).await,
         )
         .await
         .map_err(changed_meanwhile)?;

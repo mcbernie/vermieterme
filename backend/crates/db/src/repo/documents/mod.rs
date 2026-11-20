@@ -11,7 +11,8 @@
 //!
 //! Creating a document and collecting the files of a cascade follow the lock order of
 //! `repo::billing`: first the **property** (step 1) the assignment belongs to, then, for a
-//! tenant, its unit and tenant row. So an upload and a cascading delete of the same
+//! tenant, its unit and tenant row; an upload with a quota finally locks its **account**
+//! row ([`create_within_quota`]). So an upload and a cascading delete of the same
 //! property, unit, tenant or period run one after the other, and the delete always sees
 //! the documents it takes along. Callers on MySQL use `READ COMMITTED`
 //! ([`in_transaction_read_committed`](crate::in_transaction_read_committed)).
@@ -27,6 +28,7 @@ use crate::scope::AccountScope;
 use crate::tx::in_transaction_read_committed;
 
 pub use locks::{Owner, files_of};
+pub use quota::{QuotaExceeded, used_bytes};
 
 /// Allowed values of [`NewDocument::category`].
 pub const CATEGORIES: [&str; 4] = ["invoice", "receipt", "contract", "other"];
@@ -84,6 +86,7 @@ macro_rules! columns {
 
 // After `columns!`, which the submodules expand.
 mod locks;
+mod quota;
 pub mod tenant_view;
 
 /// Maps a row selected with `columns!()`.
@@ -145,7 +148,8 @@ pub async fn get(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> Db
 /// Stores a document. Its billing period and tenant must belong to the account (else
 /// [`DbError::NotFound`]); both are locked in the lock order first (module
 /// documentation), so a parallel cascading delete either sees the new row or removes
-/// the assignment before it is checked here.
+/// the assignment before it is checked here. No quota (import, tests); uploads use
+/// [`create_within_quota`].
 pub async fn create(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -159,27 +163,62 @@ pub async fn create(
             new.tenant_id.as_deref(),
         )
         .await?;
-        let id = new_id();
-        sqlx::query(
-            "INSERT INTO document (id, account_id, billing_period_id, tenant_id, file_name, \
-             original_name, mime_type, size_bytes, category, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(scope.account_id())
-        .bind(new.billing_period_id.as_deref())
-        .bind(new.tenant_id.as_deref())
-        .bind(&new.file_name)
-        .bind(&new.original_name)
-        .bind(&new.mime_type)
-        .bind(new.size_bytes)
-        .bind(&new.category)
-        .bind(now_millis())
-        .execute(&mut *tx)
-        .await?;
-        get(tx, scope, &id).await
+        insert(tx, scope, new).await
     })
     .await
+}
+
+/// Like [`create`], but refuses the document with [`QuotaExceeded`] if the account's
+/// documents would then take more than `quota` bytes (decision 44). After the assignment
+/// locks it locks the account row, so parallel uploads of one account are counted one
+/// after the other (see `quota`).
+pub async fn create_within_quota(
+    conn: &mut AnyConnection,
+    scope: &AccountScope,
+    new: &NewDocument,
+    quota: i64,
+) -> DbResult<Result<Document, QuotaExceeded>> {
+    in_transaction_read_committed(conn, async |tx| {
+        locks::lock_assignment(
+            tx,
+            scope,
+            new.billing_period_id.as_deref(),
+            new.tenant_id.as_deref(),
+        )
+        .await?;
+        if let Err(exceeded) = quota::check(tx, scope, new.size_bytes, quota).await? {
+            return Ok(Err(exceeded));
+        }
+        insert(tx, scope, new).await.map(Ok)
+    })
+    .await
+}
+
+/// Inserts the row (locks already taken) and reads it back.
+async fn insert(
+    tx: &mut AnyConnection,
+    scope: &AccountScope,
+    new: &NewDocument,
+) -> DbResult<Document> {
+    let id = new_id();
+    sqlx::query(
+        "INSERT INTO document (id, account_id, billing_period_id, tenant_id, file_name, \
+         original_name, mime_type, size_bytes, category, created_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(scope.account_id())
+    .bind(new.billing_period_id.as_deref())
+    .bind(new.tenant_id.as_deref())
+    .bind(&new.file_name)
+    .bind(&new.original_name)
+    .bind(&new.mime_type)
+    .bind(new.size_bytes)
+    .bind(&new.category)
+    .bind(now_millis())
+    .execute(&mut *tx)
+    .await?;
+    get(tx, scope, &id).await
 }
 
 /// Deletes a document and returns the name of its stored file, which the caller removes

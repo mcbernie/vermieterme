@@ -22,6 +22,9 @@ pub const AUTH_SECRET_MIN_LEN: usize = 32;
 pub const USER_INVITE_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
 /// Validity of a password reset link (decision 22, not configurable).
 pub const PASSWORD_RESET_TTL: Duration = Duration::from_secs(24 * 3600);
+/// Time limit of the upload route (decision 45, not configurable): a 10 MB file over a
+/// slow line needs longer than [`Config::request_timeout`].
+pub const UPLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// A secret configuration value; `Debug` is redacted.
 #[derive(Clone, PartialEq, Eq)]
@@ -71,6 +74,10 @@ pub struct Config {
     pub static_dir: String,
     /// `UPLOAD_DIR`.
     pub upload_dir: String,
+    /// `UPLOAD_QUOTA_BYTES`: storage of an account's documents (decision 44).
+    pub upload_quota_bytes: i64,
+    /// `REQUEST_TIMEOUT_SECS`: time limit of every request except the upload (decision 45).
+    pub request_timeout: Duration,
     /// `COOKIE_SECURE`.
     pub cookie_secure: bool,
     /// `SESSION_IDLE_HOURS`.
@@ -137,6 +144,9 @@ impl Config {
             port: parse(&lookup, "PORT", "Portnummer erwartet")?,
             static_dir: required(&lookup, "STATIC_DIR")?,
             upload_dir: required(&lookup, "UPLOAD_DIR")?,
+            upload_quota_bytes: i64::try_from(positive(&lookup, "UPLOAD_QUOTA_BYTES")?)
+                .map_err(|_| ConfigError::Invalid("UPLOAD_QUOTA_BYTES", "zu groß"))?,
+            request_timeout: Duration::from_secs(positive(&lookup, "REQUEST_TIMEOUT_SECS")?),
             cookie_secure: parse(&lookup, "COOKIE_SECURE", "true oder false erwartet")?,
             session_idle: hours(positive(&lookup, "SESSION_IDLE_HOURS")?),
             session_max: hours(positive(&lookup, "SESSION_MAX_DAYS")? * 24),

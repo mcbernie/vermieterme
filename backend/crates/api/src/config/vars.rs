@@ -51,6 +51,16 @@ pub const VARIABLES: &[EnvVar] = &[
         Some("data/uploads"),
         "Dokumente, Unterordner je Kunde",
     ),
+    var(
+        "UPLOAD_QUOTA_BYTES",
+        Some("1073741824"),
+        "Speicher je Kunde für Dokumente in Bytes; darüber 413 `quota_exceeded`",
+    ),
+    var(
+        "REQUEST_TIMEOUT_SECS",
+        Some("30"),
+        "Zeitlimit je Anfrage in Sekunden (Upload fest 300 s); darüber 503 `timeout`",
+    ),
     var("COOKIE_SECURE", Some("true"), "`false` nur lokal ohne TLS"),
     var(
         "SESSION_IDLE_HOURS",

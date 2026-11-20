@@ -35,6 +35,10 @@
 //!    of its unit amounts (sorted by id) before it checks and deletes them (#117);
 //! 5. rows below (costs, unit amounts, prepayments), by the writes themselves.
 //!
+//! Outside these steps, storing a document locks its **account** row last, after its
+//! steps 1 and 2 (storage quota, #124); no change locks the account row before a step
+//! above.
+//!
 //! Where a step needs an id from a later row (the property of a period or unit), that id
 //! comes from a plain read first. If a later row turns out to have moved to a property
 //! that is not locked, the change is refused with a conflict (409, retry) instead of

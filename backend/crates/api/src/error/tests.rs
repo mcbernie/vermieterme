@@ -94,3 +94,14 @@ async fn billing_conflicts_carry_their_codes() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(body["code"], "invalid_shares");
 }
+
+#[tokio::test]
+async fn limits_have_their_codes() {
+    let (status, _, body) = render(ApiError::quota_exceeded()).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(body["code"], "quota_exceeded");
+    assert!(body["error"].as_str().unwrap().contains("Speicherplatz"));
+    let (status, _, body) = render(ApiError::timeout()).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["code"], "timeout");
+}
