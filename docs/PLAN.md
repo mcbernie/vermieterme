@@ -231,6 +231,10 @@ per Test gegen den Code geprüft).
 43. **Dokumente:** Gehören Zeitraum und Mieter eines Dokuments zu verschiedenen Objekten → 400. Der Import (P9)
     benennt Altdateien in sichere Namen (`{uuid}.{ext}` im Kundenordner) um, damit Download und Aufräumen greifen;
     Dateien mit unbekanntem Typ werden als `application/octet-stream` übernommen und im Prüfprotokoll gemeldet.
+44. **Speicherkontingent:** Je Kunde höchstens `UPLOAD_QUOTA_BYTES` (Standard 1 GiB) an Dokumenten und höchstens
+    60 Uploads je Stunde; darüber 413 `quota_exceeded` bzw. 429 (#124).
+45. **Zeitlimits:** Jede Anfrage hat ein Zeitlimit (`REQUEST_TIMEOUT_SECS`, Standard 30 s; Upload-Route 300 s).
+    Schutz gegen langsame Verbindungen (Slowloris) übernimmt der vorgeschaltete Proxy (Betriebsdoku, P13).
 
 ## Arbeitspakete
 
@@ -288,6 +292,8 @@ höchstens 3 Korrekturschleifen. Qualitätstor je Paket: `just check`.
 | `PDF_RENDER_TIMEOUT_SECS` / `PDF_RENDER_CONCURRENCY` | `20` / `2` | Grenzen der PDF-Brücke |
 | `VPI_API_BASE` | Bundesbank-SDMX-Basis-URL (heute in `src/app/api/vpi/fetch/route.ts`) | austauschbar für Tests |
 | `LOG_LEVEL` / `LOG_FORMAT` | `info` / `json` | Logging (personenbezogene Felder geschwärzt) |
+| `UPLOAD_QUOTA_BYTES` | `1073741824` | Speicher je Kunde für Dokumente |
+| `REQUEST_TIMEOUT_SECS` | `30` | Zeitlimit je Anfrage (Upload 300 s) |
 | `PASSWORD_HASH_CONCURRENCY` | `4` | gleichzeitige argon2-Berechnungen; Wartezeit > 5 s → 429 |
 | `TEST_MYSQL_URL` | – | nur Tests (MariaDB); fehlt → `mysql_*`-Tests `[skip]`, `just test-mysql` bricht ab |
 
