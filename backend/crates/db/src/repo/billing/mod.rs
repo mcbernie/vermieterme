@@ -20,10 +20,15 @@
 //!
 //! 1. **property** – creating, changing or deleting a period (against overlapping
 //!    periods), creating, moving (current and target property, sorted by id) or deleting
-//!    a unit, deleting a property;
+//!    a unit, deleting a property; moving a tenant to another unit (the properties of
+//!    the current and the target unit, sorted by id, #120); storing a document or
+//!    collecting the files of a cascading delete (the property of the assignment, #106);
 //! 2. **units** – all units of the property (creating a period, deleting a property) or
 //!    the one unit (moving it, and before inserting a prepayment or a unit amount,
-//!    decision 37);
+//!    decision 37); for a tenant move both units (sorted by id), then the **tenant**
+//!    row; for a document of a tenant its unit and tenant row in one statement. A
+//!    tenant edit that keeps the unit takes no lock but binds its `UPDATE` to the unit
+//!    it read (a concurrent move -> conflict, #122);
 //! 3. **billing period** – the changed one or the copy source;
 //! 4. **cost category** – deleting a category locks it too, so a parallel cost save
 //!    gives 409 or 404, never a foreign-key error; moving a unit locks the categories
@@ -31,7 +36,9 @@
 //! 5. rows below (costs, unit amounts, prepayments), by the writes themselves.
 //!
 //! Where a step needs an id from a later row (the property of a period or unit), that id
-//! comes from a plain read first.
+//! comes from a plain read first. If a later row turns out to have moved to a property
+//! that is not locked, the change is refused with a conflict (409, retry) instead of
+//! taking that property's lock late.
 //!
 //! ## No range locks beyond the property (#116)
 //!
