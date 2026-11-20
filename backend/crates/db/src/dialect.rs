@@ -1,8 +1,8 @@
 //! SQL dialect of the configured database and the few places where SQL must differ.
 //!
-//! # Findings of the `Any` spike (sqlx 0.9, SQLite 3 and MariaDB 10.11)
+//! # Findings of the `Any` spike (sqlx 0.9, SQLite 3, MariaDB 10.11 and MySQL 8.4)
 //!
-//! Verified by `tests/any_spike.rs` against both databases:
+//! Verified by `tests/any_spike.rs` against all three databases:
 //!
 //! - **Placeholders:** `?` works for both. `LIMIT ?` binds fine.
 //! - **Types:** `Any` decodes only bool, integers, floats, text and blobs. MySQL `DATE`,
@@ -17,6 +17,10 @@
 //!   generate ids in Rust (UUID v7) and read the row back; no branching.
 //! - **Upsert:** differs (`ON CONFLICT (...) DO UPDATE SET c = excluded.c` vs.
 //!   `ON DUPLICATE KEY UPDATE c = VALUES(c)`) – the only place that needs [`Dialect::pick`].
+//!   `VALUES(c)` is deliberate: MySQL 8.4 accepts it with warning 1287 (deprecated), but
+//!   the replacement alias form (`... AS new ON DUPLICATE KEY UPDATE c = new.c`) does not
+//!   exist in MariaDB 10.11, so `VALUES()` is the only form both understand. Should MySQL
+//!   remove it, split MySQL and MariaDB into separate [`Dialect`] variants.
 //! - **Affected rows:** sqlx enables `CLIENT_FOUND_ROWS` for MySQL, so an `UPDATE` that
 //!   matches a row but changes nothing reports 1 like SQLite. Version checks via
 //!   `WHERE version = ?` and `rows_affected()` are portable.
