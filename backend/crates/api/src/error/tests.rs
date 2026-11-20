@@ -70,3 +70,13 @@ async fn database_errors_map_to_contract_statuses() {
     assert_eq!(internal.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(internal.message(), "Interner Fehler");
 }
+
+#[tokio::test]
+async fn upstream_is_502_with_its_code() {
+    let (status, _, body) = render(ApiError::upstream("Dienst nicht erreichbar")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        body,
+        json!({"error": "Dienst nicht erreichbar", "code": "upstream"})
+    );
+}

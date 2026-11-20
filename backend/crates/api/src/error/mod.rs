@@ -44,6 +44,8 @@ pub enum ErrorCode {
     TooLarge,
     /// 429: too many attempts.
     RateLimited,
+    /// 502: an external service failed.
+    Upstream,
     /// 500: internal error.
     Internal,
 }
@@ -164,6 +166,11 @@ impl ApiError {
                 "Zu viele Versuche. Bitte später erneut versuchen.",
             )
         }
+    }
+
+    /// 502 `upstream`: an external service (Bundesbank) failed; `message` is generic.
+    pub fn upstream(message: impl Into<Cow<'static, str>>) -> Self {
+        Self::new(StatusCode::BAD_GATEWAY, ErrorCode::Upstream, message)
     }
 
     /// 500 `internal` (exact contract text, no details).

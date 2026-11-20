@@ -242,3 +242,48 @@ async fn suggestions(db: &Db) {
     assert_eq!(w.app.get("/api/vpi/suggestions", None).await.status, 401);
 }
 dual_test!(vpi_suggestions_scoped, suggestions);
+
+/// Global VPI changes carry no customer id in the audit log, even if the admin works
+/// inside a customer.
+async fn global_audit(db: &Db) {
+    use sqlx::Row as _;
+    let w = world(db).await;
+    w.admin_enters_a().await;
+    let body = json!({"year": 2025, "month": 5, "valueTenths": 1196, "baseYear": 2020});
+    let saved = w.expect(201, "POST", "/api/vpi", &w.admin, body).await;
+    let path = format!("/api/vpi/{}", id_of(&saved));
+    w.expect(204, "DELETE", &path, &w.admin, Value::Null).await;
+    let mut conn = db.pool().acquire().await.unwrap();
+    let row = sqlx::query(
+        "SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'vpi_entry' AND account_id IS NULL",
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<i64, _>("n"), 2);
+}
+dual_test!(vpi_audit_is_global, global_audit);
+
+/// The retrieval is limited to one per minute for the whole system: the second one is 429
+/// with `Retry-After`, also for another customer; invalid requests do not count.
+async fn retrieval_limit(db: &Db) {
+    let ok = stand_in(StatusCode::OK, SERIES).await;
+    let (app, cookie) = app_with_base(db, ok).await;
+    let account = seed_account(db, "Zweiter Kunde").await;
+    seed_user(db, Some(&account.id), "zweiter@example.org", Role::Member).await;
+    let other = app.login("zweiter@example.org", support::PASSWORD).await;
+    let request = json!({"baseYear": 2020});
+    let invalid = json!({"baseYear": 1999});
+    let call = async |cookie: &str, body: Value| {
+        app.call("POST", "/api/vpi/fetch", Some(cookie), body).await
+    };
+
+    assert_eq!(call(&cookie, invalid).await.status, 400);
+    assert_eq!(call(&cookie, request.clone()).await.status, 200);
+    let limited = call(&cookie, request.clone()).await;
+    assert_eq!(limited.status, 429);
+    assert_eq!(limited.body["code"], "rate_limited");
+    assert!(limited.header("retry-after").is_some());
+    assert_eq!(call(&other, request).await.status, 429);
+}
+dual_test!(vpi_fetch_limited, retrieval_limit);

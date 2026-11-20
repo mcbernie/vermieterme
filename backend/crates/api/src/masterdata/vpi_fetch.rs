@@ -6,19 +6,27 @@
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use vermieterme_domain::vpi::{VpiDataPoint, base_year_code, parse_bundesbank_response};
 
 use crate::auth::AccountCtx;
+use crate::auth::rate_limit::Policy;
 use crate::error::ApiError;
 use crate::error::json::ApiJson;
 use crate::routes::AppState;
 
-/// Time limit of the whole retrieval (as before).
-const TIMEOUT: Duration = Duration::from_secs(15);
+/// At most one retrieval per minute for the whole system: the Bundesbank is shared by
+/// all customers, and the values are stored globally anyway. A retrieval books itself as
+/// one "failure" at once, which locks the key for the window.
+const FETCH_LIMIT: Policy = Policy {
+    prefix: "vpi-fetch",
+    max_failures: 1,
+    window: Duration::from_secs(60),
+    lockout: Duration::from_secs(60),
+    reset_on_success: false,
+};
 /// Largest accepted answer (bytes); a monthly series of a few years is a few kilobytes.
 const BODY_MAX: usize = 5 * 1024 * 1024;
 /// Years of history requested besides the base year.
@@ -53,18 +61,6 @@ struct FetchJson {
     base_year: i64,
 }
 
-/// The external service failed (status, network, timeout, unreadable answer).
-#[derive(Debug)]
-struct UpstreamError;
-
-impl IntoResponse for UpstreamError {
-    /// `502 {"error": …, "code": "upstream"}` in the shape of the contract's error table.
-    fn into_response(self) -> Response {
-        let body = serde_json::json!({"error": UPSTREAM_MESSAGE, "code": "upstream"});
-        (StatusCode::BAD_GATEWAY, axum::Json(body)).into_response()
-    }
-}
-
 /// Retrieves the values of a base year.
 pub async fn fetch(
     State(state): State<AppState>,
@@ -78,6 +74,12 @@ pub async fn fetch(
         )
         .into_response();
     };
+    match state.limiter.begin(&FETCH_LIMIT, "global") {
+        Ok(attempt) => attempt.failed(),
+        Err(wait) => return ApiError::rate_limited(wait).into_response(),
+    }
+    // "Today" is the UTC date: for monthly values the difference to German time is at
+    // most one day and does not matter here.
     let today = OffsetDateTime::now_utc();
     // The supported base years are in the i32 range (checked above).
     let base_year = i32::try_from(body.base_year).unwrap_or(2020);
@@ -88,8 +90,8 @@ pub async fn fetch(
         today.year(),
         u8::from(today.month()),
     );
-    match request(&url).await {
-        Err(UpstreamError) => UpstreamError.into_response(),
+    match request(state.http.as_ref(), &url).await {
+        Err(error) => error.into_response(),
         Ok(points) if points.is_empty() => ApiError::not_found(EMPTY_MESSAGE).into_response(),
         Ok(points) => axum::Json(FetchJson {
             entries: points
@@ -106,30 +108,30 @@ pub async fn fetch(
     }
 }
 
-/// Gets and parses one series. No redirects are followed and the answer is size-limited;
+/// Gets and parses one series with the shared client (15 s limit, no redirects); the answer is size-limited;
 /// the URL and the answer are never logged.
-async fn request(url: &str) -> Result<Vec<VpiDataPoint>, UpstreamError> {
-    let client = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| UpstreamError)?;
+async fn request(
+    client: Option<&reqwest::Client>,
+    url: &str,
+) -> Result<Vec<VpiDataPoint>, ApiError> {
+    let upstream = || ApiError::upstream(UPSTREAM_MESSAGE);
+    let client = client.ok_or_else(upstream)?;
     let mut response = client
         .get(url)
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|_| UpstreamError)?;
+        .map_err(|_| upstream())?;
     if !response.status().is_success() {
-        return Err(UpstreamError);
+        return Err(upstream());
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| UpstreamError)? {
+    while let Some(chunk) = response.chunk().await.map_err(|_| upstream())? {
         if bytes.len() + chunk.len() > BODY_MAX {
-            return Err(UpstreamError);
+            return Err(upstream());
         }
         bytes.extend_from_slice(&chunk);
     }
-    let text = String::from_utf8(bytes).map_err(|_| UpstreamError)?;
-    parse_bundesbank_response(&text).map_err(|_| UpstreamError)
+    let text = String::from_utf8(bytes).map_err(|_| upstream())?;
+    parse_bundesbank_response(&text).map_err(|_| upstream())
 }

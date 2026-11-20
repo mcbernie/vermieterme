@@ -90,7 +90,9 @@ pub async fn list(
     Ok(axum::Json(rows.into_iter().map(VpiJson::from).collect()))
 }
 
-/// Writes the audit entry of a global change by the admin of `ctx`.
+/// Writes the audit entry of a global change by the admin of `ctx`. The values belong to
+/// no customer, so the entry carries no account id (it shows up in no customer's log,
+/// whichever account the admin has switched to).
 async fn record(
     conn: &mut AnyConnection,
     ctx: &AdminCtx,
@@ -99,7 +101,7 @@ async fn record(
 ) -> DbResult<()> {
     let entry = NewAuditEntry {
         user_id: Some(&ctx.user.id),
-        account_id: ctx.acting_account_id.as_deref(),
+        account_id: None,
         action,
         entity: "vpi_entry",
         entity_id: Some(entity_id),

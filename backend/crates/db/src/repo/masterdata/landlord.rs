@@ -3,6 +3,7 @@
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 
+use crate::dialect::Dialect;
 use crate::error::DbResult;
 use crate::row::{new_id, now_millis};
 use crate::scope::AccountScope;
@@ -85,6 +86,15 @@ pub async fn get(conn: &mut AnyConnection, scope: &AccountScope) -> DbResult<Opt
     row.as_ref().map(from_row).transpose()
 }
 
+/// Insert of the first save (the dialect appends its conflict clause).
+macro_rules! insert {
+    () => {
+        "INSERT INTO landlord (id, account_id, name, street, zip, city, phone, \
+     email, bank_name, iban, account_holder, created_at, updated_at) \
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    };
+}
+
 /// Stores the landlord: updates the existing row or creates it (one per account).
 pub async fn save(
     conn: &mut AnyConnection,
@@ -93,7 +103,28 @@ pub async fn save(
 ) -> DbResult<Landlord> {
     in_transaction(conn, async |tx| {
         let now = now_millis();
-        let result = sqlx::query(
+        // Create-if-absent first, then update: two parallel first saves would otherwise
+        // both miss the row and collide on the unique key (deadlock on MySQL).
+        sqlx::query(Dialect::of(tx)?.pick(
+            concat!(insert!(), " ON CONFLICT DO NOTHING"),
+            concat!(insert!(), " ON DUPLICATE KEY UPDATE id = id"),
+        ))
+        .bind(new_id())
+        .bind(scope.account_id())
+        .bind(&data.name)
+        .bind(&data.street)
+        .bind(&data.zip)
+        .bind(&data.city)
+        .bind(data.phone.as_deref())
+        .bind(data.email.as_deref())
+        .bind(data.bank_name.as_deref())
+        .bind(data.iban.as_deref())
+        .bind(data.account_holder.as_deref())
+        .bind(now)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
             "UPDATE landlord SET name = ?, street = ?, zip = ?, city = ?, phone = ?, email = ?, \
              bank_name = ?, iban = ?, account_holder = ?, updated_at = ? WHERE account_id = ?",
         )
@@ -110,28 +141,6 @@ pub async fn save(
         .bind(scope.account_id())
         .execute(&mut *tx)
         .await?;
-        if result.rows_affected() == 0 {
-            sqlx::query(
-                "INSERT INTO landlord (id, account_id, name, street, zip, city, phone, email, \
-                 bank_name, iban, account_holder, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(new_id())
-            .bind(scope.account_id())
-            .bind(&data.name)
-            .bind(&data.street)
-            .bind(&data.zip)
-            .bind(&data.city)
-            .bind(data.phone.as_deref())
-            .bind(data.email.as_deref())
-            .bind(data.bank_name.as_deref())
-            .bind(data.iban.as_deref())
-            .bind(data.account_holder.as_deref())
-            .bind(now)
-            .bind(now)
-            .execute(&mut *tx)
-            .await?;
-        }
         get(tx, scope).await?.ok_or(crate::DbError::NotFound)
     })
     .await

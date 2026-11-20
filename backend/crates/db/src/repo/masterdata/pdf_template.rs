@@ -4,6 +4,7 @@
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 
+use crate::dialect::Dialect;
 use crate::error::{DbError, DbResult};
 use crate::row::{new_id, now_millis};
 use crate::scope::AccountScope;
@@ -45,6 +46,14 @@ pub async fn get(conn: &mut AnyConnection, scope: &AccountScope) -> DbResult<Opt
     row.as_ref().map(from_row).transpose()
 }
 
+/// Insert of the first save (the dialect appends its conflict clause).
+macro_rules! insert {
+    () => {
+        "INSERT INTO pdf_template (id, account_id, name, config, created_at, \
+     updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+    };
+}
+
 /// Stores the template. `name` `None` keeps the stored name ("Standard" for a new one).
 pub async fn save(
     conn: &mut AnyConnection,
@@ -54,7 +63,20 @@ pub async fn save(
 ) -> DbResult<PdfTemplate> {
     in_transaction(conn, async |tx| {
         let now = now_millis();
-        let result = sqlx::query(
+        // Create-if-absent first, then update (see `landlord::save`).
+        sqlx::query(Dialect::of(tx)?.pick(
+            concat!(insert!(), " ON CONFLICT DO NOTHING"),
+            concat!(insert!(), " ON DUPLICATE KEY UPDATE id = id"),
+        ))
+        .bind(new_id())
+        .bind(scope.account_id())
+        .bind(name.unwrap_or("Standard"))
+        .bind(config)
+        .bind(now)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
             "UPDATE pdf_template SET config = ?, name = COALESCE(?, name), updated_at = ? \
              WHERE account_id = ?",
         )
@@ -64,20 +86,6 @@ pub async fn save(
         .bind(scope.account_id())
         .execute(&mut *tx)
         .await?;
-        if result.rows_affected() == 0 {
-            sqlx::query(
-                "INSERT INTO pdf_template (id, account_id, name, config, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
-            )
-            .bind(new_id())
-            .bind(scope.account_id())
-            .bind(name.unwrap_or("Standard"))
-            .bind(config)
-            .bind(now)
-            .bind(now)
-            .execute(&mut *tx)
-            .await?;
-        }
         get(tx, scope).await?.ok_or(DbError::NotFound)
     })
     .await

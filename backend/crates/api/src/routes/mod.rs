@@ -26,6 +26,18 @@ pub struct AppState {
     pub limiter: Arc<RateLimiter>,
     /// Bounded password hashing (`PASSWORD_HASH_CONCURRENCY`).
     pub hasher: Hasher,
+    /// The one HTTP client for outgoing requests (VPI retrieval); `None` if the TLS
+    /// backend could not be initialised (the retrieval then answers 502).
+    pub http: Option<reqwest::Client>,
+}
+
+/// The shared client of outgoing requests: time limit, no redirects.
+fn vpi_client() -> Option<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .ok()
 }
 
 impl AppState {
@@ -36,6 +48,7 @@ impl AppState {
             hasher: Hasher::new(config.password_hash_concurrency),
             config: Arc::new(config),
             limiter: Arc::new(RateLimiter::default()),
+            http: vpi_client(),
         }
     }
 
