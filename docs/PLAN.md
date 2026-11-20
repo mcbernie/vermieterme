@@ -228,6 +228,9 @@ per Test gegen den Code geprüft).
 42. **Umhängen löscht unwirksame Einheitenbeträge:** Wird eine Einheit ohne wirksame Abrechnungsdaten in ein anderes
     Objekt verschoben, löscht dieselbe Transaktion ihre bei `mea`/`per_unit` gespeicherten (unwirksamen)
     Einheitenbeträge; ergänzt Entscheidung 5 („bleiben gespeichert“ gilt nur ohne Umhängen).
+43. **Dokumente:** Gehören Zeitraum und Mieter eines Dokuments zu verschiedenen Objekten → 400. Der Import (P9)
+    benennt Altdateien in sichere Namen (`{uuid}.{ext}` im Kundenordner) um, damit Download und Aufräumen greifen;
+    Dateien mit unbekanntem Typ werden als `application/octet-stream` übernommen und im Prüfprotokoll gemeldet.
 
 ## Arbeitspakete
 
