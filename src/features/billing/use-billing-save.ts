@@ -62,6 +62,8 @@ export function createDirtyKeys(): DirtyKeys {
     },
     settled: () => stored,
     keys(since = Infinity) {
+      // A real `since` is an earlier `stored`, so the minimum is `since`; without one it is `stored`.
+      // `min` also guards against a `since` from the future, which must never hide unsaved keys.
       const after = Math.min(stored, since);
       return new Set([...changes].filter(([, rev]) => rev > after).map(([key]) => key));
     },

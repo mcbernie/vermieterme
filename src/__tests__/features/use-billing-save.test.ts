@@ -277,7 +277,7 @@ describe("createDirtyKeys", () => {
     const dirty = createDirtyKeys();
     dirty.mark("cost:c1");
     dirty.settle(dirty.revision());
-    const loadStart = dirty.revision();
+    const loadStart = dirty.settled();
     dirty.mark("cost:c2");
     dirty.settle(dirty.revision());
     expect([...dirty.keys()]).toEqual([]);

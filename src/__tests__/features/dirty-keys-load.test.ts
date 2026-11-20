@@ -23,8 +23,13 @@ describe("createDirtyKeys with a load start", () => {
   it("keeps a key whose save failed during a load unsaved for it (#64)", () => {
     const dirty = createDirtyKeys();
     dirty.mark("cost:c1");
-    const loadStart = dirty.settled();
-    expect([...dirty.keys(loadStart)]).toEqual(["cost:c1"]);
-    expect([...dirty.keys()]).toEqual(["cost:c1"]);
+    dirty.settle(dirty.revision()); // an earlier save succeeded
+    dirty.mark("cost:c2");
+    const failedRun = dirty.revision(); // the save of this revision starts ...
+    const loadStart = dirty.settled(); // ... a load starts meanwhile ...
+    expect(failedRun).toBeGreaterThan(loadStart);
+    // ... and the save fails: no `settle(failedRun)` follows.
+    expect([...dirty.keys(loadStart)]).toEqual(["cost:c2"]);
+    expect([...dirty.keys()]).toEqual(["cost:c2"]);
   });
 });
