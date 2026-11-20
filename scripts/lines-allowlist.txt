@@ -1,0 +1,3 @@
+# Files allowed to exceed the failure limit (400 lines); one path per line.
+# src/lib/billing-pdf.tsx: legacy PDF template, replaced by the Rust PDF in phase 3 (#41).
+src/lib/billing-pdf.tsx
