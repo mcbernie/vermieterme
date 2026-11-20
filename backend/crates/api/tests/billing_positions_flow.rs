@@ -76,7 +76,21 @@ async fn costs(db: &Db) {
     assert!(resp.body["fields"]["totalAmountCents"].is_string());
     assert!(resp.body["fields"]["distributionKeyOverride"].is_string());
 
-    let unit_path = b.path(&format!("/costs/{cat}/units/{}", b.units[1]));
+    // The key in effect is `per_unit`: unit amounts are refused, clearing is fine (#115).
+    let computed = b.path(&format!("/costs/{cat}/units/{}", b.units[1]));
+    let refused = w
+        .expect(400, "PATCH", &computed, &w.a, json!({"amountCents": 1}))
+        .await;
+    assert!(refused.body["fields"]["amountCents"].is_string());
+    let notice = category(&w, &w.a, "Wasser", "per_notice").await;
+    // Clearing without a position writes nothing and answers `null`.
+    let unit_path = b.path(&format!("/costs/{notice}/units/{}", b.units[1]));
+    let nothing = w
+        .expect(200, "PATCH", &unit_path, &w.a, json!({"amountCents": null}))
+        .await;
+    assert_eq!(nothing.body, Value::Null);
+    let listed = w.app.get(&b.path("/costs"), Some(&w.a)).await;
+    assert_eq!(listed.body.as_array().unwrap().len(), 1);
     let set = w
         .expect(200, "PATCH", &unit_path, &w.a, json!({"amountCents": 999}))
         .await;
@@ -91,7 +105,7 @@ async fn costs(db: &Db) {
     assert_eq!(clear.body["unitAmounts"], json!([]));
     let elsewhere = w.property(&w.a).await;
     let stranger = w.unit(&w.a, &elsewhere, 1).await;
-    let stranger_path = b.path(&format!("/costs/{cat}/units/{stranger}"));
+    let stranger_path = b.path(&format!("/costs/{notice}/units/{stranger}"));
     w.expect(
         404,
         "PATCH",
@@ -102,7 +116,7 @@ async fn costs(db: &Db) {
     .await;
 
     let list = w.app.get(&b.path("/costs"), Some(&w.a)).await;
-    assert_eq!(list.body.as_array().unwrap().len(), 1);
+    assert_eq!(list.body.as_array().unwrap().len(), 2);
     assert_eq!(w.app.get(&b.path("/costs"), Some(&w.b)).await.status, 404);
     w.expect(404, "PATCH", &path, &w.b, json!({"enabled": false}))
         .await;
@@ -235,8 +249,16 @@ async fn audit(db: &Db) {
         json!({"totalAmountCents": 1}),
     )
     .await;
-    let unit = b.path(&format!("/costs/{cat}/units/{}", b.units[0]));
+    let notice = category(&w, &w.admin, "Wasser", "per_notice").await;
+    let unit = b.path(&format!("/costs/{notice}/units/{}", b.units[0]));
     w.expect(200, "PATCH", &unit, &w.admin, json!({"amountCents": 1}))
+        .await;
+    // Unchanged and nothing to clear: no audit entry (#115).
+    w.expect(200, "PATCH", &unit, &w.admin, json!({"amountCents": 1}))
+        .await;
+    let unused = category(&w, &w.admin, "Leer", "per_attachment").await;
+    let empty = b.path(&format!("/costs/{unused}/units/{}", b.units[1]));
+    w.expect(200, "PATCH", &empty, &w.admin, json!({"amountCents": null}))
         .await;
     let prepay = b.path(&format!("/prepayments/{}", b.units[0]));
     w.expect(

@@ -17,7 +17,7 @@ mod prepayment;
 use axum::routing::{get, patch};
 use serde::{Deserialize, Deserializer};
 use vermieterme_db::repo::billing::Rejection;
-use vermieterme_domain::Cents;
+use vermieterme_domain::{Cents, DistributionKey};
 
 use self::json::{CostJson, PrepaymentJson, date_de};
 use crate::error::ApiError;
@@ -85,6 +85,16 @@ impl From<Rejection> for ApiError {
             Rejection::AmountRequired => {
                 ApiError::field("monthlyAmountCents", "Monatlicher Betrag fehlt")
             }
+            Rejection::UnitAmountKey(key) => ApiError::field(
+                "amountCents",
+                format!(
+                    "Beträge je Einheit sind nur bei den Verteilerschlüsseln „{}“ und „{}“ \
+                     möglich, hier gilt „{}“",
+                    DistributionKey::PerNotice.label(),
+                    DistributionKey::PerAttachment.label(),
+                    key.label()
+                ),
+            ),
             Rejection::CostVersion(current) => conflict(CostJson::from(*current)),
             Rejection::PrepaymentVersion(current) => conflict(PrepaymentJson::from(*current)),
         }

@@ -111,12 +111,7 @@ impl CostPosition {
         if !self.enabled {
             return false;
         }
-        match self.key {
-            DistributionKey::Mea | DistributionKey::PerUnit => self.total_amount.is_some(),
-            DistributionKey::PerNotice | DistributionKey::PerAttachment => {
-                self.total_amount.is_some() || self.unit_amount.is_some()
-            }
-        }
+        self.total_amount.is_some() || (self.key.uses_unit_amounts() && self.unit_amount.is_some())
     }
 
     /// The unit's share of this position, `Ok(None)` when the position does not count.

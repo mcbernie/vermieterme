@@ -257,3 +257,9 @@ fn computed_keys_need_the_total_even_with_a_unit_amount() {
         );
     }
 }
+
+#[test]
+fn only_entered_keys_use_unit_amounts() {
+    assert!(PerNotice.uses_unit_amounts() && PerAttachment.uses_unit_amounts());
+    assert!(!Mea.uses_unit_amounts() && !PerUnit.uses_unit_amounts());
+}

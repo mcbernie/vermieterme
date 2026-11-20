@@ -36,6 +36,8 @@
 //! Business rules that refuse a change come back as a [`Rejection`] inside `Ok`, so the
 //! HTTP layer can answer precisely while database failures stay `DbError`s.
 
+use vermieterme_domain::DistributionKey;
+
 use crate::error::DbResult;
 
 /// Column list of `billing_period` read by `period::from_row` (period and summary
@@ -54,7 +56,7 @@ pub mod period;
 pub mod prepayment;
 pub mod summary;
 
-pub use cost::{Cost, CostPatch, UnitAmount};
+pub use cost::{Cost, CostPatch, UnitAmount, UnitAmountSaved};
 pub use period::{BillingPeriod, NewPeriod, PeriodPatch};
 pub use prepayment::{Prepayment, PrepaymentPatch};
 pub use summary::PeriodSummary;
@@ -79,6 +81,9 @@ pub enum Rejection {
     SourceOtherProperty,
     /// A new prepayment needs a monthly amount.
     AmountRequired,
+    /// A unit amount was sent for a position whose key in effect computes the shares
+    /// from the total (`mea`, `per_unit`); carries that key.
+    UnitAmountKey(DistributionKey),
     /// The sent version of a cost is outdated; carries the current state.
     CostVersion(Box<Cost>),
     /// The sent version of a prepayment is outdated; carries the current state.

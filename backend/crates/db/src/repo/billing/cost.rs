@@ -15,8 +15,8 @@ use crate::scope::AccountScope;
 use crate::tx::in_transaction;
 
 pub(super) use super::cost_unit::insert_unit_amount;
-pub use super::cost_unit::set_unit_amount;
 use super::cost_unit::with_unit_amounts;
+pub use super::cost_unit::{UnitAmountSaved, set_unit_amount};
 
 /// Amount stored for one unit of a position (`per_notice` / `per_attachment`, #80).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,18 +163,32 @@ pub(super) async fn find(
     Ok(costs.pop())
 }
 
-/// Locks the period and the category (lock order steps 3 and 4); returns the period and
-/// the position of the category, if it exists.
+/// A locked period and category with the position of the category, if it exists.
+pub(super) struct Position {
+    /// The period.
+    pub period: period::BillingPeriod,
+    /// Default key of the category (in effect while there is no position).
+    pub category_key: DistributionKey,
+    /// The position.
+    pub cost: Option<Cost>,
+}
+
+/// Locks the period and the category (lock order steps 3 and 4) and reads the position
+/// of the category, if it exists.
 pub(super) async fn lock_position(
     conn: &mut AnyConnection,
     scope: &AccountScope,
     period_id: &str,
     category_id: &str,
-) -> DbResult<(period::BillingPeriod, Option<Cost>)> {
-    let found = period::lock(conn, scope, period_id).await?;
-    cost_category::lock(conn, scope, category_id).await?;
+) -> DbResult<Position> {
+    let period = period::lock(conn, scope, period_id).await?;
+    let category = cost_category::lock(conn, scope, category_id).await?;
     let cost = find(conn, scope, period_id, category_id).await?;
-    Ok((found, cost))
+    Ok(Position {
+        period,
+        category_key: key_of(&category.distribution_key)?,
+        cost,
+    })
 }
 
 /// Inserts a position with the values of `patch` (defaults: enabled, reviewed, no
@@ -223,8 +237,8 @@ pub async fn save(
     patch: &CostPatch,
 ) -> Checked<Saved<Cost>> {
     in_transaction(conn, async |tx| {
-        let (_, existing) = lock_position(tx, scope, period_id, category_id).await?;
-        let Some(current) = existing else {
+        let position = lock_position(tx, scope, period_id, category_id).await?;
+        let Some(current) = position.cost else {
             let cost = insert(tx, scope, period_id, category_id, patch).await?;
             return Ok(Ok(Saved::Created(cost)));
         };

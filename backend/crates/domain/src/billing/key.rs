@@ -58,6 +58,15 @@ impl DistributionKey {
         }
     }
 
+    /// Whether the key takes amounts entered per unit (`per_notice`, `per_attachment`)
+    /// instead of computing the share from the total (`mea`, `per_unit`; decision 5).
+    pub const fn uses_unit_amounts(self) -> bool {
+        matches!(
+            self,
+            DistributionKey::PerNotice | DistributionKey::PerAttachment
+        )
+    }
+
     /// Reads a key from its API code.
     pub fn from_code(code: &str) -> Result<Self, UnknownKey> {
         Self::ALL

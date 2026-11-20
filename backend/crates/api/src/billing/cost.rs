@@ -6,7 +6,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
-use vermieterme_db::repo::billing::{Cost, CostPatch, Saved, cost};
+use vermieterme_db::in_transaction;
+use vermieterme_db::repo::billing::{Cost, CostPatch, Saved, UnitAmountSaved, cost};
 use vermieterme_domain::DistributionKey;
 
 use super::json::CostJson;
@@ -110,13 +111,15 @@ pub async fn save(
 }
 
 /// Sets or clears the amount of one unit in a position (`per_notice` /
-/// `per_attachment`, #80); the unit must belong to the period's property.
+/// `per_attachment`, #80); the unit must belong to the period's property. Setting under
+/// another key in effect is 400. Answers with the position as stored; clearing on a
+/// category without a position answers `null`. Only a real write is audited (#115).
 pub async fn save_unit(
     State(state): State<AppState>,
     ctx: AccountCtx,
     Path((id, category_id, unit_id)): Path<(String, String, String)>,
     ApiJson(body): ApiJson<UnitAmountBody>,
-) -> ApiResult<axum::Json<CostJson>> {
+) -> ApiResult<axum::Json<Option<CostJson>>> {
     let mut v = Validator::new();
     let amount = body.amount_cents.flatten();
     if let Some(amount) = amount {
@@ -127,14 +130,16 @@ pub async fn save_unit(
     }
     v.finish()?;
     let key = (id.as_str(), category_id.as_str(), unit_id.as_str());
-    let saved = audited_checked(
-        &state,
-        &ctx,
-        ("cost.save_unit_amount", "cost"),
-        UNIT_NOT_FOUND,
-        |c: &Cost| c.id.clone(),
-        async |tx| cost::set_unit_amount(tx, &ctx.scope, key, amount, body.version).await,
-    )
-    .await?;
-    Ok(axum::Json(saved.into()))
+    let mut conn = state.conn().await?;
+    let saved = in_transaction(&mut conn, async |tx| {
+        let saved = cost::set_unit_amount(tx, &ctx.scope, key, amount, body.version).await?;
+        if let Ok(UnitAmountSaved::Written(written)) = &saved {
+            ctx.audit(tx, "cost.save_unit_amount", "cost", Some(&written.id))
+                .await?;
+        }
+        Ok(saved)
+    })
+    .await
+    .map_err(not_found_as(UNIT_NOT_FOUND))??;
+    Ok(axum::Json(saved.into_cost().map(CostJson::from)))
 }

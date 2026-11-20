@@ -1,12 +1,12 @@
 //! Billing repositories: periods (overlap, copy), cost positions (partial update, review
-//! rule, version, unit amounts) and prepayments, with foreign ids as not found.
+//! rule, version) and prepayments, with foreign ids as not found.
 
 // Test bodies are plain async fns run by `dual_test!` (see account_user_repo.rs).
 #![allow(clippy::unwrap_used)]
 
 mod billing_support;
 
-use billing_support::{category, new_period, property, setup, unit};
+use billing_support::{new_period, property, setup};
 use vermieterme_db::repo::billing::{
     CostPatch, PeriodPatch, PrepaymentPatch, Rejection, Saved, cost, period, prepayment, summary,
 };
@@ -178,39 +178,6 @@ async fn costs(db: &Db) {
     ));
 }
 dual_test!(cost_rules, costs);
-
-/// Unit amounts: set, change (unreviewed, version), clear; a unit of another property
-/// or account is not found; a new position is created on the way.
-async fn unit_amounts(db: &Db) {
-    let s = setup(db, "A").await;
-    let mut c = db.pool().acquire().await.unwrap();
-    let cat = category(db, &s.scope, "Wasser", "per_notice").await;
-    let key = (s.period.id.as_str(), cat.as_str(), s.units[0].as_str());
-
-    let set = cost::set_unit_amount(&mut c, &s.scope, key, Some(500), None).await;
-    let set = set.unwrap().unwrap();
-    assert_eq!(set.unit_amount(&s.units[0]), Some(500));
-    assert_eq!(
-        (set.version, set.reviewed, set.total_amount_cents),
-        (1, true, None)
-    );
-    let same = cost::set_unit_amount(&mut c, &s.scope, key, Some(500), Some(1)).await;
-    assert_eq!(same.unwrap().unwrap().version, 1);
-    let changed = cost::set_unit_amount(&mut c, &s.scope, key, Some(700), Some(1)).await;
-    let changed = changed.unwrap().unwrap();
-    assert_eq!((changed.version, changed.reviewed), (2, false));
-    let stale = cost::set_unit_amount(&mut c, &s.scope, key, Some(1), Some(1)).await;
-    assert!(matches!(stale.unwrap(), Err(Rejection::CostVersion(_))));
-    let cleared = cost::set_unit_amount(&mut c, &s.scope, key, None, None).await;
-    assert!(cleared.unwrap().unwrap().unit_amounts.is_empty());
-
-    let elsewhere = property(db, &s.scope).await;
-    let stranger = unit(db, &s.scope, &elsewhere, 10).await;
-    let key = (s.period.id.as_str(), cat.as_str(), stranger.as_str());
-    let refused = cost::set_unit_amount(&mut c, &s.scope, key, Some(1), None).await;
-    assert!(matches!(refused, Err(DbError::NotFound)));
-}
-dual_test!(unit_amount_rules, unit_amounts);
 
 /// Prepayments: amount required when new, review rule, version, foreign unit.
 async fn prepayments(db: &Db) {
