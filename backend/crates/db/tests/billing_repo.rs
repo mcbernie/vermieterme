@@ -13,7 +13,7 @@ use vermieterme_db::repo::billing::{
 use vermieterme_db::{Db, DbError, dual_test};
 use vermieterme_domain::DistributionKey;
 
-/// Periods: list with counts, overlap (adjacent is fine), no units, end before start,
+/// Periods: list with counts, overlap (a shared boundary day too), no units, end before start,
 /// update and delete; another account sees nothing.
 async fn periods(db: &Db) {
     let s = setup(db, "A").await;
@@ -27,7 +27,14 @@ async fn periods(db: &Db) {
         refused.unwrap().unwrap_err(),
         Rejection::Overlap { start, end } if start == "2024-01-01" && end == "2024-12-31"
     ));
-    let adjacent = new_period(&s.property_id, "2024-12-31", "2025-12-31");
+    // Decision 40: a shared boundary day overlaps, the next day is free.
+    let boundary = new_period(&s.property_id, "2024-12-31", "2025-12-31");
+    let refused = period::create(&mut c, &s.scope, &boundary).await;
+    assert!(matches!(
+        refused.unwrap().unwrap_err(),
+        Rejection::Overlap { start, .. } if start == "2024-01-01"
+    ));
+    let adjacent = new_period(&s.property_id, "2025-01-01", "2025-12-31");
     let next = period::create(&mut c, &s.scope, &adjacent).await;
     let next = next.unwrap().unwrap();
 
@@ -54,6 +61,12 @@ async fn periods(db: &Db) {
         ..PeriodPatch::default()
     };
     let refused = period::update(&mut c, &s.scope, id, &into_next).await;
+    assert!(matches!(refused.unwrap(), Err(Rejection::Overlap { .. })));
+    let onto_boundary = PeriodPatch {
+        end_date: Some("2025-01-01".into()),
+        ..PeriodPatch::default()
+    };
+    let refused = period::update(&mut c, &s.scope, id, &onto_boundary).await;
     assert!(matches!(refused.unwrap(), Err(Rejection::Overlap { .. })));
     let dates = PeriodPatch {
         billing_date: Some(Some("2025-03-01".into())),

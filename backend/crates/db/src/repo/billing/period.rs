@@ -197,10 +197,10 @@ pub async fn create(
 }
 
 /// The first other period of the property that shares at least one day with
-/// `start..=end` and is not `except`, as a [`Rejection::Overlap`]. Adjacent periods do
-/// not overlap: like before, a period may start on the last day of the previous one.
-/// Reads with locks on MySQL (the caller holds the property), so it sees periods
-/// committed after the transaction's snapshot.
+/// `start..=end` and is not `except`, as a [`Rejection::Overlap`]. Both ends are
+/// inclusive, so a shared boundary day is an overlap too (decision 40: the boundary month
+/// would otherwise count in both periods). Reads with locks on MySQL (the caller holds
+/// the property), so it sees periods committed after the transaction's snapshot.
 async fn overlap(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -209,14 +209,13 @@ async fn overlap(
     start: &str,
     end: &str,
 ) -> DbResult<Option<Rejection>> {
-    // Text dates `YYYY-MM-DD` compare like dates. Same condition as the old code
-    // (`start < other.end AND end > other.start`).
+    // Text dates `YYYY-MM-DD` compare like dates.
     let sql = Dialect::of(conn)?.pick(
         "SELECT start_date, end_date FROM billing_period WHERE account_id = ? \
-         AND property_id = ? AND id <> ? AND start_date < ? AND end_date > ? \
+         AND property_id = ? AND id <> ? AND start_date <= ? AND end_date >= ? \
          ORDER BY start_date LIMIT 1",
         "SELECT start_date, end_date FROM billing_period WHERE account_id = ? \
-         AND property_id = ? AND id <> ? AND start_date < ? AND end_date > ? \
+         AND property_id = ? AND id <> ? AND start_date <= ? AND end_date >= ? \
          ORDER BY start_date LIMIT 1 FOR UPDATE",
     );
     let row = sqlx::query(sql)
