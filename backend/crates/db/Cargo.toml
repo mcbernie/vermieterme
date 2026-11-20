@@ -22,6 +22,7 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 uuid = { workspace = true }
+vermieterme-domain = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

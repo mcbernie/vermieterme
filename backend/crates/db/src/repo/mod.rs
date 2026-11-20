@@ -7,6 +7,8 @@
 
 pub mod account;
 pub mod audit;
+// P4
+pub mod masterdata;
 pub mod session;
 pub mod user;
 pub mod user_token;
