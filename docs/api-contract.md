@@ -197,7 +197,7 @@ beim Löschen 204 (heute `{success:true}` mit 200). Antworten liefern das vollst
 | GET /api/billing-periods/{id}/pdf?unitId= | – | `application/pdf`, Name wie heute | `unitId` optional; ohne: erste Einheit mit Mieter im Zeitraum (wie heute). 400 `Kein aktiver Mieter im Zeitraum`, 400 `Vermieterinformationen nicht konfiguriert` (heute englisch) |
 
 `Cost`: `{id, billingPeriodId, costCategoryId, categoryName, distributionKey (wirksam), distributionKeyOverride|null,
-totalAmountCents|null, unitAmountCents|null, enabled, reviewed, version}`.
+totalAmountCents|null, unitAmounts[{unitId, amountCents}], enabled, reviewed, version}`.
 `Prepayment`: `{id, billingPeriodId, unitId, monthlyAmountCents, reviewed, version}`.
 
 ## 8. Dokumente — Kunde

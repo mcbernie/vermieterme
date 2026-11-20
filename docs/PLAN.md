@@ -47,7 +47,7 @@ Rechte-Mapping (Rollen `admin`, `member`, Mieter) an einer Stelle: `backend/crat
   Spalten; CI prüft per Test, dass beide Schemata dieselben Tabellen/Spalten haben.
 - **Portable Typen:** IDs `VARCHAR(36)`/`TEXT` (Bestands-cuids bleiben, neue IDs UUID v7 als Text); Beträge `BIGINT`
   in Cent; Kalenderdaten `CHAR(10)` `YYYY-MM-DD`; Zeitpunkte `BIGINT` Unix-Millisekunden UTC; Wahrheitswerte
-  `INTEGER`/`TINYINT` 0/1; JSON (PDF-Vorlage) als `TEXT`. Unique-Spalten in MySQL als `VARCHAR` mit Länge.
+  `INTEGER`/`SMALLINT` 0/1, gelesen als `i64` (`TINYINT`/`bool` sind über `sqlx::Any` nicht lesbar); JSON (PDF-Vorlage) als `TEXT`. Unique-Spalten in MySQL als `VARCHAR` mit Länge.
 - **Optimistische Sperre:** `version BIGINT` in `cost` und `prepayment` (#67); Teil-Updates als ein `UPDATE` mit nur
   den gesendeten Feldern (#25).
 - Integrationstests: je Test eigene Datenbank. SQLite braucht keinen Dienst und läuft **immer** (temporäre Datei je
@@ -195,6 +195,10 @@ per Test gegen den Code geprüft).
 29. **Einheitenbetrag je Einheit** (#80): Beträge „laut Bescheid“/„siehe Anlage“ werden je Einheit und Kostenposition
     gespeichert (Tabelle `cost_unit_amount`), nicht mehr einmal je Kostenposition. Altbestand: der bisherige Betrag
     wird für jede Einheit des Objekts übernommen (P9). Web-API und Vertrag: P2/P5 ergänzen das Feld je Einheit.
+30. **Ein Kunde je Benutzer:** Mitgliedschaft als `app_user.account_id` (Admins ohne festen Kunden wechseln per
+    Audit). Mehrere Kunden je Benutzer sind kein Ziel; bei Bedarf später eine Mitgliedschaftstabelle.
+31. **Sperre gegen Durchprobieren von Einladungscodes** über Rate-Limit je IP und global im Speicher plus Ablauf und
+    Einmaligkeit; kein Fehlversuchszähler je Code (ein Angreifer kennt den Code nicht, ein Zähler je Code schützt nicht).
 
 ## Arbeitspakete
 
