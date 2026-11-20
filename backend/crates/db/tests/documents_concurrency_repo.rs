@@ -229,3 +229,68 @@ async fn move_vs_property_delete(db: &Db) {
     move_vs_delete(db, Target::Property).await;
 }
 dual_test!(move_vs_property, move_vs_property_delete);
+
+/// A stale edit (#122): c_a moves a tenant with a document out of H (uncommitted), c_b
+/// saves the old form ("same unit" H) and waits for c_a, c_c deletes H. c_b must not move
+/// the tenant back past the move locks (conflict instead), so no file is missed.
+async fn stale_edit_vs_unit_delete(db: &Db) {
+    let s = scope(db, "A").await;
+    let (mut ca, mut cb, mut cc) = (
+        db.pool().acquire().await.unwrap(),
+        db.pool().acquire().await.unwrap(),
+        db.pool().acquire().await.unwrap(),
+    );
+    let away = unit(db, &s, &property(db, &s).await, 10).await;
+    let pause = || tokio::time::sleep(std::time::Duration::from_millis(150));
+    for round in 0..ROUNDS {
+        let home = unit(db, &s, &property(db, &s).await, 10).await;
+        let tid = tenant(db, &s, &home).await;
+        let row = new_doc(&format!("s{round}"), None, Some(&tid));
+        let doc = documents::create(&mut cc, &s, &row).await.unwrap();
+        let stale = tenant::get(&mut cc, &s, &tid).await.unwrap().data;
+        let moved = TenantData {
+            unit_id: away.clone(),
+            ..stale.clone()
+        };
+        let (a_tx, a_rx) = tokio::sync::oneshot::channel::<()>();
+        let (b_tx, b_rx) = tokio::sync::oneshot::channel::<()>();
+        let (a, b, files) = tokio::join!(
+            in_transaction_read_committed(&mut ca, async |tx| {
+                tenant::update(tx, &s, &tid, &moved).await?;
+                let _ = a_tx.send(());
+                pause().await;
+                Ok(())
+            }),
+            async {
+                a_rx.await.unwrap();
+                in_transaction_read_committed(&mut cb, async |tx| {
+                    let saved = tenant::update(tx, &s, &tid, &stale).await;
+                    let _ = b_tx.send(());
+                    saved?;
+                    pause().await;
+                    Ok(())
+                })
+                .await
+            },
+            async {
+                b_rx.await.unwrap();
+                cascade(&mut cc, &s, Owner::Unit(&home), async |tx| {
+                    unit_repo::delete(tx, &s, &home).await
+                })
+                .await
+            },
+        );
+        a.unwrap();
+        assert!(
+            matches!(b, Ok(()) | Err(DbError::Conflict)),
+            "Runde {round}: {b:?}"
+        );
+        let files = files.unwrap();
+        let kept = documents::get(&mut cc, &s, &doc.id).await.is_ok();
+        assert!(
+            kept || files.contains(&doc.file_name),
+            "Runde {round}: Dokument gelöscht, Datei nicht gelistet"
+        );
+    }
+}
+dual_test!(stale_edit_vs_unit, stale_edit_vs_unit_delete);

@@ -13,12 +13,28 @@ use crate::dialect::Dialect;
 use crate::error::{DbError, DbResult};
 use crate::scope::AccountScope;
 
+/// The locks before an `UPDATE` of a tenant read in `from_unit`: none beyond checking
+/// the unit if it stays ([`unit::ensure`]), those of [`lock_move`] if it moves.
+pub(super) async fn lock_for_update(
+    conn: &mut AnyConnection,
+    scope: &AccountScope,
+    tenant_id: &str,
+    from_unit: &str,
+    to_unit: &str,
+) -> DbResult<()> {
+    if from_unit == to_unit {
+        unit::ensure(conn, scope, to_unit).await
+    } else {
+        lock_move(conn, scope, tenant_id, from_unit, to_unit).await
+    }
+}
+
 /// Locks the properties of `from_unit` and `to_unit` (sorted by id), then both units
 /// (sorted by id), then the tenant row, and checks that nothing moved meanwhile: a unit
 /// no longer in a locked property, or a tenant no longer in `from_unit`, is
 /// [`DbError::Conflict`] (rare; the caller retries). A missing unit is
 /// [`DbError::NotFound`]. Call inside a transaction under `READ COMMITTED` on MySQL.
-pub(super) async fn lock_move(
+async fn lock_move(
     conn: &mut AnyConnection,
     scope: &AccountScope,
     tenant_id: &str,

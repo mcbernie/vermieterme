@@ -3,7 +3,7 @@
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 
-use self::move_lock::lock_move;
+use self::move_lock::lock_for_update;
 use super::unit;
 use crate::error::{DbError, DbResult};
 use crate::row::{new_id, now_millis};
@@ -228,8 +228,9 @@ pub async fn create(
 /// to another tenant afterwards. The decision is made inside the `UPDATE` itself (not from
 /// a prior read), so concurrent changes cannot skip a revocation; the `CASE` stands before
 /// `unit_id = ?` because MySQL evaluates assignments left to right.
-/// A move to another unit takes the locks of `move_lock` first (#120, `READ COMMITTED`);
-/// something moved meanwhile -> [`DbError::Conflict`].
+/// A move to another unit takes the locks of `move_lock` first (#120, `READ COMMITTED`).
+/// The `UPDATE` is bound to the unit read first, so a stale form cannot move the tenant
+/// past these locks after a concurrent move (#122); moved meanwhile -> [`DbError::Conflict`].
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -238,13 +239,9 @@ pub async fn update(
 ) -> DbResult<Tenant> {
     in_transaction_read_committed(conn, async |tx| {
         let current = get(tx, scope, id).await?.data.unit_id;
-        if current == data.unit_id {
-            unit::ensure(tx, scope, &data.unit_id).await?;
-        } else {
-            lock_move(tx, scope, id, &current, &data.unit_id).await?;
-        }
+        lock_for_update(tx, scope, id, &current, &data.unit_id).await?;
         let now = now_millis();
-        sqlx::query(
+        let result = sqlx::query(
             "UPDATE tenant SET salutation = ?, first_name = ?, last_name = ?, \
              salutation2 = ?, first_name2 = ?, last_name2 = ?, phone = ?, email = ?, \
              bank_name = ?, iban = ?, account_holder = ?, move_in_date = ?, move_out_date = ?, \
@@ -252,7 +249,7 @@ pub async fn update(
              index_reference_date = ?, index_min_months = ?, updated_at = ?, \
              app_tokens_revoked_at = CASE WHEN unit_id <> ? THEN ? ELSE app_tokens_revoked_at END, \
              unit_id = ? \
-             WHERE account_id = ? AND id = ?",
+             WHERE account_id = ? AND id = ? AND unit_id = ?",
         )
         .bind(&data.salutation)
         .bind(&data.first_name)
@@ -278,9 +275,13 @@ pub async fn update(
         .bind(&data.unit_id)
         .bind(scope.account_id())
         .bind(id)
+        .bind(&current)
         .execute(&mut *tx)
         .await?;
-        get(tx, scope, id).await
+        let tenant = get(tx, scope, id).await?;
+        (result.rows_affected() > 0)
+            .then_some(tenant)
+            .ok_or(DbError::Conflict)
     })
     .await
 }
