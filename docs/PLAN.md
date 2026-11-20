@@ -225,6 +225,9 @@ per Test gegen den Code geprüft).
 41. **Isolationsstufe:** Abrechnungsänderungen (und Einheiten/Objekt-Löschen) laufen unter MySQL mit
     `READ COMMITTED`, damit keine Gap-Sperren über Objekt- und Kundengrenzen entstehen (#116); andere Pfade bleiben
     `REPEATABLE READ`. Betrieb: MySQL/MariaDB mit `binlog_format=ROW` (Standard) – Hinweis in `docs/operations.md` (P13).
+42. **Umhängen löscht unwirksame Einheitenbeträge:** Wird eine Einheit ohne wirksame Abrechnungsdaten in ein anderes
+    Objekt verschoben, löscht dieselbe Transaktion ihre bei `mea`/`per_unit` gespeicherten (unwirksamen)
+    Einheitenbeträge; ergänzt Entscheidung 5 („bleiben gespeichert“ gilt nur ohne Umhängen).
 
 ## Arbeitspakete
 
