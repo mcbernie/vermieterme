@@ -152,8 +152,11 @@ per Test gegen den Code geprüft).
 4. **Vorauszahlung nach Kalendermonaten** (#70), überall dieselbe Domain-Funktion (Abrechnung, Mieter-App, PDF).
    Jeder berührte Kalendermonat zählt voll (Entscheidung 17); die Regel ist als `MonthRule` in `vermieterme-domain`
    austauschbar.
-5. **MEA-Anteil** je Position in Cent kaufmännisch gerundet, wenn kein Einheitenbetrag gespeichert ist – auch im PDF
-   (heute dort `0`, `src/app/api/billing-periods/[id]/pdf/route.tsx`). Deaktivierte Kosten zählen nirgends (#69).
+5. **Einheitenanteil:** Bei `mea` und `per_unit` wird der Anteil immer aus dem Gesamtbetrag berechnet, je Position in
+   Cent kaufmännisch gerundet (auch im PDF, heute dort `0`, `src/app/api/billing-periods/[id]/pdf/route.tsx`); ein
+   gespeicherter Einheitenbetrag wird dort ignoriert (#81). Gespeicherte Beträge je Einheit gelten nur bei
+   `per_notice` und `per_attachment`. Deaktivierte Kosten zählen nirgends (#69). Rundung überall kaufmännisch
+   (halbe Cent bzw. Basispunkte weg von der Null).
 6. **Apple-Login entfällt** (#70); Login mit E-Mail/Passwort, OIDC später.
 7. **Mieter-App-Vertrag eingefroren:** Pfade, Methoden, Felder, `Authorization: Bearer`, JWT-Format. Abweichungen nur
    als Sicherheitsfix, je Endpunkt begründet in `api-contract.md`.
