@@ -17,7 +17,9 @@ mod property;
 mod rent_change;
 mod suggestions;
 mod tenant;
+mod tenant_json;
 mod unit;
+mod unit_embed;
 mod vpi;
 mod vpi_fetch;
 

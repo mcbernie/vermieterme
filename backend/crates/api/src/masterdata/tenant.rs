@@ -3,81 +3,25 @@
 
 use axum::extract::{Path, State};
 use axum::response::Response;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use vermieterme_db::repo::masterdata::tenant::{self, LEASE_TYPES, Tenant, TenantData};
 use vermieterme_db::repo::masterdata::unit as unit_repo;
 use vermieterme_domain::vpi::base_year_code;
 
-use super::fields::{SHORT_MAX, TEXT_MAX};
+use super::fields::{ID_INPUT_MAX, SHORT_MAX, TEXT_MAX, filter};
+use super::tenant_json::TenantJson;
 use super::unit::NOT_FOUND as UNIT_NOT_FOUND;
+use super::unit_embed;
 use super::{audited, created, deleted};
 use crate::auth::AccountCtx;
-use crate::error::json::{ApiJson, ApiQuery, timestamp};
+use crate::error::json::{ApiJson, ApiQuery};
 use crate::error::validate::Validator;
 use crate::error::{ApiResult, not_found_as};
 use crate::routes::AppState;
+use vermieterme_db::repo::masterdata::unit_ref;
 
 /// Message for a missing or foreign tenant.
 pub const NOT_FOUND: &str = "Mieter nicht gefunden";
-
-/// A tenant in responses.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TenantJson {
-    id: String,
-    unit_id: String,
-    salutation: String,
-    first_name: String,
-    last_name: String,
-    salutation2: Option<String>,
-    first_name2: Option<String>,
-    last_name2: Option<String>,
-    phone: Option<String>,
-    email: Option<String>,
-    bank_name: Option<String>,
-    iban: Option<String>,
-    account_holder: Option<String>,
-    move_in_date: String,
-    move_out_date: Option<String>,
-    lease_type: String,
-    index_base_year: Option<i64>,
-    index_reference_value_tenths: Option<i64>,
-    index_reference_date: Option<String>,
-    index_min_months: i64,
-    created_at: String,
-    updated_at: String,
-}
-
-impl From<Tenant> for TenantJson {
-    /// Response form with ISO timestamps.
-    fn from(t: Tenant) -> Self {
-        let d = t.data;
-        Self {
-            id: t.id,
-            unit_id: d.unit_id,
-            salutation: d.salutation,
-            first_name: d.first_name,
-            last_name: d.last_name,
-            salutation2: d.salutation2,
-            first_name2: d.first_name2,
-            last_name2: d.last_name2,
-            phone: d.phone,
-            email: d.email,
-            bank_name: d.bank_name,
-            iban: d.iban,
-            account_holder: d.account_holder,
-            move_in_date: d.move_in_date,
-            move_out_date: d.move_out_date,
-            lease_type: d.lease_type,
-            index_base_year: d.index_base_year,
-            index_reference_value_tenths: d.index_reference_tenths,
-            index_reference_date: d.index_reference_date,
-            index_min_months: d.index_min_months,
-            created_at: timestamp(t.created_at),
-            updated_at: timestamp(t.updated_at),
-        }
-    }
-}
 
 /// Query of the list.
 #[derive(Debug, Deserialize)]
@@ -128,7 +72,7 @@ impl TenantBody {
             v.fail("moveOutDate", "Auszugsdatum liegt vor dem Einzugsdatum");
         }
         let data = TenantData {
-            unit_id: v.text("unitId", "Einheit", &self.unit_id, 36),
+            unit_id: v.text("unitId", "Einheit", &self.unit_id, ID_INPUT_MAX),
             salutation: v.text("salutation", "Anrede", &self.salutation, SHORT_MAX),
             first_name: v.text("firstName", "Vorname", &self.first_name, TEXT_MAX),
             last_name: v.text("lastName", "Nachname", &self.last_name, TEXT_MAX),
@@ -210,14 +154,19 @@ pub async fn list(
     ApiQuery(query): ApiQuery<TenantQuery>,
 ) -> ApiResult<axum::Json<Vec<TenantJson>>> {
     let mut conn = state.conn().await?;
-    if let Some(unit_id) = query.unit_id.as_deref() {
+    let unit_id = filter(query.unit_id.as_deref());
+    if let Some(unit_id) = unit_id {
         unit_repo::get(&mut conn, &ctx.scope, unit_id)
             .await
             .map_err(not_found_as(UNIT_NOT_FOUND))?;
     }
-    let tenants = tenant::list(&mut conn, &ctx.scope, query.unit_id.as_deref()).await?;
+    let tenants = tenant::list(&mut conn, &ctx.scope, unit_id).await?;
+    let units = unit_ref::by_id(&mut conn, &ctx.scope).await?;
     Ok(axum::Json(
-        tenants.into_iter().map(TenantJson::from).collect(),
+        tenants
+            .into_iter()
+            .map(|t| TenantJson::new(t, &units))
+            .collect(),
     ))
 }
 
@@ -237,7 +186,26 @@ pub async fn create(
         async |tx| tenant::create(tx, &ctx.scope, &data).await,
     )
     .await?;
-    Ok(created(TenantJson::from(tenant)))
+    let units = unit_embed::load(&state, &ctx).await?;
+    Ok(created(TenantJson::new(tenant, &units)))
+}
+
+/// Tells a missing tenant from a missing target unit before the change (the repository
+/// re-checks both inside its transaction), so the 404 names the right object.
+async fn check_targets(
+    state: &AppState,
+    ctx: &AccountCtx,
+    id: &str,
+    unit_id: &str,
+) -> ApiResult<()> {
+    let mut conn = state.conn().await?;
+    tenant::get(&mut conn, &ctx.scope, id)
+        .await
+        .map_err(not_found_as(NOT_FOUND))?;
+    unit_repo::get(&mut conn, &ctx.scope, unit_id)
+        .await
+        .map_err(not_found_as(UNIT_NOT_FOUND))?;
+    Ok(())
 }
 
 /// Replaces a tenant.
@@ -248,6 +216,7 @@ pub async fn update(
     ApiJson(body): ApiJson<TenantBody>,
 ) -> ApiResult<axum::Json<TenantJson>> {
     let data = body.validate()?;
+    check_targets(&state, &ctx, &id, &data.unit_id).await?;
     let tenant = audited(
         &state,
         &ctx,
@@ -257,7 +226,8 @@ pub async fn update(
         async |tx| tenant::update(tx, &ctx.scope, &id, &data).await,
     )
     .await?;
-    Ok(axum::Json(tenant.into()))
+    let units = unit_embed::load(&state, &ctx).await?;
+    Ok(axum::Json(TenantJson::new(tenant, &units)))
 }
 
 /// Deletes a tenant.

@@ -14,6 +14,15 @@ pub const TEXT_MAX: usize = 255;
 /// Salutation and phone columns (characters).
 pub const SHORT_MAX: usize = 64;
 
+/// Limit for ids in request bodies. Only guards against absurd input: an id longer than
+/// the 36 stored characters simply matches nothing and so is 404 like any unknown id.
+pub const ID_INPUT_MAX: usize = 256;
+
+/// A list filter: an empty or blank value means "no filter" (as before).
+pub fn filter(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|v| !v.is_empty())
+}
+
 impl Validator {
     /// Optional text: trimmed, empty or missing -> `None`, at most `max` characters.
     pub fn opt_text(

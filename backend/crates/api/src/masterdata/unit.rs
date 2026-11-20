@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use vermieterme_db::repo::masterdata::property as property_repo;
 use vermieterme_db::repo::masterdata::unit::{self, KINDS, Unit, UnitInput};
 
-use super::fields::TEXT_MAX;
+use super::fields::{ID_INPUT_MAX, TEXT_MAX, filter};
 use super::property::{NOT_FOUND as PROPERTY_NOT_FOUND, SHARES_MAX};
 use super::{audited, audited_checked, created, deleted};
 use crate::auth::AccountCtx;
@@ -74,7 +74,7 @@ impl UnitBody {
         let mut v = Validator::new();
         let kind = self.kind.as_deref().unwrap_or("apartment");
         let input = UnitInput {
-            property_id: v.text("propertyId", "Objekt", &self.property_id, 36),
+            property_id: v.text("propertyId", "Objekt", &self.property_id, ID_INPUT_MAX),
             name: v.text("name", "Name", &self.name, TEXT_MAX),
             floor: v
                 .opt_text("floor", "Etage", Some(&self.floor), TEXT_MAX)
@@ -94,12 +94,13 @@ pub async fn list(
     ApiQuery(query): ApiQuery<UnitQuery>,
 ) -> ApiResult<axum::Json<Vec<UnitJson>>> {
     let mut conn = state.conn().await?;
-    if let Some(property_id) = query.property_id.as_deref() {
+    let property_id = filter(query.property_id.as_deref());
+    if let Some(property_id) = property_id {
         property_repo::get(&mut conn, &ctx.scope, property_id)
             .await
             .map_err(not_found_as(PROPERTY_NOT_FOUND))?;
     }
-    let units = unit::list(&mut conn, &ctx.scope, query.property_id.as_deref()).await?;
+    let units = unit::list(&mut conn, &ctx.scope, property_id).await?;
     Ok(axum::Json(units.into_iter().map(UnitJson::from).collect()))
 }
 
@@ -122,6 +123,24 @@ pub async fn create(
     Ok(created(UnitJson::from(unit)))
 }
 
+/// Tells a missing unit from a missing target property before the change (the repository
+/// re-checks both inside its transaction), so the 404 names the right object.
+async fn check_targets(
+    state: &AppState,
+    ctx: &AccountCtx,
+    id: &str,
+    property_id: &str,
+) -> ApiResult<()> {
+    let mut conn = state.conn().await?;
+    unit::get(&mut conn, &ctx.scope, id)
+        .await
+        .map_err(not_found_as(NOT_FOUND))?;
+    property_repo::get(&mut conn, &ctx.scope, property_id)
+        .await
+        .map_err(not_found_as(PROPERTY_NOT_FOUND))?;
+    Ok(())
+}
+
 /// Replaces a unit.
 pub async fn update(
     State(state): State<AppState>,
@@ -130,6 +149,7 @@ pub async fn update(
     ApiJson(body): ApiJson<UnitBody>,
 ) -> ApiResult<axum::Json<UnitJson>> {
     let input = body.validate()?;
+    check_targets(&state, &ctx, &id, &input.property_id).await?;
     let unit = audited_checked(
         &state,
         &ctx,

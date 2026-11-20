@@ -8,7 +8,7 @@ use vermieterme_db::repo::masterdata::property::{self, Property, PropertyInput};
 use vermieterme_db::repo::masterdata::{tenant, unit};
 
 use super::fields::{TEXT_MAX, ZIP_MAX};
-use super::tenant::TenantJson;
+use super::tenant_json::TenantJson;
 use super::unit::UnitJson;
 use super::{audited, created, deleted};
 use crate::auth::AccountCtx;
@@ -135,6 +135,8 @@ pub async fn detail(
         .map_err(not_found_as(NOT_FOUND))?;
     let units = unit::list(&mut conn, &ctx.scope, Some(&id)).await?;
     let tenants = tenant::list_for_property(&mut conn, &ctx.scope, &id).await?;
+    // The tenants are nested in their unit here, so the embedded `unit` is left out.
+    let no_units = std::collections::HashMap::new();
     let units = units
         .into_iter()
         .map(|u| UnitWithTenants {
@@ -142,7 +144,7 @@ pub async fn detail(
                 .iter()
                 .filter(|t| t.data.unit_id == u.id)
                 .cloned()
-                .map(TenantJson::from)
+                .map(|t| TenantJson::new(t, &no_units))
                 .collect(),
             unit: u.into(),
         })

@@ -22,6 +22,7 @@ pub mod rent_change;
 pub mod suggestions;
 pub mod tenant;
 pub mod unit;
+pub mod unit_ref;
 pub mod vpi;
 
 /// A change refused because of a business rule (nothing was written).

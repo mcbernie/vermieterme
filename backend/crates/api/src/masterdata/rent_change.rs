@@ -3,11 +3,15 @@
 use axum::extract::{Path, State};
 use axum::response::Response;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use vermieterme_db::repo::masterdata::rent_change::{self, RentChange, RentChangeData, TYPES};
 use vermieterme_db::repo::masterdata::unit as unit_repo;
+use vermieterme_db::repo::masterdata::unit_ref::{self, UnitRef};
 use vermieterme_domain::Cents;
 
+use super::fields::{ID_INPUT_MAX, filter};
 use super::unit::NOT_FOUND as UNIT_NOT_FOUND;
+use super::unit_embed::{self, UnitEmbed};
 use super::{audited, created, deleted};
 use crate::auth::AccountCtx;
 use crate::error::json::{ApiJson, ApiQuery, timestamp};
@@ -26,6 +30,8 @@ const REASON_MAX: usize = 2000;
 pub struct RentChangeJson {
     id: String,
     unit_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unit: Option<UnitEmbed>,
     #[serde(rename = "type")]
     change_type: String,
     amount_cents: i64,
@@ -35,11 +41,12 @@ pub struct RentChangeJson {
     updated_at: String,
 }
 
-impl From<RentChange> for RentChangeJson {
-    /// Response form with ISO timestamps.
-    fn from(r: RentChange) -> Self {
+impl RentChangeJson {
+    /// Response form with ISO timestamps and the embedded unit with its property.
+    pub(super) fn new(r: RentChange, units: &HashMap<String, UnitRef>) -> Self {
         Self {
             id: r.id,
+            unit: unit_embed::lookup(units, &r.data.unit_id),
             unit_id: r.data.unit_id,
             change_type: r.data.change_type,
             amount_cents: r.data.amount_cents,
@@ -75,7 +82,7 @@ impl RentChangeBody {
     fn validate(&self) -> ApiResult<RentChangeData> {
         let mut v = Validator::new();
         let data = RentChangeData {
-            unit_id: v.text("unitId", "Einheit", &self.unit_id, 36),
+            unit_id: v.text("unitId", "Einheit", &self.unit_id, ID_INPUT_MAX),
             change_type: v.code("type", "Art", &self.change_type, &TYPES),
             amount_cents: v.int_in(
                 "amountCents",
@@ -99,14 +106,19 @@ pub async fn list(
     ApiQuery(query): ApiQuery<RentChangeQuery>,
 ) -> ApiResult<axum::Json<Vec<RentChangeJson>>> {
     let mut conn = state.conn().await?;
-    if let Some(unit_id) = query.unit_id.as_deref() {
+    let unit_id = filter(query.unit_id.as_deref());
+    if let Some(unit_id) = unit_id {
         unit_repo::get(&mut conn, &ctx.scope, unit_id)
             .await
             .map_err(not_found_as(UNIT_NOT_FOUND))?;
     }
-    let changes = rent_change::list(&mut conn, &ctx.scope, query.unit_id.as_deref()).await?;
+    let changes = rent_change::list(&mut conn, &ctx.scope, unit_id).await?;
+    let units = unit_ref::by_id(&mut conn, &ctx.scope).await?;
     Ok(axum::Json(
-        changes.into_iter().map(RentChangeJson::from).collect(),
+        changes
+            .into_iter()
+            .map(|c| RentChangeJson::new(c, &units))
+            .collect(),
     ))
 }
 
@@ -126,7 +138,26 @@ pub async fn create(
         async |tx| rent_change::create(tx, &ctx.scope, &data).await,
     )
     .await?;
-    Ok(created(RentChangeJson::from(change)))
+    let units = unit_embed::load(&state, &ctx).await?;
+    Ok(created(RentChangeJson::new(change, &units)))
+}
+
+/// Tells a missing change from a missing target unit before the change (the repository
+/// re-checks both inside its transaction), so the 404 names the right object.
+async fn check_targets(
+    state: &AppState,
+    ctx: &AccountCtx,
+    id: &str,
+    unit_id: &str,
+) -> ApiResult<()> {
+    let mut conn = state.conn().await?;
+    rent_change::get(&mut conn, &ctx.scope, id)
+        .await
+        .map_err(not_found_as(NOT_FOUND))?;
+    unit_repo::get(&mut conn, &ctx.scope, unit_id)
+        .await
+        .map_err(not_found_as(UNIT_NOT_FOUND))?;
+    Ok(())
 }
 
 /// Replaces a change.
@@ -137,6 +168,7 @@ pub async fn update(
     ApiJson(body): ApiJson<RentChangeBody>,
 ) -> ApiResult<axum::Json<RentChangeJson>> {
     let data = body.validate()?;
+    check_targets(&state, &ctx, &id, &data.unit_id).await?;
     let change = audited(
         &state,
         &ctx,
@@ -146,7 +178,8 @@ pub async fn update(
         async |tx| rent_change::update(tx, &ctx.scope, &id, &data).await,
     )
     .await?;
-    Ok(axum::Json(change.into()))
+    let units = unit_embed::load(&state, &ctx).await?;
+    Ok(axum::Json(RentChangeJson::new(change, &units)))
 }
 
 /// Deletes a change.
