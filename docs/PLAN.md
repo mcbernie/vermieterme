@@ -222,6 +222,9 @@ per Test gegen den Code geprüft).
 40. **Überlappung von Zeiträumen:** Datumsangaben sind inklusiv; ein gemeinsamer Grenztag gilt als Überlappung
     (sonst zählte der Grenzmonat nach Entscheidung 17 in beiden Zeiträumen). Geprüft beim Anlegen und Ändern; der
     Import (P9) übernimmt Altbestand unverändert und meldet solche Fälle im Prüfprotokoll.
+41. **Isolationsstufe:** Abrechnungsänderungen (und Einheiten/Objekt-Löschen) laufen unter MySQL mit
+    `READ COMMITTED`, damit keine Gap-Sperren über Objekt- und Kundengrenzen entstehen (#116); andere Pfade bleiben
+    `REPEATABLE READ`. Betrieb: MySQL/MariaDB mit `binlog_format=ROW` (Standard) – Hinweis in `docs/operations.md` (P13).
 
 ## Arbeitspakete
 
