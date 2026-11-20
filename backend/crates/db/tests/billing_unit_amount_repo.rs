@@ -7,6 +7,7 @@ mod billing_support;
 
 use billing_support::{category, property, setup, unit, unit_input};
 use vermieterme_db::repo::billing::{Cost, CostPatch, Rejection, UnitAmountSaved, cost};
+use vermieterme_db::repo::masterdata::cost_category::{self, CostCategoryInput};
 use vermieterme_db::repo::masterdata::{self, unit as unit_repo};
 use vermieterme_db::{Db, DbError, dual_test};
 use vermieterme_domain::DistributionKey;
@@ -97,7 +98,7 @@ fn written(saved: UnitAmountSaved) -> Cost {
 dual_test!(unit_amount_rules, unit_amounts);
 
 /// Unit amounts block moving their unit only while the key in effect uses them (#117):
-/// after an override to `mea` the stored amount stays but no longer counts.
+/// after an override to `mea` the amount no longer counts, and the move deletes it.
 async fn ignored_amounts_do_not_block(db: &Db) {
     let s = setup(db, "A").await;
     let mut c = db.pool().acquire().await.unwrap();
@@ -126,7 +127,69 @@ async fn ignored_amounts_do_not_block(db: &Db) {
         .unwrap();
     let done = unit_repo::update(&mut c, &s.scope, &s.units[0], &moved).await;
     assert_eq!(done.unwrap().unwrap().property_id, target);
-    let kept = cost::list(&mut c, &s.scope, pid).await.unwrap();
-    assert_eq!(kept[0].unit_amount(&s.units[0]), Some(500));
+    let left = cost::list(&mut c, &s.scope, pid).await.unwrap();
+    assert_eq!(
+        left[0].unit_amount(&s.units[0]),
+        None,
+        "mit umgehängt gelöscht"
+    );
 }
 dual_test!(ignored_unit_amounts, ignored_amounts_do_not_block);
+
+/// Changing the key of a category back to one that uses unit amounts while a unit with
+/// an ignored amount of it moves: either the move comes first (amount deleted, moved) or
+/// the change does (move refused, amount kept). Never a moved unit whose amount counts.
+async fn key_change_vs_move(db: &Db) {
+    let s = setup(db, "A").await;
+    let target = property(db, &s.scope).await;
+    let mut c1 = db.pool().acquire().await.unwrap();
+    let mut c2 = db.pool().acquire().await.unwrap();
+    let pid = s.period.id.as_str();
+    for round in 0..8 {
+        let name = format!("K{round}");
+        let cat = category(db, &s.scope, &name, "per_notice").await;
+        let uid = unit(db, &s.scope, &s.property_id, 0).await;
+        cost::set_unit_amount(
+            &mut c1,
+            &s.scope,
+            (pid, cat.as_str(), uid.as_str()),
+            Some(500),
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let with_key = |key: &str| CostCategoryInput {
+            name: name.clone(),
+            distribution_key: key.into(),
+            sort_order: 0,
+        };
+        cost_category::update(&mut c1, &s.scope, &cat, &with_key("mea"))
+            .await
+            .unwrap();
+        let moved = unit_input(&target, 0);
+        let back = with_key("per_notice");
+        let (changed, move_result) = tokio::join!(
+            cost_category::update(&mut c1, &s.scope, &cat, &back),
+            unit_repo::update(&mut c2, &s.scope, &uid, &moved),
+        );
+        changed.unwrap();
+        let costs = cost::list(&mut c1, &s.scope, pid).await.unwrap();
+        let amount = costs
+            .iter()
+            .find(|c| c.cost_category_id == cat)
+            .and_then(|c| c.unit_amount(&uid));
+        match move_result.unwrap() {
+            Ok(_) => assert_eq!(amount, None, "Runde {round}"),
+            Err(refusal) => {
+                assert_eq!(
+                    refusal,
+                    masterdata::Rejection::UnitInBillings,
+                    "Runde {round}"
+                );
+                assert_eq!(amount, Some(500), "Runde {round}");
+            }
+        }
+    }
+}
+dual_test!(unit_amount_key_change_vs_move, key_change_vs_move);

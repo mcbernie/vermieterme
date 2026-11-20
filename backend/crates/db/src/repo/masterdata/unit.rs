@@ -4,7 +4,7 @@ use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 use vermieterme_domain::billing::UnitBasis;
 
-use self::locks::in_billings;
+use self::billings::detach_from_billings;
 pub(crate) use self::locks::{lock, lock_of_property};
 use super::{Checked, Rejection, property};
 use crate::error::{DbError, DbResult};
@@ -59,6 +59,7 @@ macro_rules! columns {
 }
 
 // After `columns!`, which the lock queries expand.
+mod billings;
 mod locks;
 
 /// Maps a row selected with `columns!()`.
@@ -184,11 +185,14 @@ pub async fn create(
     .await
 }
 
-/// Replaces the values of a unit (the property may change). Same rules as [`create`].
+/// Replaces the values of a unit (the property may change). Same rules as [`create`];
+/// moving it is refused while billings reference it ([`Rejection::UnitInBillings`]),
+/// and its unit amounts that no longer count are deleted with the move (#117).
 ///
 /// Lock order (see `repo::billing`): the current and the target property (sorted by
-/// id), then the unit. Their ids come from a plain read first; the check for billing
-/// data ([`in_billings`]) runs after the locks.
+/// id), then the unit. Their ids come from a plain read first; the billing check and
+/// the clean-up (`detach_from_billings`, categories before their rows) run after these
+/// locks.
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -211,8 +215,10 @@ pub async fn update(
         if let Err(rejection) = check_shares(tx, scope, input).await? {
             return Ok(Err(rejection));
         }
-        if current.property_id != input.property_id && in_billings(tx, scope, id).await? {
-            return Ok(Err(Rejection::UnitInBillings));
+        if current.property_id != input.property_id
+            && let Err(rejection) = detach_from_billings(tx, scope, id).await?
+        {
+            return Ok(Err(rejection));
         }
         sqlx::query(
             "UPDATE unit SET property_id = ?, name = ?, floor = ?, shares = ?, kind = ?, \

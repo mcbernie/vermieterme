@@ -26,7 +26,8 @@
 //!    decision 37);
 //! 3. **billing period** – the changed one or the copy source;
 //! 4. **cost category** – deleting a category locks it too, so a parallel cost save
-//!    gives 409 or 404, never a foreign-key error;
+//!    gives 409 or 404, never a foreign-key error; moving a unit locks the categories
+//!    of its unit amounts (sorted by id) before it checks and deletes them (#117);
 //! 5. rows below (costs, unit amounts, prepayments), by the writes themselves.
 //!
 //! Where a step needs an id from a later row (the property of a period or unit), that id
