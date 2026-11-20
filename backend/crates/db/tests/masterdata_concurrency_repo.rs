@@ -194,7 +194,18 @@ async fn tenant_move_revokes_tokens(db: &Db) {
     tenant::update(&mut c, &a, &t.id, &tenant_data(&u2.id))
         .await
         .unwrap();
-    assert!(revoked_at(db, &t.id).await.is_some());
+    let first = revoked_at(db, &t.id).await;
+    assert!(first.is_some());
+    // Same unit again: untouched; move back: a new, later revocation time.
+    tenant::update(&mut c, &a, &t.id, &tenant_data(&u2.id))
+        .await
+        .unwrap();
+    assert_eq!(revoked_at(db, &t.id).await, first);
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    tenant::update(&mut c, &a, &t.id, &tenant_data(&u1.id))
+        .await
+        .unwrap();
+    assert!(revoked_at(db, &t.id).await > first);
 }
 dual_test!(tenant_move_tokens, tenant_move_revokes_tokens);
 

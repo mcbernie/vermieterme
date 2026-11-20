@@ -264,8 +264,8 @@ async fn global_audit(db: &Db) {
 }
 dual_test!(vpi_audit_is_global, global_audit);
 
-/// The retrieval is limited to one per minute for the whole system: the second one is 429
-/// with `Retry-After`, also for another customer; invalid requests do not count.
+/// The retrieval is limited to one per customer in ten minutes (429 with `Retry-After`);
+/// another customer can still retrieve; invalid requests do not count.
 async fn retrieval_limit(db: &Db) {
     let ok = stand_in(StatusCode::OK, SERIES).await;
     let (app, cookie) = app_with_base(db, ok).await;
@@ -284,6 +284,10 @@ async fn retrieval_limit(db: &Db) {
     assert_eq!(limited.status, 429);
     assert_eq!(limited.body["code"], "rate_limited");
     assert!(limited.header("retry-after").is_some());
-    assert_eq!(call(&other, request).await.status, 429);
+    assert_eq!(
+        call(&other, request).await.status,
+        200,
+        "Kunde B ist vom Limit des Kunden A nicht betroffen"
+    );
 }
 dual_test!(vpi_fetch_limited, retrieval_limit);

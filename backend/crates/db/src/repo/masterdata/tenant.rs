@@ -222,7 +222,9 @@ pub async fn create(
 /// Replaces the values of a tenant. The invitation code stays untouched. If the unit
 /// changes, the tenant-app tokens are revoked in the same transaction
 /// (`app_tokens_revoked_at`, decision 36): a token carries the unit, whose data belongs
-/// to another tenant afterwards.
+/// to another tenant afterwards. The decision is made inside the `UPDATE` itself (not from
+/// a prior read), so concurrent changes cannot skip a revocation; the `CASE` stands before
+/// `unit_id = ?` because MySQL evaluates assignments left to right.
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -230,20 +232,19 @@ pub async fn update(
     data: &TenantData,
 ) -> DbResult<Tenant> {
     in_transaction(conn, async |tx| {
-        let current = get(tx, scope, id).await?;
+        get(tx, scope, id).await?;
         unit::ensure(tx, scope, &data.unit_id).await?;
         let now = now_millis();
-        let revoked_at = (current.data.unit_id != data.unit_id).then_some(now);
         sqlx::query(
-            "UPDATE tenant SET unit_id = ?, salutation = ?, first_name = ?, last_name = ?, \
+            "UPDATE tenant SET salutation = ?, first_name = ?, last_name = ?, \
              salutation2 = ?, first_name2 = ?, last_name2 = ?, phone = ?, email = ?, \
              bank_name = ?, iban = ?, account_holder = ?, move_in_date = ?, move_out_date = ?, \
              lease_type = ?, index_base_year = ?, index_reference_tenths = ?, \
              index_reference_date = ?, index_min_months = ?, updated_at = ?, \
-             app_tokens_revoked_at = COALESCE(?, app_tokens_revoked_at) \
+             app_tokens_revoked_at = CASE WHEN unit_id <> ? THEN ? ELSE app_tokens_revoked_at END, \
+             unit_id = ? \
              WHERE account_id = ? AND id = ?",
         )
-        .bind(&data.unit_id)
         .bind(&data.salutation)
         .bind(&data.first_name)
         .bind(&data.last_name)
@@ -263,7 +264,9 @@ pub async fn update(
         .bind(data.index_reference_date.as_deref())
         .bind(data.index_min_months)
         .bind(now)
-        .bind(revoked_at)
+        .bind(&data.unit_id)
+        .bind(now)
+        .bind(&data.unit_id)
         .bind(scope.account_id())
         .bind(id)
         .execute(&mut *tx)

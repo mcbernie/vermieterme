@@ -5,6 +5,7 @@ use sqlx::{AnyConnection, Row};
 use vermieterme_domain::billing::UnitBasis;
 
 use super::{Checked, Rejection, property};
+use crate::dialect::Dialect;
 use crate::error::{DbError, DbResult};
 use crate::row::{new_id, now_millis};
 use crate::scope::AccountScope;
@@ -186,7 +187,7 @@ pub async fn update(
     input: &UnitInput,
 ) -> Checked<Unit> {
     in_transaction(conn, async |tx| {
-        let current = get(tx, scope, id).await?;
+        let current = lock(tx, scope, id).await?;
         if let Err(rejection) = check_shares(tx, scope, input).await? {
             return Ok(Err(rejection));
         }
@@ -210,6 +211,23 @@ pub async fn update(
         get(tx, scope, id).await.map(Ok)
     })
     .await
+}
+
+/// Reads a unit and, on MySQL, locks its row until the end of the transaction (SQLite has
+/// the write lock from `BEGIN IMMEDIATE`). Needed before [`in_billings`]: without the lock
+/// a concurrent insert into `prepayment`/`cost_unit_amount` could commit between check and
+/// `UPDATE`. Billing code (P5) must lock the same unit row (`SELECT ... FOR UPDATE`) before
+/// inserting prepayments or per-unit cost amounts, so both sides serialize on it.
+async fn lock(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<Unit> {
+    if Dialect::of(conn)? == Dialect::MySql {
+        sqlx::query("SELECT id FROM unit WHERE account_id = ? AND id = ? FOR UPDATE")
+            .bind(scope.account_id())
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .ok_or(DbError::NotFound)?;
+    }
+    get(conn, scope, id).await
 }
 
 /// Whether billings reference the unit (prepayments or per-unit cost amounts).

@@ -17,14 +17,23 @@ use crate::error::ApiError;
 use crate::error::json::ApiJson;
 use crate::routes::AppState;
 
-/// At most one retrieval per minute for the whole system: the Bundesbank is shared by
+/// At most ten retrievals per minute for the whole system: the Bundesbank is shared by
 /// all customers, and the values are stored globally anyway. A retrieval books itself as
-/// one "failure" at once, which locks the key for the window.
-const FETCH_LIMIT: Policy = Policy {
+/// one "failure" at once; the eleventh locks the key for the window.
+const GLOBAL_LIMIT: Policy = Policy {
     prefix: "vpi-fetch",
-    max_failures: 1,
+    max_failures: 10,
     window: Duration::from_secs(60),
     lockout: Duration::from_secs(60),
+    reset_on_success: false,
+};
+/// At most one retrieval per customer in ten minutes, so one customer cannot use up the
+/// global budget for everybody else.
+const ACCOUNT_LIMIT: Policy = Policy {
+    prefix: "vpi-fetch-account",
+    max_failures: 1,
+    window: Duration::from_secs(600),
+    lockout: Duration::from_secs(600),
     reset_on_success: false,
 };
 /// Largest accepted answer (bytes); a monthly series of a few years is a few kilobytes.
@@ -64,7 +73,7 @@ struct FetchJson {
 /// Retrieves the values of a base year.
 pub async fn fetch(
     State(state): State<AppState>,
-    _ctx: AccountCtx,
+    ctx: AccountCtx,
     ApiJson(body): ApiJson<FetchBody>,
 ) -> Response {
     let Some(code) = i32::try_from(body.base_year).ok().and_then(base_year_code) else {
@@ -74,9 +83,16 @@ pub async fn fetch(
         )
         .into_response();
     };
-    match state.limiter.begin(&FETCH_LIMIT, "global") {
-        Ok(attempt) => attempt.failed(),
-        Err(wait) => return ApiError::rate_limited(wait).into_response(),
+    // Reserve both budgets first; if the second is refused, the first reservation is
+    // dropped unbooked, so a blocked customer does not eat the global budget.
+    let global = state.limiter.begin(&GLOBAL_LIMIT, "global");
+    let account = state.limiter.begin(&ACCOUNT_LIMIT, ctx.scope.account_id());
+    match (global, account) {
+        (Ok(global), Ok(account)) => {
+            global.failed();
+            account.failed();
+        }
+        (Err(wait), _) | (_, Err(wait)) => return ApiError::rate_limited(wait).into_response(),
     }
     // "Today" is the UTC date: for monthly values the difference to German time is at
     // most one day and does not matter here.
