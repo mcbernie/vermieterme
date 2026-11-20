@@ -203,7 +203,7 @@ per Test gegen den Code geprüft).
     (`/accept-invite#token=…`, `/reset-password#token=…`), nie im Query-String. P12 legt diese Seiten an.
 33. **Neuinstallation:** Der Bootstrap-Admin hat keinen Kunden, bis er im Admin-Bereich einen anlegt; die Oberfläche
     (P12) führt ihn dorthin. Beim Upgrade legt der Import (P9) den ersten Kunden an.
-34. **CSP der Oberfläche:** Die API-Schicht setzt eine CSP ohne `unsafe-inline`. Die Auslieferung des statischen
+34. **CSP der Oberfläche:** Die API-Schicht setzt eine CSP ohne `unsafe-inline` für Skripte (`style-src` erlaubt Inline-Styles). Die Auslieferung des statischen
     Exports (P12) setzt einen eigenen CSP-Header mit Hashes der Inline-Skripte.
 35. **Fehlerprotokoll:** Datenbankfehler werden nur mit Fehlerart und SQLSTATE/Code geloggt, nie mit der
     Treibermeldung (sie kann Feldwerte enthalten, z. B. bei doppelten Schlüsseln).
