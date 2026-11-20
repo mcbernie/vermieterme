@@ -60,27 +60,42 @@ pub enum ShareError {
 }
 
 impl UnitBasis {
-    /// MEA share of `total`: `total * shares / total_shares`, rounded half away from
-    /// zero. Requires `0 <= shares <= total_shares`; `total_shares = 0` (with
-    /// `shares = 0`) gives 0.
-    pub fn mea_share(&self, total: Cents) -> Result<Cents, ShareError> {
+    /// Checks the shares without computing anything: `0 <= shares <= total_shares`.
+    /// The rule of [`UnitBasis::mea_share`], usable for validation on write and for
+    /// reports on legacy data.
+    pub fn check_shares(&self) -> Result<(), ShareError> {
         if self.shares < 0 || self.shares > self.total_shares {
             return Err(ShareError::InvalidShares);
         }
+        Ok(())
+    }
+
+    /// Checks the unit count without computing anything: `unit_count >= 1`.
+    /// The rule of [`UnitBasis::per_unit_share`].
+    pub fn check_unit_count(&self) -> Result<(), ShareError> {
+        if self.unit_count < 1 {
+            return Err(ShareError::NoUnits);
+        }
+        Ok(())
+    }
+
+    /// MEA share of `total`: `total * shares / total_shares`, rounded half away from
+    /// zero. Requires [`UnitBasis::check_shares`]; `total_shares = 0` (with
+    /// `shares = 0`) gives 0.
+    pub fn mea_share(&self, total: Cents) -> Result<Cents, ShareError> {
+        self.check_shares()?;
+        // `None` only for total_shares = 0, which the check allows with shares = 0.
         Ok(total
             .mul_ratio(self.shares, self.total_shares)
             .unwrap_or(Cents::ZERO))
     }
 
     /// Equal share of `total` over all units of the property, rounded half away from
-    /// zero. Requires `unit_count >= 1`.
+    /// zero. Requires [`UnitBasis::check_unit_count`].
     pub fn per_unit_share(&self, total: Cents) -> Result<Cents, ShareError> {
-        if self.unit_count < 1 {
-            return Err(ShareError::NoUnits);
-        }
-        total
-            .mul_ratio(1, self.unit_count)
-            .ok_or(ShareError::NoUnits)
+        self.check_unit_count()?;
+        // Unreachable `None`: the check guarantees unit_count >= 1.
+        Ok(total.mul_ratio(1, self.unit_count).unwrap_or(Cents::ZERO))
     }
 }
 

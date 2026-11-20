@@ -72,6 +72,27 @@ fn mea_rejects_negative_or_excess_shares() {
 }
 
 #[test]
+fn basis_can_be_checked_without_computing() {
+    assert_eq!(
+        basis(1001, 1000, 2).check_shares(),
+        Err(ShareError::InvalidShares)
+    );
+    assert_eq!(
+        basis(-1, 1000, 2).check_shares(),
+        Err(ShareError::InvalidShares)
+    );
+    assert_eq!(
+        basis(100, 0, 1).check_shares(),
+        Err(ShareError::InvalidShares)
+    );
+    assert_eq!(basis(0, 0, 1).check_shares(), Ok(()));
+    assert_eq!(basis(1000, 1000, 2).check_shares(), Ok(()));
+    assert_eq!(basis(0, 0, 0).check_unit_count(), Err(ShareError::NoUnits));
+    assert_eq!(basis(0, 0, -1).check_unit_count(), Err(ShareError::NoUnits));
+    assert_eq!(basis(9, 1, 1).check_unit_count(), Ok(()));
+}
+
+#[test]
 fn per_unit_splits_equally_and_needs_a_unit() {
     let three = basis(0, 0, 3);
     assert_eq!(three.per_unit_share(Cents::new(1000)), Ok(Cents::new(333)));
