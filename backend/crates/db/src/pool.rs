@@ -11,6 +11,8 @@ use crate::migrate;
 const SQLITE_MAX_CONNECTIONS: u32 = 4;
 /// Pool size for MySQL/MariaDB (one application instance, decision 13).
 const MYSQL_MAX_CONNECTIONS: u32 = 10;
+/// Adds strict mode to the session's `sql_mode`, keeping what sqlx and the server set.
+const STRICT_MODE: &str = "SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',STRICT_ALL_TABLES')";
 
 /// Open database: the `Any` pool and the dialect it talks to.
 #[derive(Debug, Clone)]
@@ -25,17 +27,25 @@ impl Db {
     /// For SQLite the URL should contain `mode=rwc` to create a missing file. The
     /// journal is switched to WAL so readers do not block the writer; foreign keys are
     /// enforced by sqlx' SQLite defaults.
+    ///
+    /// Every MySQL connection adds `STRICT_ALL_TABLES` to its `sql_mode`, so a too long
+    /// value is rejected (like the SQLite length checks) instead of silently truncated,
+    /// whatever the server default is.
     pub async fn connect(url: &str) -> DbResult<Self> {
         let dialect = Dialect::from_url(url)?;
         sqlx::any::install_default_drivers();
-        let max = match dialect {
-            Dialect::Sqlite => SQLITE_MAX_CONNECTIONS,
-            Dialect::MySql => MYSQL_MAX_CONNECTIONS,
+        let options = match dialect {
+            Dialect::Sqlite => AnyPoolOptions::new().max_connections(SQLITE_MAX_CONNECTIONS),
+            Dialect::MySql => AnyPoolOptions::new()
+                .max_connections(MYSQL_MAX_CONNECTIONS)
+                .after_connect(|conn, _meta| {
+                    Box::pin(async move {
+                        sqlx::query(STRICT_MODE).execute(&mut *conn).await?;
+                        Ok(())
+                    })
+                }),
         };
-        let pool = AnyPoolOptions::new()
-            .max_connections(max)
-            .connect(url)
-            .await?;
+        let pool = options.connect(url).await?;
         if dialect == Dialect::Sqlite {
             sqlx::query("PRAGMA journal_mode = WAL")
                 .execute(&pool)

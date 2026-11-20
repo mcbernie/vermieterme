@@ -67,6 +67,14 @@ async fn has_all_tables_with_account_id(db: &Db) {
     let fks: usize = tables.iter().map(|t| t.foreign_keys.len()).sum();
     let indexes: usize = tables.iter().map(|t| t.indexes.len()).sum();
     assert_eq!((fks, indexes), (24, 33));
+    // Every text column except the free-form TEXT ones has a length limit (#88).
+    let unlimited: Vec<String> = tables
+        .iter()
+        .flat_map(|t| t.columns.iter().map(move |c| (t, c)))
+        .filter(|(_, c)| c.class == "text" && c.max_len.is_none())
+        .map(|(t, c)| format!("{}.{}", t.name, c.name))
+        .collect();
+    assert_eq!(unlimited, ["pdf_template.config", "rent_change.reason"]);
     let cost = tables
         .iter()
         .find(|t| t.name == "cost_unit_amount")
@@ -248,3 +256,45 @@ async fn migrations_are_idempotent(db: &Db) {
     );
 }
 dual_test!(schema_migrate_twice, migrations_are_idempotent);
+
+/// A too long value is rejected the same way in both dialects (#88), never truncated.
+async fn too_long_values_are_rejected(db: &Db) {
+    let mut conn = db.pool().acquire().await.unwrap();
+    account_with_property(&mut conn, "a").await;
+    let err = sqlx::query(
+        "INSERT INTO property (id, account_id, street, zip, city, created_at, updated_at) \
+         VALUES ('p2', 'acc-a', 'Musterweg 1', ?, 'Musterstadt', 1, 1)",
+    )
+    .bind("1".repeat(17))
+    .execute(&mut *conn)
+    .await
+    .unwrap_err();
+    assert!(matches!(DbError::from(err), DbError::Constraint));
+    let err = sqlx::query("UPDATE account SET name = ? WHERE id = 'acc-a'")
+        .bind("ä".repeat(256))
+        .execute(&mut *conn)
+        .await
+        .unwrap_err();
+    assert!(matches!(DbError::from(err), DbError::Constraint));
+    // The limit counts characters, not bytes, in both dialects.
+    sqlx::query("UPDATE account SET name = ? WHERE id = 'acc-a'")
+        .bind("ä".repeat(255))
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+}
+dual_test!(schema_length_limits, too_long_values_are_rejected);
+
+/// Every pooled MySQL connection runs in strict mode.
+#[tokio::test]
+async fn mysql_connections_are_strict() {
+    let Some(mysql) = TestDb::mysql("mysql_connections_are_strict").await else {
+        return;
+    };
+    let mode: String = sqlx::query("SELECT @@SESSION.sql_mode AS m")
+        .fetch_one(mysql.db().pool())
+        .await
+        .unwrap()
+        .get("m");
+    assert!(mode.contains("STRICT_ALL_TABLES"), "{mode}");
+}

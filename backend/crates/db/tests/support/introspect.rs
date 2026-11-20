@@ -13,6 +13,8 @@ pub struct Column {
     pub class: String,
     pub not_null: bool,
     pub default: Option<String>,
+    /// Maximum length in characters (MySQL `VARCHAR(n)`/`CHAR(n)`, SQLite `CHECK`).
+    pub max_len: Option<i64>,
 }
 
 /// An index other than the primary key: name, unique, columns in order.
@@ -85,6 +87,17 @@ fn rule(raw: &str) -> String {
     }
 }
 
+/// Limit `n` of a `CHECK (length(column) <= n)` in the table's SQL.
+fn sqlite_length_check(sql: &str, column: &str) -> Option<i64> {
+    let needle = format!("length({column}) <= ");
+    let start = sql.find(&needle)? + needle.len();
+    let digits: String = sql[start..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().ok()
+}
+
 /// Reads one SQLite table via the pragma table functions.
 async fn sqlite_table(conn: &mut AnyConnection, name: String) -> Table {
     let rows = sqlx::query(
@@ -94,13 +107,24 @@ async fn sqlite_table(conn: &mut AnyConnection, name: String) -> Table {
     .fetch_all(&mut *conn)
     .await
     .unwrap();
+    let sql: String =
+        sqlx::query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+            .bind(&name)
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap()
+            .get("sql");
     let columns = rows
         .iter()
-        .map(|r| Column {
-            name: r.get("name"),
-            class: class(&r.get::<String, _>("type")),
-            not_null: r.get::<i64, _>("nn") != 0 || r.get::<i64, _>("pk") != 0,
-            default: default(r.get("dflt_value")),
+        .map(|r| {
+            let column: String = r.get("name");
+            Column {
+                max_len: sqlite_length_check(&sql, &column),
+                name: column,
+                class: class(&r.get::<String, _>("type")),
+                not_null: r.get::<i64, _>("nn") != 0 || r.get::<i64, _>("pk") != 0,
+                default: default(r.get("dflt_value")),
+            }
         })
         .collect();
     let mut pk: Vec<(i64, String)> = rows
@@ -163,7 +187,8 @@ async fn sqlite_table(conn: &mut AnyConnection, name: String) -> Table {
 async fn mysql_table(conn: &mut AnyConnection, name: String) -> Table {
     let rows = sqlx::query(
         "SELECT COLUMN_NAME AS name, DATA_TYPE AS dt, IS_NULLABLE AS nullable, \
-         COLUMN_DEFAULT AS dflt FROM information_schema.COLUMNS \
+         COLUMN_DEFAULT AS dflt, CAST(CASE WHEN DATA_TYPE IN ('varchar', 'char') \
+         THEN CHARACTER_MAXIMUM_LENGTH END AS SIGNED) AS max_len FROM information_schema.COLUMNS \
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
     )
     .bind(&name)
@@ -177,6 +202,7 @@ async fn mysql_table(conn: &mut AnyConnection, name: String) -> Table {
             class: class(&r.get::<String, _>("dt")),
             not_null: r.get::<String, _>("nullable") == "NO",
             default: default(r.get("dflt")),
+            max_len: r.get("max_len"),
         })
         .collect();
 
