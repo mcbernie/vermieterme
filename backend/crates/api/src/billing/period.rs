@@ -1,13 +1,18 @@
 //! `/api/billing-periods` and `/api/billing-periods/{id}`: list, create (with copy),
-//! detail, change of the dates, delete.
+//! detail, change of the dates, delete. List, create and change answer with the
+//! `BillingPeriodSummary` (without totals), so legacy shares that the detail refuses
+//! with 422 cannot turn a successful change into an error; the detail has the totals.
 
 use std::collections::HashMap;
 
 use axum::extract::{Path, State};
 use axum::response::Response;
 use serde::{Deserialize, Serialize};
-use vermieterme_db::repo::billing::{BillingPeriod, NewPeriod, PeriodPatch, period, summary};
+use vermieterme_db::repo::billing::{
+    BillingPeriod, NewPeriod, PeriodPatch, PeriodSummary, period, summary,
+};
 use vermieterme_db::repo::masterdata::property::{self, Property};
+use vermieterme_db::{AccountScope, AnyConnection, DbError};
 
 use super::detail::{Detail, load};
 use super::json::PeriodJson;
@@ -21,7 +26,7 @@ use crate::masterdata::property::PropertyJson;
 use crate::masterdata::{audited, audited_checked, created, deleted};
 use crate::routes::AppState;
 
-/// A period in the list.
+/// A period with its property and counts (`BillingPeriodSummary`).
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SummaryJson {
@@ -30,6 +35,33 @@ pub struct SummaryJson {
     property: Option<PropertyJson>,
     cost_count: usize,
     unreviewed_count: usize,
+}
+
+impl SummaryJson {
+    /// Response form; `property` is `None` only if it vanished in between.
+    fn new(item: PeriodSummary, property: Option<Property>) -> Self {
+        Self {
+            property: property.map(PropertyJson::from),
+            period: item.period.into(),
+            cost_count: item.cost_count,
+            unreviewed_count: item.unreviewed_count,
+        }
+    }
+
+    /// Loads the summary of one period (answer of create and change).
+    async fn load(
+        conn: &mut AnyConnection,
+        scope: &AccountScope,
+        found: &BillingPeriod,
+    ) -> ApiResult<Self> {
+        let item = summary::get(conn, scope, &found.id).await?;
+        let owner = match property::get(conn, scope, &found.property_id).await {
+            Ok(owner) => Some(owner),
+            Err(DbError::NotFound) => None,
+            Err(other) => return Err(other.into()),
+        };
+        Ok(Self::new(item, owner))
+    }
 }
 
 /// Query of the list.
@@ -140,20 +172,15 @@ pub async fn list(
         .collect();
     let out = items
         .into_iter()
-        .map(|item| SummaryJson {
-            property: properties
-                .get(&item.period.property_id)
-                .cloned()
-                .map(PropertyJson::from),
-            period: item.period.into(),
-            cost_count: item.cost_count,
-            unreviewed_count: item.unreviewed_count,
+        .map(|item| {
+            let owner = properties.get(&item.period.property_id).cloned();
+            SummaryJson::new(item, owner)
         })
         .collect();
     Ok(axum::Json(out))
 }
 
-/// Creates a period (201 with the detail); with `copyFromId` the positions of that
+/// Creates a period (201 with the summary); with `copyFromId` the positions of that
 /// period of the same property are copied, unreviewed.
 pub async fn create(
     State(state): State<AppState>,
@@ -171,7 +198,9 @@ pub async fn create(
     )
     .await?;
     let mut conn = state.conn().await?;
-    Ok(created(load(&mut conn, &ctx.scope, made).await?))
+    Ok(created(
+        SummaryJson::load(&mut conn, &ctx.scope, &made).await?,
+    ))
 }
 
 /// One period with property, units, tenants, positions and the totals per unit.
@@ -187,13 +216,13 @@ pub async fn detail(
     load(&mut conn, &ctx.scope, found).await.map(axum::Json)
 }
 
-/// Changes the dates of a period; the property cannot change.
+/// Changes the dates of a period (200 with the summary); the property cannot change.
 pub async fn update(
     State(state): State<AppState>,
     ctx: AccountCtx,
     Path(id): Path<String>,
     ApiJson(body): ApiJson<UpdateBody>,
-) -> ApiResult<axum::Json<Detail>> {
+) -> ApiResult<axum::Json<SummaryJson>> {
     let patch = body.validate()?;
     let changed = audited_checked(
         &state,
@@ -205,7 +234,9 @@ pub async fn update(
     )
     .await?;
     let mut conn = state.conn().await?;
-    load(&mut conn, &ctx.scope, changed).await.map(axum::Json)
+    SummaryJson::load(&mut conn, &ctx.scope, &changed)
+        .await
+        .map(axum::Json)
 }
 
 /// Deletes a period with its positions and documents.

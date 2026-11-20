@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
 use vermieterme_domain::billing::{CostReview, ReviewProgress};
 
@@ -50,32 +51,58 @@ pub async fn list(
         .iter()
         .map(from_row)
         .collect::<DbResult<Vec<_>>>()?;
-    let mut flags = review_flags(conn, scope).await?;
+    let mut flags = review_flags(conn, scope, None).await?;
     Ok(periods
         .into_iter()
         .map(|period| {
             let (costs, prepayments) = flags.remove(&period.id).unwrap_or_default();
-            let progress = ReviewProgress::count(costs.iter().copied(), prepayments);
-            PeriodSummary {
-                cost_count: costs.len(),
-                unreviewed_count: progress.unreviewed(),
-                period,
-            }
+            summarize(period, &costs, prepayments)
         })
         .collect())
 }
 
-/// Review flags of all costs and prepayments of the account, by period id.
+/// One period of the account with its counts (the answer of create and change);
+/// an unknown or foreign period is [`DbError::NotFound`](crate::DbError::NotFound).
+pub async fn get(
+    conn: &mut AnyConnection,
+    scope: &AccountScope,
+    period_id: &str,
+) -> DbResult<PeriodSummary> {
+    let period = super::period::get(conn, scope, period_id).await?;
+    let mut flags = review_flags(conn, scope, Some(period_id)).await?;
+    let (costs, prepayments) = flags.remove(period_id).unwrap_or_default();
+    Ok(summarize(period, &costs, prepayments))
+}
+
+/// The counts of one period from its review flags (domain rule).
+fn summarize(period: BillingPeriod, costs: &[CostReview], prepayments: Vec<bool>) -> PeriodSummary {
+    let progress = ReviewProgress::count(costs.iter().copied(), prepayments);
+    PeriodSummary {
+        cost_count: costs.len(),
+        unreviewed_count: progress.unreviewed(),
+        period,
+    }
+}
+
+/// Review flags of the costs and prepayments of the account (or of one period), by
+/// period id.
 async fn review_flags(
     conn: &mut AnyConnection,
     scope: &AccountScope,
+    period_id: Option<&str>,
 ) -> DbResult<HashMap<String, (Vec<CostReview>, Vec<bool>)>> {
     let mut flags: HashMap<String, (Vec<CostReview>, Vec<bool>)> = HashMap::new();
-    let costs =
-        sqlx::query("SELECT billing_period_id, enabled, reviewed FROM cost WHERE account_id = ?")
-            .bind(scope.account_id())
-            .fetch_all(&mut *conn)
-            .await?;
+    let costs = rows(
+        conn,
+        scope,
+        period_id,
+        [
+            "SELECT billing_period_id, enabled, reviewed FROM cost WHERE account_id = ?",
+            "SELECT billing_period_id, enabled, reviewed FROM cost WHERE account_id = ? \
+             AND billing_period_id = ?",
+        ],
+    )
+    .await?;
     for row in &costs {
         let review = CostReview {
             enabled: flag(row, "enabled")?,
@@ -84,14 +111,35 @@ async fn review_flags(
         let entry = flags.entry(row.try_get("billing_period_id")?).or_default();
         entry.0.push(review);
     }
-    let prepayments =
-        sqlx::query("SELECT billing_period_id, reviewed FROM prepayment WHERE account_id = ?")
-            .bind(scope.account_id())
-            .fetch_all(&mut *conn)
-            .await?;
+    let prepayments = rows(
+        conn,
+        scope,
+        period_id,
+        [
+            "SELECT billing_period_id, reviewed FROM prepayment WHERE account_id = ?",
+            "SELECT billing_period_id, reviewed FROM prepayment WHERE account_id = ? \
+             AND billing_period_id = ?",
+        ],
+    )
+    .await?;
     for row in &prepayments {
         let entry = flags.entry(row.try_get("billing_period_id")?).or_default();
         entry.1.push(flag(row, "reviewed")?);
     }
     Ok(flags)
+}
+
+/// Runs `[all, one]`: the first query for the whole account, the second (with an extra
+/// period id parameter) for one period.
+async fn rows(
+    conn: &mut AnyConnection,
+    scope: &AccountScope,
+    period_id: Option<&str>,
+    [all, one]: [&'static str; 2],
+) -> DbResult<Vec<AnyRow>> {
+    let query = match period_id {
+        Some(id) => sqlx::query(one).bind(scope.account_id()).bind(id),
+        None => sqlx::query(all).bind(scope.account_id()),
+    };
+    Ok(query.fetch_all(&mut *conn).await?)
 }

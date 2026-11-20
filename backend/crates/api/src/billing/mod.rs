@@ -3,7 +3,8 @@
 //!
 //! Every handler takes [`AccountCtx`](crate::auth::AccountCtx) and passes its scope to
 //! the repositories, so foreign ids are 404. Every change runs with its audit entry in one
-//! transaction (the master data helper [`audited_checked`]). Costs and prepayments are
+//! transaction (the master data helper [`audited_checked`]; a unit amount that writes
+//! nothing is not audited, #115). Costs and prepayments are
 //! saved with `PATCH`: only sent fields change, `null` clears, an outdated `version` is
 //! 409 `version_conflict` with the stored state in `current` (#25, #67). The web PDF
 //! (`/pdf`) comes with the PDF bridge (P8).

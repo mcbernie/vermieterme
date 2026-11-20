@@ -81,7 +81,12 @@ async fn periods(db: &Db) {
     let changed = w.expect(200, "PUT", &b.path(""), &w.a, clear).await;
     assert_eq!(changed.body["sentDate"], Value::Null);
     assert_eq!(changed.body["billingDate"], "2025-03-01");
-    assert_eq!(totals_of(&changed.body, &b.units[0])["months"], 6);
+    // Change and create answer with the summary; the totals come with the detail.
+    assert_eq!(changed.body["property"]["street"], "Musterweg 1");
+    assert_eq!(changed.body["costCount"], 0);
+    assert!(changed.body.get("totalsByUnit").is_none());
+    let detail = w.app.get(&b.path(""), Some(&w.a)).await.body;
+    assert_eq!(totals_of(&detail, &b.units[0])["months"], 6);
     let resp = w
         .expect(
             400,
@@ -133,7 +138,12 @@ async fn totals_and_copy(db: &Db) {
         json!({"amountCents": 7_000}),
     )
     .await;
-    // A position counts only with a total (domain rule), also for keys by notice.
+    // Decision 39: by notice the unit amount counts even without a total.
+    let detail = w.app.get(&b.path(""), Some(&w.a)).await.body;
+    assert_eq!(
+        totals_of(&detail, &b.units[0])["totalUnitCostsCents"],
+        40_000 + 7_000
+    );
     let notice_total = json!({"totalAmountCents": 7_000, "version": 1});
     let notice_path = b.path(&format!("/costs/{notice}"));
     w.expect(200, "PATCH", &notice_path, &w.a, notice_total)
@@ -165,6 +175,15 @@ async fn totals_and_copy(db: &Db) {
         .await
         .body;
     assert_eq!(copied["copiedFromId"], b.period.as_str());
+    assert_eq!(
+        (
+            copied["costCount"].clone(),
+            copied["unreviewedCount"].clone()
+        ),
+        (json!(3), json!(3))
+    );
+    let copy_path = format!("/api/billing-periods/{}", copied["id"].as_str().unwrap());
+    let copied = w.app.get(&copy_path, Some(&w.a)).await.body;
     let costs = copied["costs"].as_array().unwrap();
     assert_eq!(costs.len(), 3);
     assert!(
@@ -199,6 +218,10 @@ async fn totals_and_copy(db: &Db) {
         .unwrap();
     let resp = w.app.get(&b.path(""), Some(&w.a)).await;
     assert_eq!(resp.status, 422);
+    // A change still succeeds: it answers with the summary, not the detail.
+    let sent = json!({"sentDate": "2025-02-01"});
+    let changed = w.expect(200, "PUT", &b.path(""), &w.a, sent).await;
+    assert_eq!(changed.body["sentDate"], "2025-02-01");
     assert_eq!(resp.body["code"], "invalid_shares");
     assert!(
         resp.body["error"]
