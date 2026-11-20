@@ -4,13 +4,16 @@
 //! `Content-Type` comes from the database (only the allowed types are shown inline,
 //! anything else from legacy rows is offered as a download), `X-Content-Type-Options:
 //! nosniff` stops the browser from guessing, and `Content-Disposition` carries the name
-//! per RFC 6266 with an ASCII fallback and the UTF-8 form of RFC 5987.
+//! per RFC 6266 with an ASCII fallback and the UTF-8 form of RFC 5987. The file is
+//! streamed from disk (with `Content-Length`), never read into memory as a whole.
 
 use std::io::ErrorKind;
 
+use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::{HeaderValue, header};
-use axum::response::{IntoResponse, Response};
+use axum::http::{HeaderValue, Request, StatusCode, header};
+use axum::response::Response;
+use tower_http::services::ServeFile;
 use vermieterme_db::repo::documents::{self, Document};
 
 use super::NOT_FOUND;
@@ -48,8 +51,11 @@ pub async fn file_response(
     let missing = || ApiError::not_found(FILE_MISSING);
     let path =
         file_path(&state.config.upload_dir, account_id, &document.file_name).ok_or_else(missing)?;
-    let bytes = match tokio::fs::read(&path).await {
-        Ok(bytes) => bytes,
+    // A plain GET without range or conditional headers: always the whole file, streamed.
+    let served = match ServeFile::new(&path).try_call(Request::new(())).await {
+        Ok(served) if served.status() == StatusCode::OK => served,
+        Ok(served) if served.status() == StatusCode::NOT_FOUND => return Err(missing()),
+        Ok(_) => return Err(ApiError::internal()),
         Err(error) if error.kind() == ErrorKind::NotFound => return Err(missing()),
         Err(error) => return Err(io_failure(&error, "Datei eines Dokuments nicht lesbar")),
     };
@@ -58,6 +64,10 @@ pub async fn file_response(
         None => ("application/octet-stream", "attachment"),
     };
     let disposition = content_disposition(disposition, &document.original_name);
+    let (mut parts, body) = served.into_parts();
+    // Only the length of the file's headers is kept; type and the rest are set here.
+    let length = parts.headers.remove(header::CONTENT_LENGTH);
+    parts.headers.clear();
     let headers = [
         (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
         (
@@ -73,17 +83,21 @@ pub async fn file_response(
             HeaderValue::from_static("private, no-store"),
         ),
     ];
-    Ok((headers, bytes).into_response())
+    parts.headers.extend(headers);
+    if let Some(length) = length {
+        parts.headers.insert(header::CONTENT_LENGTH, length);
+    }
+    Ok(Response::from_parts(parts, Body::new(body)))
 }
 
-/// `inline` or `attachment` with `filename="…"` (ASCII only: other characters, quotes
-/// and backslashes become `_`) and `filename*=UTF-8''…` (percent-encoded), RFC 6266
+/// `inline` or `attachment` with `filename="…"` (ASCII only: other characters, quotes,
+/// backslashes and `%` become `_`; RFC 6266 appendix D, some clients decode `%`) and `filename*=UTF-8''…` (percent-encoded), RFC 6266
 /// section 4.3 / RFC 5987.
 pub fn content_disposition(kind: &str, name: &str) -> String {
     let fallback: String = name
         .chars()
         .map(|c| match c {
-            ' '..='~' if c != '"' && c != '\\' => c,
+            ' '..='~' if !matches!(c, '"' | '\\' | '%') => c,
             _ => '_',
         })
         .collect();
@@ -120,5 +134,9 @@ mod tests {
         assert!(!header.contains('\r') && !header.contains('\n'));
         assert!(header.starts_with("attachment; filename=\"a__Set-Cookie: x;b_c\""));
         assert!(header.ends_with("a%0D%0ASet-Cookie%3A%20x%3Bb%5Cc"));
+        assert_eq!(
+            content_disposition("inline", "100%.pdf"),
+            "inline; filename=\"100_.pdf\"; filename*=UTF-8''100%25.pdf"
+        );
     }
 }

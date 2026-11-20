@@ -7,6 +7,7 @@
 //! audit entry in one transaction, like master data.
 
 pub(crate) mod cascade;
+mod detached;
 pub mod download;
 pub mod file_type;
 pub mod storage;
@@ -134,14 +135,17 @@ pub async fn remove(
     ctx: AccountCtx,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
-    cascade::delete_with_files(
-        &state,
-        &ctx,
-        ("document.delete", "document"),
-        NOT_FOUND,
-        &id,
-        async |tx| Ok(vec![documents::delete(tx, &ctx.scope, &id).await?]),
-    )
+    detached::detached(async move {
+        cascade::delete_with_files(
+            &state,
+            &ctx,
+            ("document.delete", "document"),
+            NOT_FOUND,
+            &id,
+            async |tx| Ok(vec![documents::delete(tx, &ctx.scope, &id).await?]),
+        )
+        .await
+    })
     .await?;
     Ok(deleted())
 }

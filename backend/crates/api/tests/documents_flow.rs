@@ -47,6 +47,15 @@ async fn upload_download_delete(db: &Db) {
     assert_eq!(stored.len(), 1);
     assert!(stored[0].ends_with(".pdf") && !stored[0].contains("Rechnung"));
     assert_eq!(entries(&d.dir), vec![w.account_a.clone()]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&account_dir)
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700, "Kundenordner nur für den Server");
+    }
 
     let list = w
         .app
@@ -68,6 +77,8 @@ async fn upload_download_delete(db: &Db) {
     assert_eq!(file.body, PDF);
     assert_eq!(file.header("content-type"), Some("application/pdf"));
     assert_eq!(file.header("x-content-type-options"), Some("nosniff"));
+    let length = PDF.len().to_string();
+    assert_eq!(file.header("content-length"), Some(length.as_str()));
     assert_eq!(
         file.header("content-disposition"),
         Some("inline; filename=\"Rechnung M_rz.pdf\"; filename*=UTF-8''Rechnung%20M%C3%A4rz.pdf")

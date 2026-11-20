@@ -3,13 +3,17 @@
 //!
 //! The stored file names are collected inside the transaction of the delete, under the
 //! locks that keep uploads out ([`documents::files_of`]); the files are removed only
-//! once the transaction has committed, so a rolled-back delete never loses a file.
+//! once the transaction has committed, so a rolled-back delete never loses a file. The
+//! transaction and the file step run [`detached`] from the request, so a client that
+//! disconnects cannot stop between the two (#121).
 
+use vermieterme_db::repo::billing::period;
 use vermieterme_db::repo::documents::{self, Owner};
-use vermieterme_db::repo::masterdata::Rejection;
+use vermieterme_db::repo::masterdata::{Rejection, property, tenant, unit};
 use vermieterme_db::{AnyConnection, DbResult};
 
 use super::changed_meanwhile;
+use super::detached::detached;
 use super::storage::remove_files;
 use crate::auth::AccountCtx;
 use crate::error::ApiResult;
@@ -18,7 +22,8 @@ use crate::routes::AppState;
 
 /// Runs `delete` (which returns the stored file names it removed) with its audit entry
 /// in one transaction (`READ COMMITTED`, the lock order of `repo::billing`), then
-/// removes the files. `names` and `missing` as for the master data helpers.
+/// removes the files. `names` and `missing` as for the master data helpers. Callers run
+/// it [`detached`].
 pub(crate) async fn delete_with_files(
     state: &AppState,
     ctx: &AccountCtx,
@@ -41,23 +46,51 @@ pub(crate) async fn delete_with_files(
     Ok(())
 }
 
-/// Deletes `owner` with `delete` and removes the files of the documents the cascade of
-/// the schema takes along.
+/// The variant of an [`Owner`] without its id.
+#[derive(Clone, Copy)]
+enum Kind {
+    Property,
+    Unit,
+    Tenant,
+    BillingPeriod,
+}
+
+/// Deletes `owner` (with the repository delete of its kind) and removes the files of
+/// the documents the cascade of the schema takes along, [`detached`] from the request.
 pub(crate) async fn delete_owner(
     state: &AppState,
     ctx: &AccountCtx,
     names: (&'static str, &'static str),
     missing: &'static str,
     owner: Owner<'_>,
-    delete: impl AsyncFnOnce(&mut AnyConnection) -> DbResult<()>,
 ) -> ApiResult<()> {
-    let id = match owner {
-        Owner::Property(id) | Owner::Unit(id) | Owner::Tenant(id) | Owner::BillingPeriod(id) => id,
+    // Owned copies for the task: the kind and the id.
+    let (kind, id) = match owner {
+        Owner::Property(id) => (Kind::Property, id),
+        Owner::Unit(id) => (Kind::Unit, id),
+        Owner::Tenant(id) => (Kind::Tenant, id),
+        Owner::BillingPeriod(id) => (Kind::BillingPeriod, id),
     };
-    delete_with_files(state, ctx, names, missing, id, async |tx| {
-        let files = documents::files_of(tx, &ctx.scope, owner).await?;
-        delete(tx).await?;
-        Ok(files)
+    let (state, ctx, id) = (state.clone(), ctx.clone(), id.to_owned());
+    detached(async move {
+        let owner = match kind {
+            Kind::Property => Owner::Property(&id),
+            Kind::Unit => Owner::Unit(&id),
+            Kind::Tenant => Owner::Tenant(&id),
+            Kind::BillingPeriod => Owner::BillingPeriod(&id),
+        };
+        delete_with_files(&state, &ctx, names, missing, &id, async |tx| {
+            let files = documents::files_of(tx, &ctx.scope, owner).await?;
+            let scope = &ctx.scope;
+            match owner {
+                Owner::Property(id) => property::delete(tx, scope, id).await?,
+                Owner::Unit(id) => unit::delete(tx, scope, id).await?,
+                Owner::Tenant(id) => tenant::delete(tx, scope, id).await?,
+                Owner::BillingPeriod(id) => period::delete(tx, scope, id).await?,
+            }
+            Ok(files)
+        })
+        .await
     })
     .await
 }

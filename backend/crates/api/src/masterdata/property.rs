@@ -240,7 +240,6 @@ pub async fn remove(
         ("property.delete", "property"),
         NOT_FOUND,
         Owner::Property(&id),
-        async |tx| property::delete(tx, &ctx.scope, &id).await,
     )
     .await?;
     Ok(deleted())

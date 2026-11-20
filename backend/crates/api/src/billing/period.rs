@@ -291,7 +291,6 @@ pub async fn remove(
         ("billing_period.delete", "billing_period"),
         NOT_FOUND,
         Owner::BillingPeriod(&id),
-        async |tx| period::delete(tx, &ctx.scope, &id).await,
     )
     .await?;
     Ok(deleted())

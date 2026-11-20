@@ -16,6 +16,7 @@ use vermieterme_db::repo::documents::{self, CATEGORIES, Document, NewDocument};
 use vermieterme_db::repo::masterdata::Rejection;
 use vermieterme_db::row::new_id;
 
+use super::detached::detached;
 use super::file_type::{FileType, HEAD_LEN};
 use super::storage::{FileGuard, account_dir, io_failure};
 use super::{DocumentJson, MAX_FILE_BYTES, changed_meanwhile, check_assignment};
@@ -85,21 +86,27 @@ pub async fn create(
         new.tenant_id.as_deref(),
     )
     .await?;
-    // Locks in the order of `repo::billing`, hence `READ COMMITTED` (#116).
-    let document = audited_read_committed(
-        &state,
-        &ctx,
-        ("document.create", "document"),
-        "Zuordnung nicht gefunden",
-        |d: &Document| d.id.clone(),
-        async |tx| {
-            let document = documents::create(tx, &ctx.scope, &new).await?;
-            Ok(Ok::<_, Rejection>(document))
-        },
-    )
-    .await
-    .map_err(changed_meanwhile)?;
-    upload.guard.keep();
+    // Insert, commit and `keep` run detached from the request (#121), so a disconnect
+    // cannot drop the guard after the commit. Locks in the order of `repo::billing`,
+    // hence `READ COMMITTED` (#116).
+    let document = detached(async move {
+        let document = audited_read_committed(
+            &state,
+            &ctx,
+            ("document.create", "document"),
+            "Zuordnung nicht gefunden",
+            |d: &Document| d.id.clone(),
+            async |tx| {
+                let document = documents::create(tx, &ctx.scope, &new).await?;
+                Ok(Ok::<_, Rejection>(document))
+            },
+        )
+        .await
+        .map_err(changed_meanwhile)?;
+        upload.guard.keep();
+        Ok(document)
+    })
+    .await?;
     Ok(created(DocumentJson::from(document)))
 }
 
@@ -144,7 +151,13 @@ fn validate(fields: &Fields, upload: &Upload) -> ApiResult<NewDocument> {
 /// checked while reading, then renamed to `{uuid}.{ext}`.
 async fn write_file(dir: &std::path::Path, mut field: Field<'_>) -> ApiResult<Upload> {
     let original_name = display_name(field.file_name());
-    tokio::fs::create_dir_all(dir)
+    let mut builder = tokio::fs::DirBuilder::new();
+    builder.recursive(true);
+    // Only the server reads the account's files (they are 0600, the folder 0700).
+    #[cfg(unix)]
+    builder.mode(0o700);
+    builder
+        .create(dir)
         .await
         .map_err(|e| io_failure(&e, "Upload-Verzeichnis konnte nicht angelegt werden"))?;
     let id = new_id();
@@ -215,15 +228,16 @@ async fn text(mut field: Field<'_>) -> ApiResult<String> {
     String::from_utf8(bytes).map_err(|_| ApiError::bad_request("Formularfeld ist kein Text"))
 }
 
-/// The uploaded name as shown to users: last path segment only, without control
-/// characters, trimmed, at most [`NAME_MAX`] characters; never used as a path.
+/// The uploaded name as shown to users: last path segment only, without control,
+/// bidi and zero-width characters, trimmed, at most [`NAME_MAX`] characters; never used
+/// as a path.
 pub fn display_name(sent: Option<&str>) -> String {
     let last = sent
         .unwrap_or_default()
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or_default();
-    let clean: String = last.chars().filter(|c| !c.is_control()).collect();
+    let clean: String = last.chars().filter(|&c| !is_hidden(c)).collect();
     let trimmed: String = clean.trim().chars().take(NAME_MAX).collect();
     let trimmed = trimmed.trim();
     if trimmed.is_empty() {
@@ -231,6 +245,15 @@ pub fn display_name(sent: Option<&str>) -> String {
     } else {
         trimmed.to_owned()
     }
+}
+
+/// Control characters (Cc) and the invisible format characters that can disguise a
+/// name: zero width and directional marks (U+200B–U+200F), embeddings and overrides
+/// (U+202A–U+202E, `"rechnung\u{202E}fdp.exe"` shows as "rechnungexe.pdf"), isolates
+/// (U+2066–U+2069) and the byte order mark (U+FEFF).
+fn is_hidden(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
 }
 
 /// 413 `too_large` (contract text).
@@ -261,5 +284,15 @@ mod tests {
         assert_eq!(display_name(None), "Dokument");
         assert_eq!(display_name(Some("dir/")), "Dokument");
         assert_eq!(display_name(Some(&"ä".repeat(300))).chars().count(), 255);
+        assert_eq!(
+            display_name(Some("rechnung\u{202E}fdp.exe")),
+            "rechnungfdp.exe"
+        );
+        assert_eq!(
+            display_name(Some(
+                "\u{FEFF}a\u{200B}\u{200F}\u{202A}\u{2066}\u{2069}b.pdf"
+            )),
+            "ab.pdf"
+        );
     }
 }

@@ -179,7 +179,6 @@ pub async fn remove(
         ("unit.delete", "unit"),
         NOT_FOUND,
         Owner::Unit(&id),
-        async |tx| unit::delete(tx, &ctx.scope, &id).await,
     )
     .await?;
     Ok(deleted())

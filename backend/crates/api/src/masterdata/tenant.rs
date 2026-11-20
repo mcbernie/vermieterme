@@ -254,7 +254,6 @@ pub async fn remove(
         ("tenant.delete", "tenant"),
         NOT_FOUND,
         Owner::Tenant(&id),
-        async |tx| tenant::delete(tx, &ctx.scope, &id).await,
     )
     .await?;
     Ok(deleted())
