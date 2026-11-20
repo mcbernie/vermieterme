@@ -186,9 +186,12 @@ pub async fn update(
     input: &UnitInput,
 ) -> Checked<Unit> {
     in_transaction(conn, async |tx| {
-        get(tx, scope, id).await?;
+        let current = get(tx, scope, id).await?;
         if let Err(rejection) = check_shares(tx, scope, input).await? {
             return Ok(Err(rejection));
+        }
+        if current.property_id != input.property_id && in_billings(tx, scope, id).await? {
+            return Ok(Err(Rejection::UnitInBillings));
         }
         sqlx::query(
             "UPDATE unit SET property_id = ?, name = ?, floor = ?, shares = ?, kind = ?, \
@@ -207,6 +210,22 @@ pub async fn update(
         get(tx, scope, id).await.map(Ok)
     })
     .await
+}
+
+/// Whether billings reference the unit (prepayments or per-unit cost amounts).
+async fn in_billings(conn: &mut AnyConnection, scope: &AccountScope, id: &str) -> DbResult<bool> {
+    let row = sqlx::query(
+        "SELECT (SELECT COUNT(*) FROM prepayment WHERE account_id = ? AND unit_id = ?) \
+         + (SELECT COUNT(*) FROM cost_unit_amount WHERE account_id = ? AND unit_id = ?) AS used",
+    )
+    .bind(scope.account_id())
+    .bind(id)
+    .bind(scope.account_id())
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    let used: i64 = row.try_get("used")?;
+    Ok(used > 0)
 }
 
 /// Deletes a unit with its tenants, rent changes and billing data (cascade).

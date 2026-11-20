@@ -33,6 +33,9 @@ pub enum Rejection {
     TotalBelowUnitShares,
     /// The cost category is used by costs of a billing period.
     CategoryInUse,
+    /// The unit has prepayments or unit amounts in billings and cannot move to another
+    /// property (decision 37).
+    UnitInBillings,
 }
 
 /// Result of a change that a business rule can refuse.

@@ -219,8 +219,10 @@ pub async fn create(
     .await
 }
 
-/// Replaces the values of a tenant (the unit may change; the invitation code and the
-/// revocation time of the tenant app stay untouched).
+/// Replaces the values of a tenant. The invitation code stays untouched. If the unit
+/// changes, the tenant-app tokens are revoked in the same transaction
+/// (`app_tokens_revoked_at`, decision 36): a token carries the unit, whose data belongs
+/// to another tenant afterwards.
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -228,14 +230,17 @@ pub async fn update(
     data: &TenantData,
 ) -> DbResult<Tenant> {
     in_transaction(conn, async |tx| {
-        get(tx, scope, id).await?;
+        let current = get(tx, scope, id).await?;
         unit::ensure(tx, scope, &data.unit_id).await?;
+        let now = now_millis();
+        let revoked_at = (current.data.unit_id != data.unit_id).then_some(now);
         sqlx::query(
             "UPDATE tenant SET unit_id = ?, salutation = ?, first_name = ?, last_name = ?, \
              salutation2 = ?, first_name2 = ?, last_name2 = ?, phone = ?, email = ?, \
              bank_name = ?, iban = ?, account_holder = ?, move_in_date = ?, move_out_date = ?, \
              lease_type = ?, index_base_year = ?, index_reference_tenths = ?, \
-             index_reference_date = ?, index_min_months = ?, updated_at = ? \
+             index_reference_date = ?, index_min_months = ?, updated_at = ?, \
+             app_tokens_revoked_at = COALESCE(?, app_tokens_revoked_at) \
              WHERE account_id = ? AND id = ?",
         )
         .bind(&data.unit_id)
@@ -257,7 +262,8 @@ pub async fn update(
         .bind(data.index_reference_tenths)
         .bind(data.index_reference_date.as_deref())
         .bind(data.index_min_months)
-        .bind(now_millis())
+        .bind(now)
+        .bind(revoked_at)
         .bind(scope.account_id())
         .bind(id)
         .execute(&mut *tx)

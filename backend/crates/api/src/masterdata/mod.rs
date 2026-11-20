@@ -135,6 +135,9 @@ fn refusal(rejection: Rejection) -> ApiError {
         Rejection::CategoryInUse => {
             ApiError::conflict("Die Kostenart wird in Abrechnungen verwendet")
         }
+        Rejection::UnitInBillings => ApiError::conflict(
+            "Die Einheit wird in Abrechnungen verwendet und kann nicht in ein anderes Objekt verschoben werden",
+        ),
     }
 }
 
