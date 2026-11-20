@@ -43,8 +43,13 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# private documents
-/docs
+# private documents (project docs below are tracked)
+/docs/*
+!/docs/PLAN.md
+!/docs/api-contract.md
+!/docs/development.md
+!/docs/deployment.md
+!/docs/operations.md
 /design
 
 # database
