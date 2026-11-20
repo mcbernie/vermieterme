@@ -13,8 +13,10 @@ mod decimal;
 pub mod money;
 pub mod months;
 mod rounding;
+pub mod vpi;
 
 pub use billing::DistributionKey;
 pub use date::CalendarDate;
 pub use money::Cents;
 pub use months::{CalendarMonths, MonthRule};
+pub use vpi::VpiValue;
