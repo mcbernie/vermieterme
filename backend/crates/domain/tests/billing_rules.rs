@@ -74,8 +74,8 @@ fn per_unit_splits_equally_and_rounds() {
 }
 
 #[test]
-fn stored_unit_amount_wins_for_every_key() {
-    for key in DistributionKey::ALL {
+fn stored_unit_amount_counts_for_entered_keys() {
+    for key in [PerNotice, PerAttachment] {
         let p = position(100_000, Some(4_242), key);
         assert_eq!(
             p.unit_share(&basis(500, 1000, 2)),
@@ -83,6 +83,21 @@ fn stored_unit_amount_wins_for_every_key() {
             "{key}"
         );
     }
+}
+
+#[test]
+fn stored_unit_amount_is_ignored_for_computed_keys() {
+    // A stale amount from before a key change must not override the computed share (#81).
+    let mea = position(100_000, Some(4_242), Mea);
+    assert_eq!(
+        mea.unit_share(&basis(500, 1000, 2)),
+        Some(Cents::new(50_000))
+    );
+    let per_unit = position(100_000, Some(4_242), PerUnit);
+    assert_eq!(
+        per_unit.unit_share(&basis(500, 1000, 2)),
+        Some(Cents::new(50_000))
+    );
 }
 
 #[test]

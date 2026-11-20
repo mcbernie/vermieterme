@@ -8,12 +8,18 @@ use crate::date::CalendarDate;
 use crate::money::Cents;
 use crate::months::MonthRule;
 
-/// One cost position of a billing period as far as the calculation needs it.
+/// One cost position of a billing period, seen from one unit.
+///
+/// The caller builds the positions per unit: `total_amount` is the property-wide
+/// total, `unit_amount` the amount stored for **this** unit and position (decision
+/// 29, table `cost_unit_amount`). Legacy data copied the single old amount to every
+/// unit, so no special case is needed here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CostPosition {
     /// Total amount of the property; `None` = no amount entered, the position is skipped.
     pub total_amount: Option<Cents>,
-    /// Amount entered for the unit; `None` = not entered.
+    /// Amount stored for this unit; `None` = not entered. Only used by the keys
+    /// `per_notice` and `per_attachment`.
     pub unit_amount: Option<Cents>,
     /// Disabled positions count nowhere (#69).
     pub enabled: bool,
@@ -40,18 +46,18 @@ impl CostPosition {
 
     /// The unit's share of this position, or `None` when the position does not count.
     ///
-    /// A stored unit amount always wins. Without one, `mea` and `per_unit` are
-    /// computed from the total and rounded per position to whole cents (decision 5);
-    /// keys that need an entered amount (`per_notice`, `per_attachment`) give 0.
+    /// `mea` and `per_unit` are always computed from the total and rounded per
+    /// position to whole cents; a stored unit amount is ignored there, since it may
+    /// be a stale value from before a key change (decision 5, #81). `per_notice` and
+    /// `per_attachment` take the stored unit amount, 0 when none is stored.
     pub fn unit_share(&self, basis: &UnitBasis) -> Option<Cents> {
         let total = self.total_amount.filter(|_| self.enabled)?;
-        if let Some(stored) = self.unit_amount {
-            return Some(stored);
-        }
         Some(match self.key {
             DistributionKey::Mea => mea_share(total, basis.shares, basis.total_shares),
             DistributionKey::PerUnit => per_unit_share(total, basis.unit_count),
-            DistributionKey::PerNotice | DistributionKey::PerAttachment => Cents::ZERO,
+            DistributionKey::PerNotice | DistributionKey::PerAttachment => {
+                self.unit_amount.unwrap_or(Cents::ZERO)
+            }
         })
     }
 }
@@ -106,6 +112,8 @@ pub struct Period {
 
 /// Computes the statement of a unit from the period's cost positions.
 ///
+/// `costs` are the positions of the period built for this unit (see
+/// [`CostPosition`]: total of the property, amount stored for this unit).
 /// `monthly_prepayment` is the sum of the unit's monthly prepayments for this period.
 pub fn unit_statement(
     costs: &[CostPosition],
