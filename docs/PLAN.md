@@ -199,6 +199,14 @@ per Test gegen den Code geprüft).
     Audit). Mehrere Kunden je Benutzer sind kein Ziel; bei Bedarf später eine Mitgliedschaftstabelle.
 31. **Sperre gegen Durchprobieren von Einladungscodes** über Rate-Limit je IP und global im Speicher plus Ablauf und
     Einmaligkeit; kein Fehlversuchszähler je Code (ein Angreifer kennt den Code nicht, ein Zähler je Code schützt nicht).
+32. **Gültigkeit von Links:** Einladung eines Web-Benutzers 7 Tage, Passwort-Reset 24 h; Token nur im URL-Fragment
+    (`/accept-invite#token=…`, `/reset-password#token=…`), nie im Query-String. P12 legt diese Seiten an.
+33. **Neuinstallation:** Der Bootstrap-Admin hat keinen Kunden, bis er im Admin-Bereich einen anlegt; die Oberfläche
+    (P12) führt ihn dorthin. Beim Upgrade legt der Import (P9) den ersten Kunden an.
+34. **CSP der Oberfläche:** Die API-Schicht setzt eine CSP ohne `unsafe-inline`. Die Auslieferung des statischen
+    Exports (P12) setzt einen eigenen CSP-Header mit Hashes der Inline-Skripte.
+35. **Fehlerprotokoll:** Datenbankfehler werden nur mit Fehlerart und SQLSTATE/Code geloggt, nie mit der
+    Treibermeldung (sie kann Feldwerte enthalten, z. B. bei doppelten Schlüsseln).
 
 ## Arbeitspakete
 
