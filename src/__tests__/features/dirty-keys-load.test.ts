@@ -32,4 +32,25 @@ describe("createDirtyKeys with a load start", () => {
     expect([...dirty.keys(loadStart)]).toEqual(["cost:c2"]);
     expect([...dirty.keys()]).toEqual(["cost:c2"]);
   });
+
+  it("lists a key saved after the load started only for that load (#64)", () => {
+    const dirty = createDirtyKeys();
+    dirty.mark("cost:c1");
+    dirty.settle(dirty.revision());
+    const loadStart = dirty.settled();
+    dirty.mark("cost:c2");
+    dirty.settle(dirty.revision()); // saved after the load started: the loaded data may predate it
+    expect([...dirty.keys()]).toEqual([]);
+    expect([...dirty.keys(loadStart)]).toEqual(["cost:c2"]);
+  });
+
+  it("treats a load start from the future like no load start (#64)", () => {
+    const dirty = createDirtyKeys();
+    dirty.mark("cost:c1");
+    dirty.settle(dirty.revision());
+    dirty.mark("cost:c2");
+    const future = dirty.revision() + 10;
+    expect([...dirty.keys(future)]).toEqual(["cost:c2"]);
+    expect([...dirty.keys(future)]).toEqual([...dirty.keys()]);
+  });
 });
