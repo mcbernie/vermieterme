@@ -241,5 +241,5 @@ totalAmountCents|null, unitAmounts[{unitId, amountCents}], enabled, reviewed, ve
 | Web, Mieter/Mietänderungen | `unit{id,name,floor,shares,property{id,street,zip,city}}` eingebettet (Liste, Anlegen, Ändern) | #108 |
 | Web, Mieter ändern | Einheitenwechsel widerruft die Mieter-App-Zugänge | #107 |
 | Web, Einheit ändern | Umhängen in ein anderes Objekt bei Abrechnungsdaten → 409 `conflict` | Plan 37 |
-| Web, VPI-Abruf | höchstens 1 Abruf je Minute systemweit → 429; Fehler beim Abruf → 502 `upstream` | #110 |
+| Web, VPI-Abruf | je Kunde höchstens 1 Abruf je 10 Minuten, systemweit höchstens 10 je Minute → 429; Fehler beim Abruf → 502 `upstream` | #110 |
 | Web, Auth | eigene Endpunkte statt NextAuth, kein Apple-Login, CSRF-Header | #70 |
