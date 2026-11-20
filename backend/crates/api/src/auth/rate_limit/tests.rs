@@ -53,6 +53,31 @@ fn dropped_attempt_frees_its_reservation() {
     assert!(limiter.begin(&TEST, "a").is_ok());
 }
 
+/// Once the check has started, a cancelled attempt counts as failure (#104).
+#[test]
+fn dropped_armed_attempt_counts_as_failure() {
+    let limiter = RateLimiter::default();
+    for _ in 0..3 {
+        let mut attempt = limiter.begin(&TEST, "a").unwrap();
+        attempt.arm();
+        drop(attempt);
+    }
+    assert!(limiter.begin(&TEST, "a").unwrap_err() > BUSY_RETRY);
+}
+
+/// An explicitly released attempt counts nothing, even if armed.
+#[test]
+fn released_armed_attempt_counts_nothing() {
+    let limiter = RateLimiter::default();
+    for _ in 0..10 {
+        let mut attempt = limiter.begin(&TEST, "a").unwrap();
+        attempt.arm();
+        attempt.released();
+    }
+    fail(&limiter, &TEST, "a", 2);
+    assert!(limiter.begin(&TEST, "a").is_ok());
+}
+
 #[test]
 fn success_clears_per_account_keys_only() {
     let limiter = RateLimiter::default();

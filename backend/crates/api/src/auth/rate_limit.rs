@@ -139,7 +139,7 @@ enum Outcome {
     Failed,
     /// Success; clears per-account keys.
     Succeeded,
-    /// Neither (e.g. invalid input, internal error, cancelled request).
+    /// Neither (e.g. invalid input, internal error, request cancelled before the check).
     Released,
 }
 
@@ -188,6 +188,7 @@ impl RateLimiter {
                 limiter: self,
                 policy: *policy,
                 slot: None,
+                armed: false,
             });
         };
         entry.refresh(policy, now);
@@ -202,6 +203,7 @@ impl RateLimiter {
             limiter: self,
             policy: *policy,
             slot: Some((key.to_owned(), seq)),
+            armed: false,
         })
     }
 

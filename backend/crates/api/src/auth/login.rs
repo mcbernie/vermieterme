@@ -60,8 +60,13 @@ pub async fn login(
         .and_then(|by_ip| Ok((by_ip, limiter.begin(&LOGIN_EMAIL, &email)?)));
     let result = match reserved {
         Err(wait) => Err(ApiError::rate_limited(wait)),
-        Ok((by_ip, by_email)) => {
-            let result = attempt(&state, &headers, &email, body.password).await;
+        Ok((mut by_ip, mut by_email)) => {
+            // Armed once the password check starts: a cancelled login counts (#104).
+            let arm = || {
+                by_ip.arm();
+                by_email.arm();
+            };
+            let result = attempt(&state, &headers, &email, body.password, arm).await;
             match &result {
                 Ok(_) => {
                     by_ip.succeeded();
@@ -71,7 +76,10 @@ pub async fn login(
                     by_ip.failed();
                     by_email.failed();
                 }
-                Err(_) => {}
+                Err(_) => {
+                    by_ip.released();
+                    by_email.released();
+                }
             }
             result
         }
@@ -89,18 +97,22 @@ fn limiter_email(email: &str) -> Option<String> {
 /// Verifies the credentials and starts the session; any mismatch -> generic 401. No
 /// pool connection is held while waiting for a hash permit or computing (#102): the user
 /// is read, the connection returned, the password checked, then a new one is taken.
+/// `arm` runs once the hash permit is held, right before the check.
 async fn attempt(
     state: &AppState,
     headers: &HeaderMap,
     email: &str,
     password: String,
+    arm: impl FnOnce(),
 ) -> ApiResult<Response> {
     let record = {
         let mut conn = state.conn().await?;
         user::find_login(&mut conn, email).await?
     };
     let stored = record.as_ref().and_then(|r| r.password_hash.clone());
-    let verification = state.hasher.verify(password.clone(), stored).await?;
+    let permit = state.hasher.permit().await?;
+    arm();
+    let verification = permit.verify(password.clone(), stored).await?;
     let (Some(record), Verification::Valid { rehash }) = (record, verification) else {
         return Err(ApiError::unauthenticated(LOGIN_FAILED));
     };

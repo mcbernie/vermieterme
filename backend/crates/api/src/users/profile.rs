@@ -10,7 +10,7 @@ use crate::auth::password::Verification;
 use crate::auth::rate_limit::PASSWORD_CHANGE;
 use crate::auth::{CurrentUser, links};
 use crate::error::json::ApiJson;
-use crate::error::validate::{NAME_MAX, Validator};
+use crate::error::validate::{NAME_MAX, PASSWORD_MAX, Validator};
 use crate::error::{ApiError, ApiResult};
 use crate::routes::AppState;
 
@@ -93,31 +93,43 @@ pub async fn update_profile(
     Ok(axum::Json(me.into()))
 }
 
-/// Verifies the current password (rate-limited per user) and hashes the new one.
+/// Verifies the current password (rate-limited per user) and hashes the new one. An
+/// over-long current password is refused like a wrong one, without argon2 work; once the
+/// check has started, a cancelled request counts as failure (#104).
 async fn check_and_hash(
     state: &AppState,
     current: &CurrentUser,
     old: String,
     new: String,
 ) -> ApiResult<vermieterme_db::PasswordHash> {
+    let wrong = || ApiError::field("currentPassword", "Aktuelles Passwort ist falsch");
     let key = current.user.id.as_str();
-    let attempt = state
+    let mut attempt = state
         .limiter
         .begin(&PASSWORD_CHANGE, key)
         .map_err(ApiError::rate_limited)?;
+    if old.chars().count() > PASSWORD_MAX {
+        attempt.failed();
+        return Err(wrong());
+    }
     let mut conn = state.conn().await?;
     let stored = user::find_login(&mut conn, &current.user.email)
         .await?
         .filter(|r| r.user.id == current.user.id)
         .and_then(|r| r.password_hash);
     drop(conn);
-    if state.hasher.verify(old, stored).await? == Verification::Invalid {
-        attempt.failed();
-        return Err(ApiError::field(
-            "currentPassword",
-            "Aktuelles Passwort ist falsch",
-        ));
+    let permit = state.hasher.permit().await?;
+    attempt.arm();
+    match permit.verify(old, stored).await {
+        Ok(Verification::Valid { .. }) => attempt.succeeded(),
+        Ok(Verification::Invalid) => {
+            attempt.failed();
+            return Err(wrong());
+        }
+        Err(error) => {
+            attempt.released();
+            return Err(error);
+        }
     }
-    attempt.succeeded();
     state.hasher.hash(new).await
 }

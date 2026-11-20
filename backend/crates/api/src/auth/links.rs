@@ -18,7 +18,7 @@ use vermieterme_db::{AnyConnection, DbError, DbResult, SecretToken, UserScope, i
 
 use super::client_ip::ClientIp;
 use super::extract::millis;
-use super::rate_limit::{LINK_IP, ip_key};
+use super::rate_limit::{Attempt, LINK_IP, ip_key};
 use super::session;
 use super::timing::Deadline;
 use crate::config::{PASSWORD_RESET_TTL, USER_INVITE_TTL};
@@ -88,7 +88,7 @@ pub async fn accept_invite(
     ApiJson(body): ApiJson<AcceptInviteBody>,
 ) -> ApiResult<Response> {
     let deadline = Deadline::start();
-    let result = guarded(&state, &ip_key(ip), async {
+    let result = guarded(&state, &ip_key(ip), async |attempt| {
         let mut v = Validator::new();
         let name = v.text("name", "Name", &body.name, NAME_MAX);
         v.password("password", &body.password);
@@ -100,7 +100,7 @@ pub async fn accept_invite(
         };
         // The session starts inside the transaction: if it is refused (user or account
         // locked), everything rolls back and the invitation stays unused.
-        let started = redeem(&state, link, async |tx, scope| {
+        let started = redeem(&state, attempt, link, async |tx, scope| {
             user::set_own_name(tx, scope, &name).await?;
             session::start(tx, &state.config, &headers, scope.user_id())
                 .await?
@@ -129,7 +129,7 @@ pub async fn reset_password(
     ApiJson(body): ApiJson<ResetBody>,
 ) -> ApiResult<Response> {
     let deadline = Deadline::start();
-    let result = guarded(&state, &ip_key(ip), async {
+    let result = guarded(&state, &ip_key(ip), async |attempt| {
         let mut v = Validator::new();
         v.password("password", &body.password);
         v.finish()?;
@@ -138,7 +138,7 @@ pub async fn reset_password(
             token: &body.token,
             password: body.password,
         };
-        redeem(&state, link, async |tx, scope| {
+        redeem(&state, attempt, link, async |tx, scope| {
             session_repo::delete_for_user(tx, scope.user_id(), None).await
         })
         .await?;
@@ -149,20 +149,21 @@ pub async fn reset_password(
 }
 
 /// Runs a link redemption under the per-address limit; an invalid link counts as failure.
+/// `work` gets the attempt to [arm](Attempt::arm) it when hashing starts (#104).
 async fn guarded(
     state: &AppState,
     ip: &str,
-    work: impl Future<Output = ApiResult<Response>>,
+    work: impl AsyncFnOnce(&mut Attempt<'_>) -> ApiResult<Response>,
 ) -> ApiResult<Response> {
-    let attempt = state
+    let mut attempt = state
         .limiter
         .begin(&LINK_IP, ip)
         .map_err(ApiError::rate_limited)?;
-    let result = work.await;
+    let result = work(&mut attempt).await;
     match &result {
         Ok(_) => attempt.succeeded(),
         Err(e) if e.status() == StatusCode::UNAUTHORIZED => attempt.failed(),
-        Err(_) => {}
+        Err(_) => attempt.released(),
     }
     result
 }
@@ -182,9 +183,11 @@ struct Link<'a> {
 /// checked ([`check`]); only a valid one is hashed (a made-up token costs no argon2 work);
 /// then one short transaction consumes the token atomically – failing if it was used in
 /// between –, refuses a locked user again, stores the hash and runs `apply`. Any failure
-/// rolls back, so an internal error does not burn the token.
+/// rolls back, so an internal error does not burn the token. `attempt` is armed once the
+/// hash permit is held: a request cancelled from then on counts as failure (#104).
 async fn redeem<T>(
     state: &AppState,
+    attempt: &mut Attempt<'_>,
     link: Link<'_>,
     apply: impl AsyncFnOnce(&mut AnyConnection, &UserScope) -> DbResult<T>,
 ) -> ApiResult<T> {
@@ -193,7 +196,9 @@ async fn redeem<T>(
     if !check(state, link.purpose, &token).await? {
         return Err(invalid());
     }
-    let hash = state.hasher.hash(link.password).await?;
+    let permit = state.hasher.permit().await?;
+    attempt.arm();
+    let hash = permit.hash(link.password).await?;
     let mut conn = state.conn().await?;
     let result = in_transaction(&mut conn, async |tx| {
         let scope = consume_for_active_user(tx, link.purpose, &token).await?;
