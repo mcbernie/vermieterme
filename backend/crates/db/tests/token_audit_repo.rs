@@ -3,6 +3,8 @@
 // Test bodies are plain async fns run by `dual_test!`, so clippy's in-test allowance
 // does not reach them.
 #![allow(clippy::unwrap_used)]
+// Tests build scopes directly (no session layer here); see vermieterme_db::scope.
+#![allow(clippy::disallowed_methods)]
 
 #[path = "support/fixtures.rs"]
 mod fixtures;

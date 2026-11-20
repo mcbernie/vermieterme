@@ -10,6 +10,18 @@
 //!   determined server-side from the tenant.
 //! - [`AdminScope`]: cross-account administration (accounts, all users, audit log).
 //! - [`UserScope`]: the signed-in user's own row (profile, password).
+//!
+//! # Who may construct a scope
+//!
+//! The constructors are `pub` (the HTTP crate needs them) but listed under
+//! `disallowed-methods` in `backend/clippy.toml`, so `just lint` fails on every call
+//! that is not explicitly allowed. Allowed places, each with
+//! `#[allow(clippy::disallowed_methods)]` and a comment saying why:
+//! - `api/src/auth*`: after verifying the session, the tenant JWT or the admin role,
+//! - the admin bootstrap at start and `legacy_import` ([`AdminScope::system`]),
+//! - tests.
+//!
+//! Inside this crate no scope is constructed from loose strings.
 
 /// Access to the data of exactly one account.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,8 +30,11 @@ pub struct AccountScope {
 }
 
 impl AccountScope {
-    /// Scope for the account of an authenticated session. Call only with the account id
-    /// taken from the server-side session, never with an id from the request.
+    /// Scope for the account of an authenticated session.
+    ///
+    /// Callers: only the session check in `api/src/auth*` (account id from the server-side
+    /// session, never from the request) and tests. Admins switching into a customer use
+    /// [`AdminScope::act_in`]. Disallowed elsewhere by clippy.
     pub fn from_session(account_id: impl Into<String>) -> Self {
         Self {
             account_id: account_id.into(),
@@ -44,6 +59,9 @@ pub struct TenantScope {
 impl TenantScope {
     /// Scope for a tenant whose account, unit and property were looked up in the database
     /// from the verified tenant id (never taken from the request or the token alone).
+    ///
+    /// Callers: only the tenant-JWT check in `api/src/auth*` and tests. Disallowed
+    /// elsewhere by clippy.
     pub fn from_verified_tenant(
         account_id: impl Into<String>,
         tenant_id: impl Into<String>,
@@ -51,7 +69,9 @@ impl TenantScope {
         property_id: impl Into<String>,
     ) -> Self {
         Self {
-            account: AccountScope::from_session(account_id),
+            account: AccountScope {
+                account_id: account_id.into(),
+            },
             tenant_id: tenant_id.into(),
             unit_id: unit_id.into(),
             property_id: property_id.into(),
@@ -79,22 +99,27 @@ impl TenantScope {
     }
 }
 
-/// Cross-account administration. Built by the HTTP layer only after checking the role
-/// `admin`, or by the system itself (bootstrap, legacy import).
+/// Cross-account administration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminScope {
     actor_user_id: Option<String>,
 }
 
 impl AdminScope {
-    /// Scope of a signed-in user whose role `admin` was verified.
+    /// Scope of a signed-in user whose role `admin` was verified against the database.
+    ///
+    /// Callers: only the admin check in `api/src/auth*` and tests. Disallowed elsewhere
+    /// by clippy.
     pub fn verified_admin(user_id: impl Into<String>) -> Self {
         Self {
             actor_user_id: Some(user_id.into()),
         }
     }
 
-    /// Scope of the application itself (admin bootstrap at start, legacy import).
+    /// Scope of the application itself, with full cross-account access.
+    ///
+    /// Callers: only the admin bootstrap at start, `legacy_import` and tests – never a
+    /// request handler. Disallowed elsewhere by clippy.
     pub fn system() -> Self {
         Self {
             actor_user_id: None,
@@ -109,7 +134,9 @@ impl AdminScope {
     /// Account scope for an admin working inside a customer (support switch). Every
     /// change made with it must be written to the audit log by the caller.
     pub fn act_in(&self, account_id: impl Into<String>) -> AccountScope {
-        AccountScope::from_session(account_id)
+        AccountScope {
+            account_id: account_id.into(),
+        }
     }
 }
 
@@ -121,6 +148,10 @@ pub struct UserScope {
 
 impl UserScope {
     /// Scope for the user of an authenticated session.
+    ///
+    /// Callers: only the session check in `api/src/auth*` (and the invitation/reset flow
+    /// there, with the user id from a consumed one-time link) and tests. Disallowed
+    /// elsewhere by clippy.
     pub fn from_session(user_id: impl Into<String>) -> Self {
         Self {
             user_id: user_id.into(),

@@ -1,2 +1,13 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+
+# Scope constructors decide whose data a request may touch (#44, #87). Allowed only with
+# `#[allow(clippy::disallowed_methods)]` plus a comment in api/src/auth*, the admin
+# bootstrap, legacy_import and tests (see vermieterme_db::scope).
+disallowed-methods = [
+    { path = "vermieterme_db::scope::AccountScope::from_session", reason = "Kunden-Scope nur aus der geprüften Sitzung (api/src/auth*) bauen" },
+    { path = "vermieterme_db::scope::TenantScope::from_verified_tenant", reason = "Mieter-Scope nur nach geprüftem Mieter-JWT (api/src/auth*) bauen" },
+    { path = "vermieterme_db::scope::AdminScope::verified_admin", reason = "Admin-Scope nur nach geprüfter Admin-Rolle (api/src/auth*) bauen" },
+    { path = "vermieterme_db::scope::AdminScope::system", reason = "System-Scope nur für Bootstrap und legacy_import" },
+    { path = "vermieterme_db::scope::UserScope::from_session", reason = "Benutzer-Scope nur aus der geprüften Sitzung (api/src/auth*) bauen" },
+]

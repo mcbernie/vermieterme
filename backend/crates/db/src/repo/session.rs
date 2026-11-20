@@ -10,7 +10,7 @@ use sqlx::{AnyConnection, Row};
 use crate::error::{DbError, DbResult};
 use crate::repo::user::{self, User};
 use crate::row::new_id;
-use crate::scope::{AdminScope, UserScope};
+use crate::scope::AdminScope;
 use crate::secret::SecretToken;
 
 /// A stored session (without the token).
@@ -114,7 +114,7 @@ pub async fn find_valid(
         .await?;
     let Some(row) = row else { return Ok(None) };
     let session = from_row(&row)?;
-    let user = user::get_self(conn, &UserScope::from_session(&session.user_id)).await?;
+    let user = user::load(conn, &session.user_id).await?;
     Ok(Some(ActiveSession { session, user }))
 }
 

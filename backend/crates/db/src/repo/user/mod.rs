@@ -189,7 +189,7 @@ async fn insert(
 }
 
 /// Loads one user by id.
-async fn load(conn: &mut AnyConnection, id: &str) -> DbResult<User> {
+pub(crate) async fn load(conn: &mut AnyConnection, id: &str) -> DbResult<User> {
     let sql = concat!("SELECT ", columns!(), " FROM app_user WHERE id = ?");
     let row = sqlx::query(sql)
         .bind(id)
