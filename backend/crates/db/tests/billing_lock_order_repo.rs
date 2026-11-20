@@ -11,7 +11,7 @@ mod billing_support;
 use billing_support::{category, new_period, property, setup, unit_input};
 use vermieterme_db::repo::billing::{PeriodPatch, Rejection, cost, period};
 use vermieterme_db::repo::masterdata::{self, property as property_repo, unit};
-use vermieterme_db::{Db, DbError, dual_test};
+use vermieterme_db::{Db, DbError, Dialect, dual_test, in_transaction_read_committed};
 
 /// Rounds of each race: a wrong lock order shows only sometimes.
 const ROUNDS: i32 = 8;
@@ -151,3 +151,44 @@ async fn parallel_period_update_and_create(db: &Db) {
     }
 }
 dual_test!(period_update_vs_create, parallel_period_update_and_create);
+
+/// Two moves of one unit from the same stale read (P1): the first to P2 holds its locks
+/// while the second, aimed at P3, reads P1 and waits. The second then finds the unit in
+/// P2, a property it did not lock: it must refuse (409) instead of locking P2 after the
+/// unit (lock order). On SQLite the write lock serializes them, the second just moves
+/// on to P3.
+async fn stale_unit_move_vs_move(db: &Db) {
+    let s = setup(db, "A").await;
+    let mut c1 = db.pool().acquire().await.unwrap();
+    let mut c2 = db.pool().acquire().await.unwrap();
+    for round in 0..ROUNDS {
+        let (p2, p3) = (property(db, &s.scope).await, property(db, &s.scope).await);
+        let uid = billing_support::unit(db, &s.scope, &s.property_id, 0).await;
+        let (first, second) = (unit_input(&p2, 0), unit_input(&p3, 0));
+        let (moved_tx, moved_rx) = tokio::sync::oneshot::channel::<()>();
+        let (a, b) = tokio::join!(
+            in_transaction_read_committed(&mut c1, async |tx| {
+                unit::update(tx, &s.scope, &uid, &first).await?.unwrap();
+                let _ = moved_tx.send(());
+                // Keep the first move uncommitted while the second one starts.
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                Ok(())
+            }),
+            async {
+                moved_rx.await.unwrap();
+                unit::update(&mut c2, &s.scope, &uid, &second).await
+            },
+        );
+        a.unwrap();
+        let now = unit::get(&mut c1, &s.scope, &uid)
+            .await
+            .unwrap()
+            .property_id;
+        match (db.dialect(), b) {
+            (Dialect::Sqlite, Ok(done)) => assert_eq!(done.unwrap().property_id, p3),
+            (Dialect::MySql, Err(DbError::Conflict)) => assert_eq!(now, p2, "Runde {round}"),
+            (_, other) => panic!("Runde {round}: {other:?}"),
+        }
+    }
+}
+dual_test!(stale_unit_move, stale_unit_move_vs_move);

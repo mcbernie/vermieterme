@@ -192,7 +192,7 @@ pub async fn create(
 /// Lock order (see `repo::billing`): the current and the target property (sorted by
 /// id), then the unit. Their ids come from a plain read first; the billing check and
 /// the clean-up (`detach_from_billings`, categories before their rows) run after these
-/// locks.
+/// locks. Moved to a third property meanwhile -> [`DbError::Conflict`] (409, retry).
 pub async fn update(
     conn: &mut AnyConnection,
     scope: &AccountScope,
@@ -209,8 +209,9 @@ pub async fn update(
         }
         let current = lock(tx, scope, id).await?;
         if current.property_id != owner && current.property_id != input.property_id {
-            // Moved by someone else since the read above (rare): lock its property too.
-            property::lock(tx, scope, &current.property_id).await?;
+            // Moved by someone else since the read above (rare). Locking its property now
+            // would take step 1 after step 2 (deadlock risk): refuse, the caller retries.
+            return Err(DbError::Conflict);
         }
         if let Err(rejection) = check_shares(tx, scope, input).await? {
             return Ok(Err(rejection));

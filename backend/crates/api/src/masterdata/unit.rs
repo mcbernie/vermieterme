@@ -5,6 +5,7 @@
 use axum::extract::{Path, State};
 use axum::response::Response;
 use serde::{Deserialize, Serialize};
+use vermieterme_db::DbError;
 use vermieterme_db::repo::documents::Owner;
 use vermieterme_db::repo::masterdata::property as property_repo;
 use vermieterme_db::repo::masterdata::unit::{self, KINDS, Unit, UnitInput};
@@ -14,9 +15,10 @@ use super::property::{NOT_FOUND as PROPERTY_NOT_FOUND, SHARES_MAX};
 use super::{audited_read_committed, created, deleted};
 use crate::auth::AccountCtx;
 use crate::documents::cascade::delete_owner;
+use crate::documents::changed_meanwhile;
 use crate::error::json::{ApiJson, ApiQuery, timestamp};
 use crate::error::validate::Validator;
-use crate::error::{ApiResult, not_found_as};
+use crate::error::{ApiError, ApiResult, not_found_as};
 use crate::routes::AppState;
 
 /// Message for a missing or foreign unit.
@@ -160,7 +162,12 @@ pub async fn update(
         ("unit.update", "unit"),
         NOT_FOUND,
         |u: &Unit| u.id.clone(),
-        async |tx| unit::update(tx, &ctx.scope, &id, &input).await,
+        // Moved by someone else meanwhile: 409 asking to retry, not the uniqueness text;
+        // the refusals of the move keep their own 409 texts.
+        async |tx| match unit::update(tx, &ctx.scope, &id, &input).await {
+            Err(DbError::Conflict) => Ok(Err(changed_meanwhile(DbError::Conflict.into()))),
+            other => other.map(|checked| checked.map_err(ApiError::from)),
+        },
     )
     .await?;
     Ok(axum::Json(unit.into()))
