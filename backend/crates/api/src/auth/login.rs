@@ -9,7 +9,7 @@ use vermieterme_db::{AnyConnection, UserScope};
 
 use super::client_ip::ClientIp;
 use super::extract::CurrentUser;
-use super::password::{self, Verification};
+use super::password::Verification;
 use super::rate_limit::{LOGIN_EMAIL, LOGIN_IP, ip_key};
 use super::session::{self, SessionJson};
 use super::timing::Deadline;
@@ -95,7 +95,7 @@ async fn attempt(
     let mut conn = state.conn().await?;
     let record = user::find_login(&mut conn, email).await?;
     let stored = record.as_ref().and_then(|r| r.password_hash.clone());
-    let verification = password::verify(password.clone(), stored).await?;
+    let verification = state.hasher.verify(password.clone(), stored).await?;
     let (Some(record), Verification::Valid { rehash }) = (record, verification) else {
         return Err(ApiError::unauthenticated(LOGIN_FAILED));
     };
@@ -103,7 +103,7 @@ async fn attempt(
         .await?
         .ok_or_else(|| ApiError::unauthenticated(LOGIN_FAILED))?;
     if rehash {
-        upgrade_hash(&mut conn, &record.user.id, password).await?;
+        upgrade_hash(state, &mut conn, &record.user.id, password).await?;
     }
     let document = session::describe(&mut conn, &started.active.user, None).await?;
     Ok(session::signed_in(&started, document, &state.config))
@@ -111,8 +111,13 @@ async fn attempt(
 
 /// Replaces a legacy (bcrypt) or outdated hash by argon2id after a successful sign-in.
 #[allow(clippy::disallowed_methods)] // The user just proved the password; own row only.
-async fn upgrade_hash(conn: &mut AnyConnection, user_id: &str, password: String) -> ApiResult<()> {
-    let hash = password::hash(password).await?;
+async fn upgrade_hash(
+    state: &AppState,
+    conn: &mut AnyConnection,
+    user_id: &str,
+    password: String,
+) -> ApiResult<()> {
+    let hash = state.hasher.hash(password).await?;
     user::set_password_hash(conn, &UserScope::from_session(user_id), &hash).await?;
     Ok(())
 }

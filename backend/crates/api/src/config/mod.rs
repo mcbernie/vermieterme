@@ -87,6 +87,8 @@ pub struct Config {
     pub pdf_render_timeout: Duration,
     /// `PDF_RENDER_CONCURRENCY`.
     pub pdf_render_concurrency: usize,
+    /// `PASSWORD_HASH_CONCURRENCY`.
+    pub password_hash_concurrency: usize,
     /// `VPI_API_BASE`.
     pub vpi_api_base: String,
     /// `LOG_LEVEL`.
@@ -134,10 +136,8 @@ impl Config {
             )?,
             pdf_renderer_cmd: required(&lookup, "PDF_RENDERER_CMD")?,
             pdf_render_timeout: Duration::from_secs(positive(&lookup, "PDF_RENDER_TIMEOUT_SECS")?),
-            pdf_render_concurrency: usize::try_from(positive(&lookup, "PDF_RENDER_CONCURRENCY")?)
-                .map_err(|_| {
-                ConfigError::Invalid("PDF_RENDER_CONCURRENCY", "zu groß")
-            })?,
+            pdf_render_concurrency: count(&lookup, "PDF_RENDER_CONCURRENCY")?,
+            password_hash_concurrency: count(&lookup, "PASSWORD_HASH_CONCURRENCY")?,
             vpi_api_base: required(&lookup, "VPI_API_BASE")?,
             log_level: required(&lookup, "LOG_LEVEL")?,
             log_format: match required(&lookup, "LOG_FORMAT")?.as_str() {
@@ -204,6 +204,14 @@ fn positive(
         return Err(ConfigError::Invalid(name, "positive ganze Zahl erwartet"));
     }
     Ok(n)
+}
+
+/// Parses a positive count (concurrency limits).
+fn count(
+    lookup: &impl Fn(&str) -> Option<String>,
+    name: &'static str,
+) -> Result<usize, ConfigError> {
+    usize::try_from(positive(lookup, name)?).map_err(|_| ConfigError::Invalid(name, "zu groß"))
 }
 
 /// Hours as a duration (saturating).

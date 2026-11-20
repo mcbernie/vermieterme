@@ -54,7 +54,9 @@ pub async fn run(db: &Db, config: &Config) -> Result<Outcome, BootstrapError> {
     v.password("password", secret.expose());
     v.finish()
         .map_err(|e| BootstrapError::Invalid(e.message().to_owned()))?;
-    let hash = password::hash(secret.expose().to_owned())
+    // One computation at start-up, before any request: a private hasher suffices.
+    let hash = password::Hasher::new(1)
+        .hash(secret.expose().to_owned())
         .await
         .map_err(|_| BootstrapError::Hash)?;
     let system = AdminScope::system();

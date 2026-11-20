@@ -10,6 +10,7 @@ use sqlx::Any;
 use sqlx::pool::PoolConnection;
 use vermieterme_db::{Db, DbError};
 
+use crate::auth::password::Hasher;
 use crate::auth::rate_limit::RateLimiter;
 use crate::config::Config;
 use crate::error::{ApiError, ApiResult};
@@ -23,6 +24,8 @@ pub struct AppState {
     pub config: Arc<Config>,
     /// In-memory rate limits (login, links; decision 13).
     pub limiter: Arc<RateLimiter>,
+    /// Bounded password hashing (`PASSWORD_HASH_CONCURRENCY`).
+    pub hasher: Hasher,
 }
 
 impl AppState {
@@ -30,6 +33,7 @@ impl AppState {
     pub fn new(db: Db, config: Config) -> Self {
         Self {
             db,
+            hasher: Hasher::new(config.password_hash_concurrency),
             config: Arc::new(config),
             limiter: Arc::new(RateLimiter::default()),
         }

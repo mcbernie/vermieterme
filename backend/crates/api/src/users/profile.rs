@@ -7,7 +7,7 @@ use vermieterme_db::repo::session;
 use vermieterme_db::repo::user::{self, User};
 
 use crate::auth::CurrentUser;
-use crate::auth::password::{self, Verification};
+use crate::auth::password::Verification;
 use crate::auth::rate_limit::PASSWORD_CHANGE;
 use crate::error::json::ApiJson;
 use crate::error::validate::{NAME_MAX, Validator};
@@ -110,7 +110,7 @@ async fn check_and_hash(
         .filter(|r| r.user.id == current.user.id)
         .and_then(|r| r.password_hash);
     drop(conn);
-    if password::verify(old, stored).await? == Verification::Invalid {
+    if state.hasher.verify(old, stored).await? == Verification::Invalid {
         attempt.failed();
         return Err(ApiError::field(
             "currentPassword",
@@ -118,5 +118,5 @@ async fn check_and_hash(
         ));
     }
     attempt.succeeded();
-    password::hash(new).await
+    state.hasher.hash(new).await
 }

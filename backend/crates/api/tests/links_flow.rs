@@ -104,6 +104,52 @@ async fn reset(db: &Db) {
 }
 dual_test!(reset_link_ends_sessions, reset);
 
+/// A made-up token is refused (401) without any argon2 work, for both kinds of link.
+#[tokio::test]
+async fn made_up_token_costs_no_hash() {
+    let test_db = vermieterme_db::testing::TestDb::sqlite().await;
+    let app = TestApp::start(test_db.db()).await;
+    let reset = json!({"token": "erfunden", "password": "neues-passwort-x"});
+    let invite = json!({"token": "erfunden", "name": "X", "password": "neues-passwort-x"});
+    for (path, body) in [
+        ("/api/auth/reset-password", reset),
+        ("/api/auth/accept-invite", invite),
+    ] {
+        let resp = app.call("POST", path, None, body).await;
+        assert_eq!(resp.status, 401, "{path}");
+        assert_eq!(resp.body["code"], "unauthenticated");
+    }
+    assert_eq!(app.hasher.computed(), 0);
+}
+
+/// With every hashing permit taken the redemption answers 429 after the wait limit, and
+/// the link stays usable.
+#[tokio::test]
+async fn overload_does_not_burn_the_link() {
+    let test_db = vermieterme_db::testing::TestDb::sqlite().await;
+    let db = test_db.db();
+    let app = TestApp::start_with(db, config(&[("PASSWORD_HASH_CONCURRENCY", "1")])).await;
+    let account = seed_account(db, "Kunde").await;
+    seed_user(db, Some(&account.id), "a@example.org", Role::Member).await;
+    let target = seed_user(db, Some(&account.id), "b@example.org", Role::Member).await;
+    let cookie = app.login("a@example.org", PASSWORD).await;
+    let path = format!("/api/users/{}/reset-link", target.id);
+    let resp = app.call("POST", &path, Some(&cookie), Value::Null).await;
+    let body = json!({"token": token_of(&resp.body["resetUrl"]), "password": "neues-passwort-b"});
+
+    let held = app.hasher.permit().await.unwrap();
+    let busy = app
+        .call("POST", "/api/auth/reset-password", None, body.clone())
+        .await;
+    assert_eq!(busy.status, 429);
+    assert!(busy.header("retry-after").is_some());
+    drop(held);
+    let resp = app
+        .call("POST", "/api/auth/reset-password", None, body)
+        .await;
+    assert_eq!(resp.status, 204);
+}
+
 /// The bootstrap creates the first admin once; after a password change the environment
 /// password no longer signs in (#69).
 async fn admin_bootstrap(db: &Db) {

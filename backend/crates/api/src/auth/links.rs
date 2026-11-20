@@ -14,11 +14,10 @@ use vermieterme_db::repo::session as session_repo;
 use vermieterme_db::repo::user;
 use vermieterme_db::repo::user_token::{self, TokenPurpose};
 use vermieterme_db::row::now_millis;
-use vermieterme_db::{AnyConnection, DbResult, SecretToken, UserScope, in_transaction};
+use vermieterme_db::{AnyConnection, DbError, DbResult, SecretToken, UserScope, in_transaction};
 
 use super::client_ip::ClientIp;
 use super::extract::millis;
-use super::password;
 use super::rate_limit::{LINK_IP, ip_key};
 use super::session;
 use super::timing::Deadline;
@@ -82,20 +81,16 @@ pub async fn accept_invite(
         let name = v.text("name", "Name", &body.name, NAME_MAX);
         v.password("password", &body.password);
         v.finish()?;
-        let hash = password::hash(body.password).await?;
-        let token = SecretToken::from_client(body.token.trim());
         let mut conn = state.conn().await?;
-        let user_id = in_transaction(&mut conn, async |tx| {
-            let Some(user_id) = consume(tx, TokenPurpose::Invite, &token).await? else {
-                return Ok(None);
-            };
-            let scope = link_scope(&user_id);
-            user::set_own_name(tx, &scope, &name).await?;
-            user::set_password_hash(tx, &scope, &hash).await?;
-            Ok(Some(user_id))
+        let link = Link {
+            purpose: TokenPurpose::Invite,
+            token: &body.token,
+            password: body.password,
+        };
+        let user_id = redeem(&state, &mut conn, link, async |tx, scope| {
+            user::set_own_name(tx, scope, &name).await
         })
-        .await?
-        .ok_or_else(|| ApiError::unauthenticated(LINK_INVALID))?;
+        .await?;
         let started = session::start(&mut conn, &state.config, &headers, &user_id)
             .await?
             .ok_or_else(|| ApiError::unauthenticated(LINK_INVALID))?;
@@ -124,20 +119,17 @@ pub async fn reset_password(
         let mut v = Validator::new();
         v.password("password", &body.password);
         v.finish()?;
-        let hash = password::hash(body.password).await?;
-        let token = SecretToken::from_client(body.token.trim());
         let mut conn = state.conn().await?;
-        in_transaction(&mut conn, async |tx| {
-            let Some(user_id) = consume(tx, TokenPurpose::Reset, &token).await? else {
-                return Ok(false);
-            };
-            user::set_password_hash(tx, &link_scope(&user_id), &hash).await?;
-            session_repo::delete_for_user(tx, &user_id, None).await?;
-            Ok(true)
+        let link = Link {
+            purpose: TokenPurpose::Reset,
+            token: &body.token,
+            password: body.password,
+        };
+        redeem(&state, &mut conn, link, async |tx, scope| {
+            session_repo::delete_for_user(tx, scope.user_id(), None).await
         })
-        .await?
-        .then_some(StatusCode::NO_CONTENT.into_response())
-        .ok_or_else(|| ApiError::unauthenticated(LINK_INVALID))
+        .await?;
+        Ok(StatusCode::NO_CONTENT.into_response())
     })
     .await;
     deadline.finish(result).await
@@ -160,6 +152,55 @@ async fn guarded(
         Err(_) => {}
     }
     result
+}
+
+/// A presented link: purpose, token as sent by the client, new password.
+struct Link<'a> {
+    purpose: TokenPurpose,
+    token: &'a str,
+    password: String,
+}
+
+/// Redeems `link` in one transaction: consumes the token, hashes and stores the new
+/// password, then runs `apply` for the user (its value is dropped). The hash is computed
+/// only for a valid token (a made-up token costs no argon2 work). Its permit is taken
+/// before the transaction, so no database lock is held while waiting. Any failure rolls
+/// back, so an internal error does not burn the token. Returns the user id; an invalid
+/// link -> 401.
+async fn redeem<T>(
+    state: &AppState,
+    conn: &mut AnyConnection,
+    link: Link<'_>,
+    apply: impl AsyncFnOnce(&mut AnyConnection, &UserScope) -> DbResult<T>,
+) -> ApiResult<String> {
+    let permit = state.hasher.permit().await?;
+    let token = SecretToken::from_client(link.token.trim());
+    let mut hash_failure: Option<ApiError> = None;
+    let result = in_transaction(conn, async |tx| {
+        // `NotFound` doubles as "invalid link": it rolls back like every error.
+        let user_id = consume(tx, link.purpose, &token)
+            .await?
+            .ok_or(DbError::NotFound)?;
+        let scope = link_scope(&user_id);
+        let hash = match permit.hash(link.password).await {
+            Ok(hash) => hash,
+            Err(error) => {
+                hash_failure = Some(error);
+                return Err(DbError::NotFound);
+            }
+        };
+        user::set_password_hash(tx, &scope, &hash).await?;
+        apply(tx, &scope).await?;
+        Ok(user_id)
+    })
+    .await;
+    match result {
+        Ok(user_id) => Ok(user_id),
+        Err(DbError::NotFound) => {
+            Err(hash_failure.unwrap_or_else(|| ApiError::unauthenticated(LINK_INVALID)))
+        }
+        Err(other) => Err(ApiError::from(other)),
+    }
 }
 
 /// Consumes a token of `purpose`; malformed tokens are rejected without a lookup.

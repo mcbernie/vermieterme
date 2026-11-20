@@ -111,3 +111,18 @@ fn trusted_proxies_with_oversized_prefix_stop_the_start() {
     assert!(config.trusted_proxies[0].contains("10.9.8.7".parse().unwrap()));
     assert!(!config.trusted_proxies[0].contains("8.8.8.8".parse().unwrap()));
 }
+
+#[test]
+fn password_hash_concurrency_is_bounded_and_positive() {
+    let config = Config::from_lookup(lookup(&[("AUTH_SECRET", SECRET)])).unwrap();
+    assert_eq!(config.password_hash_concurrency, 4);
+    let err = Config::from_lookup(lookup(&[
+        ("AUTH_SECRET", SECRET),
+        ("PASSWORD_HASH_CONCURRENCY", "0"),
+    ]))
+    .unwrap_err();
+    assert!(matches!(
+        err,
+        ConfigError::Invalid("PASSWORD_HASH_CONCURRENCY", _)
+    ));
+}

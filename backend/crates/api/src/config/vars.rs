@@ -88,6 +88,11 @@ pub const VARIABLES: &[EnvVar] = &[
         "gleichzeitige PDF-Erzeugungen",
     ),
     var(
+        "PASSWORD_HASH_CONCURRENCY",
+        Some("4"),
+        "gleichzeitige Passwort-Berechnungen (argon2id, je ca. 19 MiB); weitere Anfragen warten bis 5 s, dann 429",
+    ),
+    var(
         "VPI_API_BASE",
         Some("https://api.statistiken.bundesbank.de/rest/data"),
         "Basis-URL der Bundesbank-SDMX-Schnittstelle (VPI-Abruf)",

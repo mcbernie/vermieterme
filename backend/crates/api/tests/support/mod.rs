@@ -42,6 +42,8 @@ pub struct TestApp {
     pub addr: SocketAddr,
     /// Its database.
     pub db: Db,
+    /// Its password hasher (counts computations).
+    pub hasher: password::Hasher,
 }
 
 impl TestApp {
@@ -54,12 +56,14 @@ impl TestApp {
     pub async fn start_with(db: &Db, config: Config) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = router(AppState::new(db.clone(), config))
-            .into_make_service_with_connect_info::<SocketAddr>();
+        let state = AppState::new(db.clone(), config);
+        let hasher = state.hasher.clone();
+        let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         Self {
             addr,
             db: db.clone(),
+            hasher,
         }
     }
 
@@ -187,7 +191,10 @@ pub async fn seed_account(db: &Db, name: &str) -> Account {
 
 /// Creates a user with [`PASSWORD`] (argon2id).
 pub async fn seed_user(db: &Db, account_id: Option<&str>, email: &str, role: Role) -> User {
-    let hash = password::hash(PASSWORD.to_owned()).await.unwrap();
+    let hash = password::Hasher::new(1)
+        .hash(PASSWORD.to_owned())
+        .await
+        .unwrap();
     seed_user_with_hash(db, account_id, email, role, hash).await
 }
 
