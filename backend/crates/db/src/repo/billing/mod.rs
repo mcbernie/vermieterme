@@ -52,6 +52,7 @@ macro_rules! period_columns {
 mod copy;
 pub mod cost;
 mod cost_unit;
+mod overlap;
 pub mod period;
 pub mod prepayment;
 pub mod summary;
